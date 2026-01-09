@@ -1,0 +1,31 @@
+--- BMO SMART VISEME DEBUG LOG ---
+🧠 Brain class counts (ALL):
+   mouth_phoneme_D: 7200
+   mouth_phoneme_C: 1756
+   mouth_phoneme_E: 1432
+   mouth_phoneme_G: 1243
+   mouth_phoneme_X: 914
+   mouth_phoneme_B: 513
+   mouth_phoneme_H: 117
+🎙️ STARTING STREAM...
+📥 Loading calibration_audio/dialogue.wav...
+▶️ Streaming calibration_audio/dialogue.wav (135.86s)
+[SEND] pkt=0050 t=  0.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0957 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 4, 'mouth_phoneme_D': 46}
+[SEND] pkt=0100 t=  1.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0290 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 7, 'mouth_phoneme_D': 93}
+[SEND] pkt=0150 t=  2.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0502 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 10, 'mouth_phoneme_D': 140}
+[SEND] pkt=0200 t=  3.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0089 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 10, 'mouth_phoneme_D': 190}
+[SEND] pkt=0250 t=  4.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0998 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 19, 'mouth_phoneme_D': 231}
+[SEND] pkt=0300 t=  5.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0953 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 19, 'mouth_phoneme_D': 281}
+[SEND] pkt=0350 t=  6.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.1221 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 19, 'mouth_phoneme_D': 331}
+[SEND] pkt=0400 t=  7.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0232 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 19, 'mouth_phoneme_D': 381}
+[SEND] pkt=0450 t=  8.98s raw=mouth_phoneme_D stable=mouth_phoneme_D rms=0.0932 top4=[mouth_phoneme_D:12.2, mouth_phoneme_X:16.0, mouth_phoneme_E:18.8, mouth_phoneme_C:20.7]
+[1s] counts={'mouth_phoneme_X': 40, 'mouth_phoneme_D': 410}
+Done.

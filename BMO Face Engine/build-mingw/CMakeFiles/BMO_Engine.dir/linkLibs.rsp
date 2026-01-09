@@ -1,0 +1,1 @@
+ "_deps/raylib-build/raylib/libraylib.a" -lwinmm "C:/dev/vcpkg/installed/x64-mingw-dynamic/debug/lib/libzmq.dll.a" -lopengl32 -lglu32 -lwinmm -lws2_32 -lrpcrt4 -liphlpapi -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

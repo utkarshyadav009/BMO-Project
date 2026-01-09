@@ -16,7 +16,16 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib)
 
-add_executable(BMO_Engine src/main.cpp)
-target_link_libraries(BMO_Engine PRIVATE raylib winmm)
+add_executable(BMO_Engine src/VIsemeTest.cpp)
+find_package(cppzmq CONFIG REQUIRED)
+find_package(ZeroMQ CONFIG REQUIRED)
+
+target_link_libraries(BMO_Engine
+  PRIVATE
+    raylib
+    winmm
+    cppzmq
+    libzmq
+)
 target_include_directories(BMO_Engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_BINARY_DIR})
