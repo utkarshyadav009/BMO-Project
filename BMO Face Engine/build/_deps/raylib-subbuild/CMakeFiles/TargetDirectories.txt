@@ -1,0 +1,3 @@
+C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/raylib-populate.dir
+C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/edit_cache.dir
+C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/rebuild_cache.dir

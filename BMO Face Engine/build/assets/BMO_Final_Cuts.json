@@ -1,0 +1,1490 @@
+{
+  "textures": [
+    {
+      "image": "BMO_SpriteSheet_Texture.png",
+      "format": "RGBA8888",
+      "size": {
+        "w": 0,
+        "h": 0
+      },
+      "scale": 1,
+      "frames": [
+        {
+          "filename": "face_happy_standard_eyes",
+          "frame": {
+            "x": 4,
+            "y": 4,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_happy_standard_mouth",
+          "frame": {
+            "x": 4,
+            "y": 400,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_happy_talking_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 4,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_happy_talking_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 400,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_sad_standard_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 4,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_sad_standard_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 400,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_happy_closed_eyes_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 4,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_blush_eyes",
+          "frame": {
+            "x": 4,
+            "y": 732,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_blush_mouth",
+          "frame": {
+            "x": 4,
+            "y": 1128,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_worried_teary_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 732,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_worried_teary_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 1128,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_angry_shout_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 732,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_angry_shout_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 1128,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_skeptical_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 732,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_skeptical_mouth",
+          "frame": {
+            "x": 3868,
+            "y": 1128,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_angry_growl_eyes",
+          "frame": {
+            "x": 4,
+            "y": 1465,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_angry_growl_mouth",
+          "frame": {
+            "x": 4,
+            "y": 1856,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_sad_frown_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 1460,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_sad_frown_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 1856,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_crying_tears_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 1460,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_crying_tears_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 1856,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_crying_wail_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 1460,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_crying_wail_mouth",
+          "frame": {
+            "x": 3868,
+            "y": 1856,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_kawaii_sparkle_eyes",
+          "frame": {
+            "x": 4,
+            "y": 2188,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_kawaii_sparkle_mouth",
+          "frame": {
+            "x": 4,
+            "y": 2584,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_silly_tongue_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 2188,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_silly_tongue_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 2584,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_tired_droopy_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 2188,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_tired_droopy_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 2584,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_smug_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 2188,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_smug_mouth",
+          "frame": {
+            "x": 3868,
+            "y": 2584,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_wincing_eyes",
+          "frame": {
+            "x": 4,
+            "y": 2916,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_wincing_mouth",
+          "frame": {
+            "x": 4,
+            "y": 3312,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_look_side_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 2916,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_look_side_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 3312,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_kissy_face_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 2916,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_kissy_face_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 3312,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_excited_stars_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 2916,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_excited_stars_mouth",
+          "frame": {
+            "x": 3868,
+            "y": 3312,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_love_hearts_eyes",
+          "frame": {
+            "x": 4,
+            "y": 3644,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_love_hearts_mouth",
+          "frame": {
+            "x": 4,
+            "y": 4040,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_shocked_pale_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 3644,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_shocked_pale_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 4040,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_sparkle_stars_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 3644,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_sparkle_stars_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 4040,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_hypnotized_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 3644,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_hypnotized_mouth",
+          "frame": {
+            "x": 3868,
+            "y": 4040,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_dead_x_eyes",
+          "frame": {
+            "x": 4,
+            "y": 4372,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_dead_x_mouth",
+          "frame": {
+            "x": 4,
+            "y": 4768,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_pixel_smile_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 4372,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_pixel_smile_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 4768,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_text_sad_D_eyes",
+          "frame": {
+            "x": 2580,
+            "y": 4372,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_text_sad_D_mouth",
+          "frame": {
+            "x": 2580,
+            "y": 4768,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_text_happy_D_eyes",
+          "frame": {
+            "x": 3868,
+            "y": 4372,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_text_happy_D_mouth",
+          "frame": {
+            "x": 3868,
+            "y": 4768,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_pixel_annoyed_eyes",
+          "frame": {
+            "x": 4,
+            "y": 5100,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_pixel_annoyed_mouth",
+          "frame": {
+            "x": 4,
+            "y": 5496,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_pixel_blank_eyes",
+          "frame": {
+            "x": 1292,
+            "y": 5100,
+            "w": 1280,
+            "h": 396
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        },
+        {
+          "filename": "face_pixel_blank_mouth",
+          "frame": {
+            "x": 1292,
+            "y": 5496,
+            "w": 1280,
+            "h": 324
+          },
+          "rotated": false,
+          "trimmed": false,
+          "spriteSourceSize": {
+            "x": 0,
+            "y": 0,
+            "w": 1280,
+            "h": 720
+          },
+          "sourceSize": {
+            "w": 1280,
+            "h": 720
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          }
+        }
+      ]
+    }
+  ]
+}
