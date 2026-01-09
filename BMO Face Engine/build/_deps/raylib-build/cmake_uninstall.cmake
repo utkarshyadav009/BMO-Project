@@ -1,8 +1,8 @@
-if(NOT EXISTS "C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/install_manifest.txt")
-  message(FATAL_ERROR "Cannot find install manifest: C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/install_manifest.txt")
+if(NOT EXISTS "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/install_manifest.txt")
+  message(FATAL_ERROR "Cannot find install manifest: C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/install_manifest.txt")
 endif()
 
-file(READ "C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/install_manifest.txt" files)
+file(READ "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/install_manifest.txt" files)
 string(REGEX REPLACE "\n" ";" files "${files}")
 foreach(file ${files})
   message(STATUS "Uninstalling $ENV{DESTDIR}${file}")

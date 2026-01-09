@@ -5,8 +5,8 @@ cmake_minimum_required(VERSION ${CMAKE_VERSION}) # this file comes with cmake
 
 # Make file names absolute:
 #
-get_filename_component(filename "C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/5.5.tar.gz" ABSOLUTE)
-get_filename_component(directory "C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-src" ABSOLUTE)
+get_filename_component(filename "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/5.5.tar.gz" ABSOLUTE)
+get_filename_component(directory "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/_deps/raylib-src" ABSOLUTE)
 
 message(VERBOSE "extracting...
      src='${filename}'

@@ -1,4 +1,4 @@
-# Install script for directory: C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src
+# Install script for directory: C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -40,6 +40,6 @@ endif()
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "C:/Users/raouy/OneDrive - Abertay University/Desktop/raylibTest/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/install_local_manifest.txt"
+  file(WRITE "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()
