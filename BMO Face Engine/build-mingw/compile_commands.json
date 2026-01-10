@@ -1,9 +1,9 @@
 [
 {
   "directory": "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build-mingw",
-  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe -DGRAPHICS_API_OPENGL_33 -DPLATFORM_DESKTOP @CMakeFiles/BMO_Engine.dir/includes_CXX.rsp -g -o CMakeFiles\\BMO_Engine.dir\\src\\main.cpp.obj -c \"C:\\Users\\raouy\\OneDrive\\Documents\\GitHub\\BMO Project\\BMO-Project\\BMO Face Engine\\src\\main.cpp\"",
-  "file": "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/src/main.cpp",
-  "output": "CMakeFiles/BMO_Engine.dir/src/main.cpp.obj"
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe -DGRAPHICS_API_OPENGL_33 -DPLATFORM_DESKTOP @CMakeFiles/BMO_Engine.dir/includes_CXX.rsp -g -o CMakeFiles\\BMO_Engine.dir\\src\\SoftBodyMouth.cpp.obj -c \"C:\\Users\\raouy\\OneDrive\\Documents\\GitHub\\BMO Project\\BMO-Project\\BMO Face Engine\\src\\SoftBodyMouth.cpp\"",
+  "file": "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/src/SoftBodyMouth.cpp",
+  "output": "CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj"
 },
 {
   "directory": "C:/Users/raouy/OneDrive/Documents/GitHub/BMO Project/BMO-Project/BMO Face Engine/build-mingw/_deps/raylib-build/raylib",

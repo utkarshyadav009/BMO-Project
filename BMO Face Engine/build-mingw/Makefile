@@ -245,29 +245,29 @@ update_mappings/fast:
 	$(MAKE) $(MAKESILENT) -f _deps\raylib-build\raylib\external\glfw\src\CMakeFiles\update_mappings.dir\build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 .PHONY : update_mappings/fast
 
-src/main.obj: src/main.cpp.obj
-.PHONY : src/main.obj
+src/SoftBodyMouth.obj: src/SoftBodyMouth.cpp.obj
+.PHONY : src/SoftBodyMouth.obj
 
 # target to build an object file
-src/main.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/main.cpp.obj
-.PHONY : src/main.cpp.obj
+src/SoftBodyMouth.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj
+.PHONY : src/SoftBodyMouth.cpp.obj
 
-src/main.i: src/main.cpp.i
-.PHONY : src/main.i
+src/SoftBodyMouth.i: src/SoftBodyMouth.cpp.i
+.PHONY : src/SoftBodyMouth.i
 
 # target to preprocess a source file
-src/main.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/main.cpp.i
-.PHONY : src/main.cpp.i
+src/SoftBodyMouth.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.i
+.PHONY : src/SoftBodyMouth.cpp.i
 
-src/main.s: src/main.cpp.s
-.PHONY : src/main.s
+src/SoftBodyMouth.s: src/SoftBodyMouth.cpp.s
+.PHONY : src/SoftBodyMouth.s
 
 # target to generate assembly for a file
-src/main.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/main.cpp.s
-.PHONY : src/main.cpp.s
+src/SoftBodyMouth.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.s
+.PHONY : src/SoftBodyMouth.cpp.s
 
 # Help Target
 help:
@@ -288,9 +288,9 @@ help:
 	@echo ... BMO_Engine
 	@echo ... glfw
 	@echo ... raylib
-	@echo ... src/main.obj
-	@echo ... src/main.i
-	@echo ... src/main.s
+	@echo ... src/SoftBodyMouth.obj
+	@echo ... src/SoftBodyMouth.i
+	@echo ... src/SoftBodyMouth.s
 .PHONY : help
 
 
