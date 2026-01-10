@@ -71,29 +71,29 @@ include CMakeFiles/BMO_Engine.dir/flags.make
 CMakeFiles/BMO_Engine.dir/codegen:
 .PHONY : CMakeFiles/BMO_Engine.dir/codegen
 
-CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj: CMakeFiles/BMO_Engine.dir/flags.make
-CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj: CMakeFiles/BMO_Engine.dir/includes_CXX.rsp
-CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj: C:/Users/raouy/OneDrive/Documents/GitHub/BMO\ Project/BMO-Project/BMO\ Face\ Engine/src/VIsemeTest.cpp
-CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj: CMakeFiles/BMO_Engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\build-mingw\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj -MF CMakeFiles\BMO_Engine.dir\src\VIsemeTest.cpp.obj.d -o CMakeFiles\BMO_Engine.dir\src\VIsemeTest.cpp.obj -c "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\VIsemeTest.cpp"
+CMakeFiles/BMO_Engine.dir/src/main.cpp.obj: CMakeFiles/BMO_Engine.dir/flags.make
+CMakeFiles/BMO_Engine.dir/src/main.cpp.obj: CMakeFiles/BMO_Engine.dir/includes_CXX.rsp
+CMakeFiles/BMO_Engine.dir/src/main.cpp.obj: C:/Users/raouy/OneDrive/Documents/GitHub/BMO\ Project/BMO-Project/BMO\ Face\ Engine/src/main.cpp
+CMakeFiles/BMO_Engine.dir/src/main.cpp.obj: CMakeFiles/BMO_Engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\build-mingw\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/BMO_Engine.dir/src/main.cpp.obj"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/BMO_Engine.dir/src/main.cpp.obj -MF CMakeFiles\BMO_Engine.dir\src\main.cpp.obj.d -o CMakeFiles\BMO_Engine.dir\src\main.cpp.obj -c "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\main.cpp"
 
-CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.i"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\VIsemeTest.cpp" > CMakeFiles\BMO_Engine.dir\src\VIsemeTest.cpp.i
+CMakeFiles/BMO_Engine.dir/src/main.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/BMO_Engine.dir/src/main.cpp.i"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\main.cpp" > CMakeFiles\BMO_Engine.dir\src\main.cpp.i
 
-CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.s"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\VIsemeTest.cpp" -o CMakeFiles\BMO_Engine.dir\src\VIsemeTest.cpp.s
+CMakeFiles/BMO_Engine.dir/src/main.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/BMO_Engine.dir/src/main.cpp.s"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\main.cpp" -o CMakeFiles\BMO_Engine.dir\src\main.cpp.s
 
 # Object files for target BMO_Engine
 BMO_Engine_OBJECTS = \
-"CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj"
+"CMakeFiles/BMO_Engine.dir/src/main.cpp.obj"
 
 # External object files for target BMO_Engine
 BMO_Engine_EXTERNAL_OBJECTS =
 
-BMO_Engine.exe: CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj
+BMO_Engine.exe: CMakeFiles/BMO_Engine.dir/src/main.cpp.obj
 BMO_Engine.exe: CMakeFiles/BMO_Engine.dir/build.make
 BMO_Engine.exe: _deps/raylib-build/raylib/libraylib.a
 BMO_Engine.exe: C:/dev/vcpkg/installed/x64-mingw-dynamic/debug/lib/libzmq.dll.a

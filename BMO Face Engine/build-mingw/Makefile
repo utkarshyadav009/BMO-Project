@@ -245,29 +245,29 @@ update_mappings/fast:
 	$(MAKE) $(MAKESILENT) -f _deps\raylib-build\raylib\external\glfw\src\CMakeFiles\update_mappings.dir\build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 .PHONY : update_mappings/fast
 
-src/VIsemeTest.obj: src/VIsemeTest.cpp.obj
-.PHONY : src/VIsemeTest.obj
+src/main.obj: src/main.cpp.obj
+.PHONY : src/main.obj
 
 # target to build an object file
-src/VIsemeTest.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj
-.PHONY : src/VIsemeTest.cpp.obj
+src/main.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/main.cpp.obj
+.PHONY : src/main.cpp.obj
 
-src/VIsemeTest.i: src/VIsemeTest.cpp.i
-.PHONY : src/VIsemeTest.i
+src/main.i: src/main.cpp.i
+.PHONY : src/main.i
 
 # target to preprocess a source file
-src/VIsemeTest.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.i
-.PHONY : src/VIsemeTest.cpp.i
+src/main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/main.cpp.i
+.PHONY : src/main.cpp.i
 
-src/VIsemeTest.s: src/VIsemeTest.cpp.s
-.PHONY : src/VIsemeTest.s
+src/main.s: src/main.cpp.s
+.PHONY : src/main.s
 
 # target to generate assembly for a file
-src/VIsemeTest.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.s
-.PHONY : src/VIsemeTest.cpp.s
+src/main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/main.cpp.s
+.PHONY : src/main.cpp.s
 
 # Help Target
 help:
@@ -288,9 +288,9 @@ help:
 	@echo ... BMO_Engine
 	@echo ... glfw
 	@echo ... raylib
-	@echo ... src/VIsemeTest.obj
-	@echo ... src/VIsemeTest.i
-	@echo ... src/VIsemeTest.s
+	@echo ... src/main.obj
+	@echo ... src/main.i
+	@echo ... src/main.s
 .PHONY : help
 
 
