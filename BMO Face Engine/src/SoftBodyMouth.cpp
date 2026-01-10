@@ -1,10 +1,12 @@
-// SoftBodyMouth_AuthorTool_Fixed.cpp
-// FIXED VERSION:
-// 1. Rendering uses "Triangle Fan" (Robust, never disappears)
-// 2. Locked points can be dragged to reposition anchors
-// 3. High contrast visuals
+// SoftBodyMouth_AuthorTool_Polished.cpp
+// - Fixed Rendering Order (Tongue over Teeth)
+// - Fixed Masking (Mask shape now matches Spline shape exactly)
+// - Physics OFF by default (Sculptor Mode)
+// - Dynamic Teeth Height
+// - Thicker Tongue
 
 #include "raylib.h"
+#include "rlgl.h" 
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -18,6 +20,7 @@ static inline Vector2 V2Add(Vector2 a, Vector2 b) { return {a.x + b.x, a.y + b.y
 static inline Vector2 V2Sub(Vector2 a, Vector2 b) { return {a.x - b.x, a.y - b.y}; }
 static inline Vector2 V2Mul(Vector2 a, float s)   { return {a.x * s, a.y * s}; }
 static inline float   V2Len(Vector2 v)            { return std::sqrt(v.x*v.x + v.y*v.y); }
+static inline float   V2Angle(Vector2 v)          { return atan2f(v.y, v.x); }
 static inline float   Clamp(float x, float a, float b) { return (x < a) ? a : ((x > b) ? b : x); }
 
 // Area for physics
@@ -44,7 +47,7 @@ static bool PointInPoly(Vector2 p, const std::vector<Vector2>& poly) {
     return c;
 }
 
-// Catmull-Rom Spline for smooth lips
+// Catmull-Rom Spline for smooth curves
 static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t) {
     auto tj = [](float ti, Vector2 a, Vector2 b) {
         return ti + std::sqrt(std::max(V2Len(V2Sub(b, a)), 1e-6f));
@@ -75,7 +78,7 @@ struct BlobPoint {
     bool locked = false;
 
     void Acc(Vector2 d) {
-        if (locked) return; // Physics cannot move a locked point
+        if (locked) return;
         disp = V2Add(disp, d);
         dispW++;
     }
@@ -96,9 +99,12 @@ struct BlobPoint {
 // The Mouth Blob System
 // ------------------------------
 struct SoftBlob {
-    std::vector<BlobPoint> pts;
+    std::vector<BlobPoint> pts;      // The Lips
+    std::vector<BlobPoint> tongue;   // The Snake Tongue Chain
     
     // Physics Config
+    bool physicsEnabled = false; // DEFAULT OFF FOR SCULPTING
+    
     float targetArea = 1.0f;
     float chordLen = 10.0f;
     float diagLen = 10.0f;
@@ -110,13 +116,25 @@ struct SoftBlob {
 
     // Interaction
     int grabbedIndex = -1;
+    int grabbedTongueIndex = -1; 
     bool draggingInside = false;
     float radius = 100.0f;
 
     // Templates System
-    std::vector<Vector2> neutralAbs; // The T-Pose
-    std::vector<std::vector<Vector2>> slots; // Stores OFFSETS
+    std::vector<Vector2> neutralAbs;
+    std::vector<std::vector<Vector2>> slots;
+    std::vector<Vector2> neutralTongue;
+    std::vector<std::vector<Vector2>> tongueSlots;
     int activeSlot = 0;
+
+    // Rendering
+    RenderTexture2D mouthMaskTex;
+    
+    // COLORS (Preserved)
+    Color mouthBgCol = { 61, 93, 55, 255 };
+    Color tongueCol  = { 152, 161, 101, 255 };
+    Color teethCol   = WHITE;
+    Color lipCol     = { 0, 0, 0, 255 };
 
     void Init(Vector2 center, int N, float r) {
         radius = r;
@@ -128,15 +146,43 @@ struct SoftBlob {
             pts[i].locked = false;
         }
 
+        // Initialize Snake Tongue
+        tongue.resize(6);
+        for(int i=0; i<6; i++) {
+            tongue[i].pos = { center.x, center.y + 60.0f - (i * 15.0f) }; 
+            tongue[i].prev = tongue[i].pos;
+            tongue[i].locked = (i == 0); 
+        }
+
         float circ = 2.0f * PI * r;
         chordLen = circ / N;
         diagLen = chordLen * 2.0f;
         targetArea = r * r * PI;
 
-        // Init Template Slots
+        // Init Template Storage
         neutralAbs.resize(N);
         for(int i=0; i<N; i++) neutralAbs[i] = pts[i].pos;
         slots.assign(9, std::vector<Vector2>(N, {0,0}));
+
+        neutralTongue.resize(tongue.size());
+        for(int i=0; i<(int)tongue.size(); i++) neutralTongue[i] = tongue[i].pos;
+        tongueSlots.assign(9, std::vector<Vector2>(tongue.size(), {0,0}));
+
+        mouthMaskTex = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+    }
+
+    void ResizeBlob(float scale) {
+        Vector2 c = {0,0};
+        for(auto& p : pts) c = V2Add(c, p.pos);
+        c = V2Mul(c, 1.0f/pts.size());
+        for(auto& p : pts) {
+            Vector2 dir = V2Sub(p.pos, c);
+            p.pos = V2Add(c, V2Mul(dir, scale));
+            p.prev = p.pos;
+        }
+        chordLen *= scale;
+        diagLen *= scale;
+        targetArea *= (scale * scale);
     }
 
     // --- Input Handling ---
@@ -146,79 +192,106 @@ struct SoftBlob {
         Vector2 delta = V2Sub(m, lastM);
         lastM = m;
 
-        // 1. RIGHT CLICK: Toggle Lock
+        physicsEnabled = IsKeyDown(KEY_SPACE); // Hold SPACE for physics
+
+        if (IsKeyDown(KEY_LEFT_BRACKET)) ResizeBlob(0.99f);
+        if (IsKeyDown(KEY_RIGHT_BRACKET)) ResizeBlob(1.01f);
+
+        // Right Click: Toggle Lock (Lips Only)
         if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
-            float bestD = 1e9f;
-            int best = -1;
+            float bestD = 1e9f; int best = -1;
             for(int i=0; i<(int)pts.size(); i++) {
                 float d = V2Len(V2Sub(pts[i].pos, m));
                 if (d < bestD) { bestD = d; best = i; }
             }
-            // Increase grab radius to make clicking easier
             if (best != -1 && bestD < 30.0f) {
                 pts[best].locked = !pts[best].locked;
-                // Kill velocity so it stops instantly
                 pts[best].prev = pts[best].pos; 
             }
         }
 
-        // 2. LEFT CLICK: Grab Point OR Drag Inside
+        // Left Click: Grab
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             grabbedIndex = -1;
-            float bestD = 1e9f;
-            int best = -1;
-            for(int i=0; i<(int)pts.size(); i++) {
-                float d = V2Len(V2Sub(pts[i].pos, m));
-                if (d < bestD) { bestD = d; best = i; }
+            grabbedTongueIndex = -1;
+            float grabR = 25.0f;
+
+            float bestTD = 1e9f; int bestT = -1;
+            for(int i=0; i<(int)tongue.size(); i++) {
+                float d = V2Len(V2Sub(tongue[i].pos, m));
+                if (d < bestTD) { bestTD = d; bestT = i; }
             }
-            
-            if (best != -1 && bestD < 30.0f) {
-                grabbedIndex = best;
+            if (bestT != -1 && bestTD < grabR) {
+                grabbedTongueIndex = bestT;
             } else {
-                std::vector<Vector2> poly;
-                for(auto& p : pts) poly.push_back(p.pos);
-                if (PointInPoly(m, poly)) draggingInside = true;
+                float bestD = 1e9f; int best = -1;
+                for(int i=0; i<(int)pts.size(); i++) {
+                    float d = V2Len(V2Sub(pts[i].pos, m));
+                    if (d < bestD) { bestD = d; best = i; }
+                }
+                if (best != -1 && bestD < grabR) {
+                    grabbedIndex = best;
+                } else {
+                    std::vector<Vector2> poly;
+                    for(auto& p : pts) poly.push_back(p.pos);
+                    if (PointInPoly(m, poly)) draggingInside = true;
+                }
             }
         }
 
         if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
-            grabbedIndex = -1;
+            grabbedIndex = -1; 
+            grabbedTongueIndex = -1;
             draggingInside = false;
         }
 
-        // 3. DRAGGING LOGIC
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-            if (grabbedIndex != -1) {
-                // FORCE position even if locked (Kinematic move)
+            if (grabbedTongueIndex != -1) {
+                tongue[grabbedTongueIndex].pos = m;
+                tongue[grabbedTongueIndex].prev = m;
+            }
+            else if (grabbedIndex != -1) {
                 pts[grabbedIndex].pos = m;
                 pts[grabbedIndex].prev = m; 
-            } else if (draggingInside) {
-                // Brush effect
+            } 
+            else if (draggingInside) {
                 for(auto& p : pts) {
-                    if (p.locked) continue; // Don't move locked points with brush
-                    float d = V2Len(V2Sub(p.pos, m));
-                    if (d < radius * 1.2f) {
-                        float strength = 1.0f - (d / (radius * 1.2f));
-                        p.Acc(V2Mul(delta, strength * 1.5f));
-                    }
+                    if (!p.locked) p.pos = V2Add(p.pos, delta);
+                    p.prev = p.pos;
+                }
+                 for(auto& t : tongue) {
+                    if (!t.locked) t.pos = V2Add(t.pos, delta);
+                    t.prev = t.pos;
                 }
             }
         }
     }
 
-    // --- Physics ---
+    // --- Physics Step ---
     void Step() {
-        // Verlet
+        if (!physicsEnabled) return; 
+
+        // 1. Lips
         for(auto& p : pts) {
             if (p.locked) { p.prev = p.pos; continue; }
             Vector2 vel = V2Mul(V2Sub(p.pos, p.prev), damping);
-            p.prev = p.pos;
-            p.pos = V2Add(p.pos, vel);
+            p.prev = p.pos; p.pos = V2Add(p.pos, vel);
+        }
+        
+        // 2. Tongue
+        Vector2 c = {0,0}; for(auto& p : pts) c = V2Add(c, p.pos); 
+        c = V2Mul(c, 1.0f/pts.size());
+        tongue[0].pos = { c.x, c.y + 40 }; 
+        tongue[0].locked = true;
+
+        for(auto& p : tongue) {
+            if (p.locked) { p.prev = p.pos; continue; }
+            Vector2 vel = V2Mul(V2Sub(p.pos, p.prev), 0.85f);
+            p.prev = p.pos; p.pos = V2Add(p.pos, vel);
         }
 
-        // Constraints
+        // 3. Constraints
         for(int k=0; k<solverIters; k++) {
-            // Edges
             int N = pts.size();
             for(int i=0; i<N; i++) {
                 int next = (i+1)%N;
@@ -227,106 +300,76 @@ struct SoftBlob {
                 if (len > 0.001f) {
                     float diff = (len - chordLen) / len;
                     Vector2 corr = V2Mul(d, diff * 0.5f * edgeStiff);
-                    pts[i].Acc(corr);
-                    pts[next].Acc(V2Mul(corr, -1.0f));
+                    pts[i].Acc(corr); pts[next].Acc(V2Mul(corr, -1.0f));
                 }
             }
-            // Diagonals
-            for(int i=0; i<N; i++) {
-                int next = (i+2)%N;
-                Vector2 d = V2Sub(pts[next].pos, pts[i].pos);
-                float len = V2Len(d);
-                if (len > 0.001f) {
-                    float diff = (len - diagLen) / len;
-                    Vector2 corr = V2Mul(d, diff * 0.5f * diagStiff);
-                    pts[i].Acc(corr);
-                    pts[next].Acc(V2Mul(corr, -1.0f));
-                }
-            }
-            
-            // Area Preservation
-            std::vector<Vector2> poly;
-            Vector2 c = {0,0};
-            for(auto& p : pts) { poly.push_back(p.pos); c = V2Add(c, p.pos); }
-            c = V2Mul(c, 1.0f/N);
+            std::vector<Vector2> poly; Vector2 center = {0,0};
+            for(auto& p : pts) { poly.push_back(p.pos); center = V2Add(center, p.pos); }
+            center = V2Mul(center, 1.0f/N);
             float area = std::abs(PolygonArea(poly));
             if (area < 1.0f) area = 1.0f;
             float s = std::sqrt(targetArea / area);
-            
             for(auto& p : pts) {
                 if(p.locked) continue;
-                Vector2 dir = V2Sub(p.pos, c);
-                Vector2 target = V2Add(c, V2Mul(dir, s));
-                Vector2 force = V2Mul(V2Sub(target, p.pos), areaStiff * 0.1f);
-                p.Acc(force);
+                Vector2 dir = V2Sub(p.pos, center);
+                Vector2 target = V2Add(center, V2Mul(dir, s));
+                p.Acc(V2Mul(V2Sub(target, p.pos), areaStiff * 0.1f));
             }
-
+            
+            float segLen = 22.0f; 
+            for(int i=0; i<(int)tongue.size()-1; i++) {
+                Vector2 d = V2Sub(tongue[i+1].pos, tongue[i].pos);
+                float len = V2Len(d);
+                if (len > 0.001f) {
+                    float diff = (len - segLen) / len;
+                    Vector2 corr = V2Mul(d, diff * 0.5f);
+                    if (!tongue[i].locked) tongue[i].pos = V2Add(tongue[i].pos, corr);
+                    if (!tongue[i+1].locked) tongue[i+1].pos = V2Sub(tongue[i+1].pos, corr);
+                }
+            }
             for(auto& p : pts) p.ApplyDisp(6.0f);
         }
     }
 
-    // --- Save/Load Logic ---
     void CaptureSlot(int slot) {
         if (slot < 0 || slot >= 9) return;
-        for(int i=0; i<(int)pts.size(); i++) {
-            slots[slot][i] = V2Sub(pts[i].pos, neutralAbs[i]);
-        }
+        for(int i=0; i<(int)pts.size(); i++) slots[slot][i] = V2Sub(pts[i].pos, neutralAbs[i]);
+        for(int i=0; i<(int)tongue.size(); i++) tongueSlots[slot][i] = V2Sub(tongue[i].pos, neutralTongue[i]);
         TraceLog(LOG_INFO, "Captured Slot %d", slot);
     }
-    // NEW: Resize the entire blob (Simulate muscle contraction)
-    void ResizeBlob(float scale) {
-        // 1. Find center
-        Vector2 c = {0,0};
-        for(auto& p : pts) c = V2Add(c, p.pos);
-        c = V2Mul(c, 1.0f/pts.size());
 
-        // 2. Scale positions and physics constants
-        for(auto& p : pts) {
-            Vector2 dir = V2Sub(p.pos, c);
-            p.pos = V2Add(c, V2Mul(dir, scale));
-            p.prev = p.pos; // Reset velocity so it doesn't explode
-        }
-
-        // 3. Update physics constraints so it stays this size
-        chordLen *= scale;
-        diagLen *= scale;
-        targetArea *= (scale * scale);
-    }
     void SaveToCSV() {
         FILE* f = fopen("mouth_templates.csv", "w");
         if(!f) return;
-        fprintf(f, "N,%d\n", (int)pts.size());
-        fprintf(f, "neutral");
-        for(auto& v : neutralAbs) fprintf(f, ",%.3f,%.3f", v.x, v.y);
+        fprintf(f, "N,%d,T,%d\n", (int)pts.size(), (int)tongue.size());
+        fprintf(f, "neutral"); 
+        for(auto& v : neutralAbs) fprintf(f, ",%.3f,%.3f", v.x, v.y); 
+        for(auto& v : neutralTongue) fprintf(f, ",%.3f,%.3f", v.x, v.y);
         fprintf(f, "\n");
         for(int s=0; s<9; s++) {
-            fprintf(f, "slot%d", s);
-            for(auto& v : slots[s]) fprintf(f, ",%.3f,%.3f", v.x, v.y);
+            fprintf(f, "slot%d", s); 
+            for(auto& v : slots[s]) fprintf(f, ",%.3f,%.3f", v.x, v.y); 
+            for(auto& v : tongueSlots[s]) fprintf(f, ",%.3f,%.3f", v.x, v.y); 
             fprintf(f, "\n");
         }
         fclose(f);
-        TraceLog(LOG_INFO, "Saved CSV");
+        TraceLog(LOG_INFO, "Saved CSV with Tongue Data");
     }
 
     // --- Rendering ---
     void Draw() {
-        // 1. Fill (The Fix: Triangle Fan)
-        // This is robust. It draws from center to every edge.
-        // It won't disappear even if concave.
         Vector2 center = {0,0};
         for(auto& p : pts) center = V2Add(center, p.pos);
         center = V2Mul(center, 1.0f/pts.size());
-        
-        Color mouthColor = { 57, 99, 55, 255 }; // Dark Red
-        
-        for(int i=0; i<(int)pts.size(); i++) {
-            int next = (i+1)%pts.size();
-            // Draw double-sided to prevent culling issues
-            DrawTriangle(center, pts[i].pos, pts[next].pos, mouthColor); 
-            DrawTriangle(center, pts[next].pos, pts[i].pos, mouthColor); 
-        }
 
-        // 2. Smooth Outline
+        // Teeth Logic
+        Vector2 topLip = pts[0].pos;
+        Vector2 botLip = pts[pts.size()/2].pos;
+        float mouthOpening = V2Len(V2Sub(topLip, botLip));
+        float teethHeight = (mouthOpening - 20.0f) * 0.5f; 
+        teethHeight = Clamp(teethHeight, 0.0f, 30.0f);
+
+        // 1. GENERATE SMOOTH SPLINE (Used for both Outline AND Mask)
         std::vector<Vector2> smooth;
         for(int i=0; i<(int)pts.size(); i++) {
             Vector2 p0 = pts[(i-1+pts.size())%pts.size()].pos;
@@ -335,54 +378,131 @@ struct SoftBlob {
             Vector2 p3 = pts[(i+2)%pts.size()].pos;
             for(int k=0; k<5; k++) smooth.push_back(CatmullRom(p0,p1,p2,p3, k/5.0f));
         }
+
+        // 2. RENDER MASK
+        BeginTextureMode(mouthMaskTex);
+        ClearBackground(BLANK);
+
+        // A. Draw Mask using SMOOTH POINTS (Fixes clipping issues)
+        Vector2 maskCenter = {0,0};
+        for(auto& p : smooth) maskCenter = V2Add(maskCenter, p);
+        maskCenter = V2Mul(maskCenter, 1.0f/smooth.size());
+
         for(size_t i=0; i<smooth.size(); i++) {
-            DrawLineEx(smooth[i], smooth[(i+1)%smooth.size()], 6.0f, {0, 0, 0, 255}); // Red Lips
+            DrawTriangle(maskCenter, smooth[i], smooth[(i+1)%smooth.size()], WHITE);
+            DrawTriangle(maskCenter, smooth[(i+1)%smooth.size()], smooth[i], WHITE);
         }
 
-        // 3. Points
+        // B. Lock Alpha
+        rlDrawRenderBatchActive();
+        rlSetBlendFactors(RL_DST_ALPHA, RL_ONE_MINUS_DST_ALPHA, RL_FUNC_ADD);
+
+        // C. Contents (Fan of smooth points for BG)
+        for(size_t i=0; i<smooth.size(); i++) {
+            DrawTriangle(maskCenter, smooth[i], smooth[(i+1)%smooth.size()], mouthBgCol);
+            DrawTriangle(maskCenter, smooth[(i+1)%smooth.size()], smooth[i], mouthBgCol);
+        }
+
+        if (mouthOpening > 10.0f) {
+            // D. TEETH FIRST (So tongue covers them)
+            if (teethHeight > 1.0f) {
+                Vector2 topT = pts[0].pos;
+                float topAng = atan2f((pts[1].pos.y - pts[(int)pts.size()-1].pos.y),
+                                      (pts[1].pos.x - pts[(int)pts.size()-1].pos.x));
+
+                Vector2 botT = pts[(int)pts.size()/2].pos;
+                float botAng = atan2f((pts[(int)pts.size()/2 + 1].pos.y - pts[(int)pts.size()/2 - 1].pos.y),
+                                      (pts[(int)pts.size()/2 + 1].pos.x - pts[(int)pts.size()/2 - 1].pos.x));
+
+                rlPushMatrix();
+                rlTranslatef(topT.x, topT.y + 10, 0); 
+                rlRotatef(topAng * RAD2DEG, 0, 0, 1);
+                DrawRectangleRounded({-50, -teethHeight * 0.5f, 100, teethHeight}, 0.4f, 6, teethCol);
+                DrawRectangleRoundedLines({-50, -teethHeight * 0.5f, 100, teethHeight}, 0.4f, 6, BLACK); 
+                rlPopMatrix();
+                
+                rlPushMatrix();
+                rlTranslatef(botT.x, botT.y - 10, 0);
+                rlRotatef(botAng * RAD2DEG, 0, 0, 1);
+                DrawRectangleRounded({-45, -teethHeight * 0.5f, 90, teethHeight*0.8f}, 0.3f, 6, teethCol);
+                DrawRectangleRoundedLines({-45, -teethHeight * 0.5f, 90, teethHeight*0.8f}, 0.3f, 6, BLACK);
+                rlPopMatrix();
+            }
+
+            // E. TONGUE SECOND (So it sits on top)
+            std::vector<Vector2> tSpline;
+            for(int i=0; i<(int)tongue.size()-1; i++) {
+                Vector2 p0 = tongue[std::max(0, i-1)].pos;
+                Vector2 p1 = tongue[i].pos;
+                Vector2 p2 = tongue[i+1].pos;
+                Vector2 p3 = tongue[std::min((int)tongue.size()-1, i+2)].pos;
+                for(int k=0; k<15; k++) tSpline.push_back(CatmullRom(p0,p1,p2,p3, k/15.0f));
+            }
+            
+            for(int i=0; i<(int)tSpline.size(); i++) {
+                // Thicker, rounded tip
+                float rad = 38.0f - (i * 0.05f); // Very slight taper for sausage shape
+                DrawCircleV(tSpline[i], rad, tongueCol);
+            }
+            for(int i=0; i<(int)tSpline.size()-1; i++) {
+                DrawLineEx(tSpline[i], tSpline[i+1], 3.0f, Fade(BLACK, 0.10f));
+            }
+        }
+
+        rlDrawRenderBatchActive();
+        rlSetBlendMode(BLEND_ALPHA);
+        EndTextureMode();
+
+        // 3. Draw Texture
+        DrawTextureRec(mouthMaskTex.texture, 
+                      (Rectangle){0, 0, (float)mouthMaskTex.texture.width, -(float)mouthMaskTex.texture.height},
+                      (Vector2){0,0}, WHITE);
+
+        // 4. Draw Lip Outline (Matches Mask Perfectly now)
+        for(size_t i=0; i<smooth.size(); i++) {
+            DrawLineEx(smooth[i], smooth[(i+1)%smooth.size()], 8.0f, lipCol);
+        }
+
+        // 5. Debug UI
         for(int i=0; i<(int)pts.size(); i++) {
             Color c = pts[i].locked ? RED : GREEN;
             if (i == grabbedIndex) c = YELLOW;
-            
-            float r = pts[i].locked ? 7.0f : 4.0f;
-            DrawCircleV(pts[i].pos, r, c);
-            DrawCircleLines((int)pts[i].pos.x, (int)pts[i].pos.y, r, BLACK);
+            DrawCircleV(pts[i].pos, 3.0f, c);
+        }
+        if (mouthOpening > 10.0f) {
+            for(int i=0; i<(int)tongue.size(); i++) {
+                 DrawCircleLines((int)tongue[i].pos.x, (int)tongue[i].pos.y, 6, Fade(BLUE, 0.6f));
+            }
         }
     }
 };
 
 int main() {
-    InitWindow(1024, 768, "Mouth Tool: Authoring");
+    InitWindow(1280, 720, "Mouth Sculptor Polished");
     SetTargetFPS(60);
     SoftBlob blob;
-    blob.Init({512, 384}, 20, 100.0f);
+    blob.Init({640, 360}, 24, 80.0f);
 
     while (!WindowShouldClose()) {
-        // Key Input
         for(int k=0; k<9; k++) if(IsKeyPressed(KEY_ZERO + k)) blob.activeSlot = k;
         if(IsKeyPressed(KEY_ENTER)) blob.CaptureSlot(blob.activeSlot);
         if(IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S)) blob.SaveToCSV();
 
         blob.HandleInput();
         blob.Step();
-        if (IsKeyDown(KEY_LEFT_BRACKET)) blob.ResizeBlob(0.99f); // Shrink (Contract)
-        if (IsKeyDown(KEY_RIGHT_BRACKET)) blob.ResizeBlob(1.01f); // Grow (Relax)
+
         BeginDrawing();
-        ClearBackground({201, 228, 195, 255}); // Your background color
+        ClearBackground({201, 228, 195, 255});
 
         blob.Draw();
         
-        // 1. Current Status (Large)
-        DrawText(TextFormat("CURRENT SLOT: %d", blob.activeSlot), 20, 20, 30, DARKGRAY);
-
-        // 2. Mouse Instructions
-        DrawText("MOUSE: Right-Click to Lock | Left-Click to Drag", 20, 60, 20, DARKGRAY);
-
-        // 3. NEW: Save/Capture Instructions (Blue for visibility)
-        DrawText("KEYS:  [0-9] Select Slot  |  [ENTER] Capture Shape  |  [CTRL+S] Save to File", 20, 90, 20, DARKBLUE);
-        DrawText("KEYS: [ / ] Shrink/Grow | [0-9] Slot | [ENTER] Capture | [CTRL+S] Save", 20, 120, 20, DARKBLUE);
+        DrawText(TextFormat("SLOT: %d", blob.activeSlot), 20, 20, 30, DARKGRAY);
+        DrawText("SCULPT MODE", 20, 60, 20, DARKGREEN);
+        DrawText("Teeth/Tongue appear when mouth opens", 20, 85, 20, DARKBLUE);
+        
         EndDrawing();
     }
+    UnloadRenderTexture(blob.mouthMaskTex);
     CloseWindow();
     return 0;
 }
