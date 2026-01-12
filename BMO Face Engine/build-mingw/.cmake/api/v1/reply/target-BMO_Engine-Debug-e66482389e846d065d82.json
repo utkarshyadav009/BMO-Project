@@ -324,7 +324,7 @@
 		{
 			"backtrace" : 2,
 			"compileGroupIndex" : 0,
-			"path" : "src/SoftBodyMouth.cpp",
+			"path" : "src/ParametricMouth.cpp",
 			"sourceGroupIndex" : 0
 		}
 	],

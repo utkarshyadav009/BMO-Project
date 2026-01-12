@@ -245,29 +245,29 @@ update_mappings/fast:
 	$(MAKE) $(MAKESILENT) -f _deps\raylib-build\raylib\external\glfw\src\CMakeFiles\update_mappings.dir\build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 .PHONY : update_mappings/fast
 
-src/SoftBodyMouth.obj: src/SoftBodyMouth.cpp.obj
-.PHONY : src/SoftBodyMouth.obj
+src/ParametricMouth.obj: src/ParametricMouth.cpp.obj
+.PHONY : src/ParametricMouth.obj
 
 # target to build an object file
-src/SoftBodyMouth.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj
-.PHONY : src/SoftBodyMouth.cpp.obj
+src/ParametricMouth.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj
+.PHONY : src/ParametricMouth.cpp.obj
 
-src/SoftBodyMouth.i: src/SoftBodyMouth.cpp.i
-.PHONY : src/SoftBodyMouth.i
+src/ParametricMouth.i: src/ParametricMouth.cpp.i
+.PHONY : src/ParametricMouth.i
 
 # target to preprocess a source file
-src/SoftBodyMouth.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.i
-.PHONY : src/SoftBodyMouth.cpp.i
+src/ParametricMouth.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.i
+.PHONY : src/ParametricMouth.cpp.i
 
-src/SoftBodyMouth.s: src/SoftBodyMouth.cpp.s
-.PHONY : src/SoftBodyMouth.s
+src/ParametricMouth.s: src/ParametricMouth.cpp.s
+.PHONY : src/ParametricMouth.s
 
 # target to generate assembly for a file
-src/SoftBodyMouth.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.s
-.PHONY : src/SoftBodyMouth.cpp.s
+src/ParametricMouth.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.s
+.PHONY : src/ParametricMouth.cpp.s
 
 # Help Target
 help:
@@ -288,9 +288,9 @@ help:
 	@echo ... BMO_Engine
 	@echo ... glfw
 	@echo ... raylib
-	@echo ... src/SoftBodyMouth.obj
-	@echo ... src/SoftBodyMouth.i
-	@echo ... src/SoftBodyMouth.s
+	@echo ... src/ParametricMouth.obj
+	@echo ... src/ParametricMouth.i
+	@echo ... src/ParametricMouth.s
 .PHONY : help
 
 

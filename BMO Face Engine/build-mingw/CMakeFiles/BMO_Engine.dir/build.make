@@ -71,29 +71,29 @@ include CMakeFiles/BMO_Engine.dir/flags.make
 CMakeFiles/BMO_Engine.dir/codegen:
 .PHONY : CMakeFiles/BMO_Engine.dir/codegen
 
-CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj: CMakeFiles/BMO_Engine.dir/flags.make
-CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj: CMakeFiles/BMO_Engine.dir/includes_CXX.rsp
-CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj: C:/Users/raouy/OneDrive/Documents/GitHub/BMO\ Project/BMO-Project/BMO\ Face\ Engine/src/SoftBodyMouth.cpp
-CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj: CMakeFiles/BMO_Engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\build-mingw\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj -MF CMakeFiles\BMO_Engine.dir\src\SoftBodyMouth.cpp.obj.d -o CMakeFiles\BMO_Engine.dir\src\SoftBodyMouth.cpp.obj -c "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\SoftBodyMouth.cpp"
+CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj: CMakeFiles/BMO_Engine.dir/flags.make
+CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj: CMakeFiles/BMO_Engine.dir/includes_CXX.rsp
+CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj: C:/Users/raouy/OneDrive/Documents/GitHub/BMO\ Project/BMO-Project/BMO\ Face\ Engine/src/ParametricMouth.cpp
+CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj: CMakeFiles/BMO_Engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\build-mingw\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj -MF CMakeFiles\BMO_Engine.dir\src\ParametricMouth.cpp.obj.d -o CMakeFiles\BMO_Engine.dir\src\ParametricMouth.cpp.obj -c "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\ParametricMouth.cpp"
 
-CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.i"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\SoftBodyMouth.cpp" > CMakeFiles\BMO_Engine.dir\src\SoftBodyMouth.cpp.i
+CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.i"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\ParametricMouth.cpp" > CMakeFiles\BMO_Engine.dir\src\ParametricMouth.cpp.i
 
-CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.s"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\SoftBodyMouth.cpp" -o CMakeFiles\BMO_Engine.dir\src\SoftBodyMouth.cpp.s
+CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.s"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "C:\Users\raouy\OneDrive\Documents\GitHub\BMO Project\BMO-Project\BMO Face Engine\src\ParametricMouth.cpp" -o CMakeFiles\BMO_Engine.dir\src\ParametricMouth.cpp.s
 
 # Object files for target BMO_Engine
 BMO_Engine_OBJECTS = \
-"CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj"
+"CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj"
 
 # External object files for target BMO_Engine
 BMO_Engine_EXTERNAL_OBJECTS =
 
-BMO_Engine.exe: CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj
+BMO_Engine.exe: CMakeFiles/BMO_Engine.dir/src/ParametricMouth.cpp.obj
 BMO_Engine.exe: CMakeFiles/BMO_Engine.dir/build.make
 BMO_Engine.exe: _deps/raylib-build/raylib/libraylib.a
 BMO_Engine.exe: C:/dev/vcpkg/installed/x64-mingw-dynamic/debug/lib/libzmq.dll.a
