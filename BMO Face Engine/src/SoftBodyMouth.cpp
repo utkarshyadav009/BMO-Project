@@ -356,7 +356,7 @@ struct SoftBlob {
         TraceLog(LOG_INFO, "Saved CSV with Tongue Data");
     }
 
-    // --- Rendering ---
+// --- Rendering ---
     void Draw() {
         Vector2 center = {0,0};
         for(auto& p : pts) center = V2Add(center, p.pos);
@@ -369,7 +369,7 @@ struct SoftBlob {
         float teethHeight = (mouthOpening - 20.0f) * 0.5f; 
         teethHeight = Clamp(teethHeight, 0.0f, 30.0f);
 
-        // 1. GENERATE SMOOTH SPLINE (Used for both Outline AND Mask)
+        // 1. GENERATE SMOOTH SPLINE
         std::vector<Vector2> smooth;
         for(int i=0; i<(int)pts.size(); i++) {
             Vector2 p0 = pts[(i-1+pts.size())%pts.size()].pos;
@@ -383,7 +383,7 @@ struct SoftBlob {
         BeginTextureMode(mouthMaskTex);
         ClearBackground(BLANK);
 
-        // A. Draw Mask using SMOOTH POINTS (Fixes clipping issues)
+        // A. Draw Mask using SMOOTH POINTS
         Vector2 maskCenter = {0,0};
         for(auto& p : smooth) maskCenter = V2Add(maskCenter, p);
         maskCenter = V2Mul(maskCenter, 1.0f/smooth.size());
@@ -393,18 +393,32 @@ struct SoftBlob {
             DrawTriangle(maskCenter, smooth[(i+1)%smooth.size()], smooth[i], WHITE);
         }
 
+        // [CHANGE 1] EXPAND THE MASK
+        // We draw the outline in WHITE here. This tells the alpha channel:
+        // "It is okay to draw pixels on the border too."
+        for(size_t i=0; i<smooth.size(); i++) {
+            DrawLineEx(smooth[i], smooth[(i+1)%smooth.size()], 8.0f, WHITE);
+        }
+
         // B. Lock Alpha
         rlDrawRenderBatchActive();
         rlSetBlendFactors(RL_DST_ALPHA, RL_ONE_MINUS_DST_ALPHA, RL_FUNC_ADD);
 
-        // C. Contents (Fan of smooth points for BG)
+        // C. Contents (Background)
         for(size_t i=0; i<smooth.size(); i++) {
             DrawTriangle(maskCenter, smooth[i], smooth[(i+1)%smooth.size()], mouthBgCol);
             DrawTriangle(maskCenter, smooth[(i+1)%smooth.size()], smooth[i], mouthBgCol);
         }
 
+        // [CHANGE 2] DRAW OUTLINE HERE (Inside the Sandwich)
+        // Now we draw the actual color outline. Because we are before the tongue,
+        // the tongue will cover this line.
+        for(size_t i=0; i<smooth.size(); i++) {
+            DrawLineEx(smooth[i], smooth[(i+1)%smooth.size()], 8.0f, lipCol);
+        }
+
         if (mouthOpening > 10.0f) {
-            // D. TEETH FIRST (So tongue covers them)
+            // D. TEETH (Drawn on top of Outline)
             if (teethHeight > 1.0f) {
                 Vector2 topT = pts[0].pos;
                 float topAng = atan2f((pts[1].pos.y - pts[(int)pts.size()-1].pos.y),
@@ -429,7 +443,7 @@ struct SoftBlob {
                 rlPopMatrix();
             }
 
-            // E. TONGUE SECOND (So it sits on top)
+            // E. TONGUE (Drawn on top of Teeth AND Outline)
             std::vector<Vector2> tSpline;
             for(int i=0; i<(int)tongue.size()-1; i++) {
                 Vector2 p0 = tongue[std::max(0, i-1)].pos;
@@ -440,8 +454,7 @@ struct SoftBlob {
             }
             
             for(int i=0; i<(int)tSpline.size(); i++) {
-                // Thicker, rounded tip
-                float rad = 38.0f - (i * 0.05f); // Very slight taper for sausage shape
+                float rad = 38.0f - (i * 0.05f); 
                 DrawCircleV(tSpline[i], rad, tongueCol);
             }
             for(int i=0; i<(int)tSpline.size()-1; i++) {
@@ -458,10 +471,8 @@ struct SoftBlob {
                       (Rectangle){0, 0, (float)mouthMaskTex.texture.width, -(float)mouthMaskTex.texture.height},
                       (Vector2){0,0}, WHITE);
 
-        // 4. Draw Lip Outline (Matches Mask Perfectly now)
-        for(size_t i=0; i<smooth.size(); i++) {
-            DrawLineEx(smooth[i], smooth[(i+1)%smooth.size()], 8.0f, lipCol);
-        }
+        // [CHANGE 3] REMOVED OUTLINE DRAWING FROM HERE
+        // (It's now inside the texture, so we don't draw it again)
 
         // 5. Debug UI
         for(int i=0; i<(int)pts.size(); i++) {
