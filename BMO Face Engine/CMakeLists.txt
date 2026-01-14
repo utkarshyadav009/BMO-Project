@@ -22,7 +22,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raygui)
 
-add_executable(BMO_Engine src/FacePoser.cpp)
+add_executable(BMO_Engine src/SoftBodyMouth.cpp)
+# [NEW] Silence the "enum-compare" warnings from raygui
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(BMO_Engine PRIVATE -Wno-enum-compare)
+endif()
 
 # 3. Link Libraries
 # (Assuming you actually need ZeroMQ, otherwise remove those lines if not installed)

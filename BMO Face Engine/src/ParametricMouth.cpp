@@ -64,6 +64,40 @@ static void RemoveNearDuplicates(std::vector<Vector2>& poly, float eps=0.5f) {
     }
     poly.swap(out);
 }
+// [NEW] Removes points that form a straight line to stop Triangulator Panic
+static void RemoveCollinearPoints(std::vector<Vector2>& poly, float threshold = 0.995f) {
+    if (poly.size() < 3) return;
+    std::vector<Vector2> out;
+    out.push_back(poly[0]); // Keep first
+    
+    for (size_t i = 1; i < poly.size() - 1; i++) {
+        Vector2 prev = out.back();
+        Vector2 curr = poly[i];
+        Vector2 next = poly[i+1];
+        
+        Vector2 v1 = V2Sub(curr, prev);
+        Vector2 v2 = V2Sub(next, curr);
+        
+        // Normalize
+        float l1 = sqrtf(v1.x*v1.x + v1.y*v1.y);
+        float l2 = sqrtf(v2.x*v2.x + v2.y*v2.y);
+        
+        if (l1 < 0.1f || l2 < 0.1f) continue; // Skip tiny duplicates
+        
+        v1.x /= l1; v1.y /= l1;
+        v2.x /= l2; v2.y /= l2;
+        
+        // Dot product: 1.0 means perfectly straight
+        float dot = v1.x*v2.x + v1.y*v2.y;
+        
+        // If the angle is sharp enough, keep the point. If it's straight, skip it.
+        if (dot < threshold) {
+            out.push_back(curr);
+        }
+    }
+    out.push_back(poly.back()); // Keep last
+    poly = out;
+}
 
 // Helper: Is point P inside the polygon?
 static bool IsPointInsidePoly(Vector2 p, const std::vector<Vector2>& poly) {
@@ -186,6 +220,7 @@ struct FacialParams {
     float squeezeBottom = 0.0f; // 0.0 to 1.0 
     float teethY = 0.0f; 
     float tongueUp = 0.0f;      
+    float tongueX = 0.0f;
     float tongueWidth = 0.65f;  
 
     // [NEW] Controls vertical asymmetry
@@ -197,6 +232,8 @@ struct FacialParams {
 
     float teethWidth = 0.50f;   // 0.1 to 0.95 (Ratio of mouth width)
     float teethGap = 45.0f;     // 0.0 to 100.0 (Pixels in screen space)
+    //Global Scale Multiplier
+    float scale = 1.0f;
 };
 
 struct ParametricMouth {
@@ -210,11 +247,10 @@ struct ParametricMouth {
     bool textureLoaded = false;
     
     Vector2 centerPos; 
-    float outputScale = 1.0f; 
     bool usePhysics = true;
     const float SS = 4.0f; 
     // CHANGE 1024 TO 2048
-    const int RT_SIZE = 4096;
+    const int RT_SIZE = 2048;
 
     Color colBg     = { 61, 93, 55, 255 };
     Color colLine   = { 20, 35, 20, 255 };
@@ -227,7 +263,7 @@ struct ParametricMouth {
         
         // [FIX] Reserve memory to prevent re-allocations
         controlPoints.resize(16);
-        smoothContour.reserve(128);
+        smoothContour.reserve(512);
         topTeethPoly.reserve(64);
         botTeethPoly.reserve(64);
         tonguePoly.reserve(64);
@@ -236,7 +272,13 @@ struct ParametricMouth {
         SetTextureFilter(maskTexture.texture, TEXTURE_FILTER_BILINEAR);
         textureLoaded = true;
         
-        target = { 0.05f, 0.5f, 0.2f, 0.0f, -1.0f, 0.0f, 0.65f }; 
+        target = { 0.05f, 0.5f, 0.2f,
+           0.0f, 0.0f,
+          -1.0f,
+           0.0f, 0.0f, 0.65f,
+           0.0f, 0.0f,
+           0.5f, 45.0f,
+           1.0f };
         current = target;
     }
 
@@ -246,15 +288,17 @@ struct ParametricMouth {
         target.open        = Clamp(target.open, 0.0f, 1.2f);
         target.width       = Clamp(target.width, 0.1f, 1.5f);
         target.curve       = Clamp(target.curve, -1.0f, 1.0f);
-        target.squeezeTop = Clamp(target.squeezeTop, 0.0f, 1.0f);
+        target.squeezeTop  = Clamp(target.squeezeTop, 0.0f, 1.0f);
         target.squeezeBottom = Clamp(target.squeezeBottom, 0.0f, 1.0f);
         target.teethY      = Clamp(target.teethY, -1.0f, 1.0f);
         target.tongueUp    = Clamp(target.tongueUp, 0.0f, 1.0f);
+        target.tongueX     = Clamp(target.tongueX, -1.0f, 1.0f);
         target.tongueWidth = Clamp(target.tongueWidth, 0.3f, 1.0f);
         target.asymmetry   = Clamp(target.asymmetry, -1.0f, 1.0f);
         target.squareness  = Clamp(target.squareness, 0.0f, 1.0f);
-        target.teethWidth = Clamp(target.teethWidth, 0.1f, 0.95f);
-        target.teethGap   = Clamp(target.teethGap, 0.0f, 100.0f);
+        target.teethWidth  = Clamp(target.teethWidth, 0.1f, 0.95f);
+        target.teethGap    = Clamp(target.teethGap, 0.0f, 100.0f);
+        target.scale      = Clamp(target.scale, 0.5f, 5.0f); // Allows 0.5x to 5x scaling
 
         if (!usePhysics) { 
             current = target; 
@@ -279,11 +323,13 @@ struct ParametricMouth {
         Upd(current.squeezeBottom, velocity.squeezeBottom, target.squeezeBottom);
         Upd(current.teethY, velocity.teethY, target.teethY);
         Upd(current.tongueUp, velocity.tongueUp, target.tongueUp);
+        Upd(current.tongueX, velocity.tongueX, target.tongueX);
         Upd(current.tongueWidth, velocity.tongueWidth, target.tongueWidth);
         Upd(current.asymmetry, velocity.asymmetry, target.asymmetry);
         Upd(current.squareness, velocity.squareness, target.squareness);
         Upd(current.teethWidth, velocity.teethWidth, target.teethWidth);
         Upd(current.teethGap,   velocity.teethGap,   target.teethGap);
+        Upd(current.scale,     velocity.scale,     target.scale);
 
         current.open        = Clamp(current.open, 0.0f, 1.2f);
         current.width       = Clamp(current.width, 0.1f, 1.5f);
@@ -292,11 +338,13 @@ struct ParametricMouth {
         current.squeezeBottom = Clamp(current.squeezeBottom, 0.0f, 1.0f);
         current.teethY      = Clamp(current.teethY, -1.0f, 1.0f);
         current.tongueUp    = Clamp(current.tongueUp, 0.0f, 1.0f);
+        current.tongueX     = Clamp(current.tongueX, -1.0f, 1.0f);
         current.tongueWidth = Clamp(current.tongueWidth, 0.3f, 1.0f);
         current.asymmetry   = Clamp(current.asymmetry, -1.0f, 1.0f);
         current.squareness  = Clamp(current.squareness, 0.0f, 1.0f);
         current.teethWidth = Clamp(current.teethWidth, 0.1f, 0.95f);
         current.teethGap   = Clamp(current.teethGap, 0.0f, 100.0f);
+        current.scale      = Clamp(current.scale, 0.5f, 5.0f);
     }
 
     // Tongue with Radial Clamping
@@ -304,6 +352,9 @@ struct ParametricMouth {
         tonguePoly.clear();
         // [FIX] Removed check for tongueUp <= 0.01 so it shows at rest
         if (current.open < 0.10f) return;
+
+        float shiftX = current.tongueX * (mouthW * 0.4f);
+        float tongueCX = cx + shiftX;
 
         float margin = 4.0f * SS;
         float tongueBottom = maxY - margin;
@@ -320,12 +371,12 @@ struct ParametricMouth {
             float yRatio = sinf(t * PI);         
 
             float tipTaper = Lerp(1.0f, 0.85f, yRatio); 
-            float px = cx + (xRatio * halfW * tipTaper);
+            float px = tongueCX + (xRatio * halfW * tipTaper);
             float py = Lerp(tongueBottom, tongueTip, yRatio);
             rawPoly.push_back({ px, py });
         }
-        rawPoly.push_back({ cx + halfW, tongueBottom + margin });
-        rawPoly.push_back({ cx - halfW, tongueBottom + margin });
+        rawPoly.push_back({ tongueCX + halfW, tongueBottom + margin });
+        rawPoly.push_back({ tongueCX - halfW, tongueBottom + margin });
 
         // THE CLAMP PASS
         for (Vector2 p : rawPoly) {
@@ -334,7 +385,7 @@ struct ParametricMouth {
             } else {
                 // Snap to contour if leaking
                 Vector2 snapped = GetClosestPointOnPoly(p, smoothContour);
-                Vector2 dirToCenter = V2Sub({cx, cy}, snapped);
+                Vector2 dirToCenter = V2Sub({tongueCX, cy}, snapped);
                 float dist = sqrtf(dirToCenter.x*dirToCenter.x + dirToCenter.y*dirToCenter.y);
                 if (dist > 0.001f) {
                     Vector2 pull = V2Scale(dirToCenter, (1.0f / dist)); 
@@ -351,8 +402,11 @@ struct ParametricMouth {
         if (tonguePoly.size() < 3) tonguePoly.clear();
     }
 
+    // [UPDATED] Now accepts limitLeft/limitRight to force perfect alignment
     void BuildTeethToLine(const std::vector<Vector2>& spline, int start, int endExclusive,
-                          float targetY, float dirY, std::vector<Vector2>& outPoly)
+                          float targetY, float dirY, 
+                          float limitLeft, float limitRight, 
+                          std::vector<Vector2>& outPoly)
     {
         outPoly.clear();
         int n = (int)spline.size();
@@ -361,18 +415,50 @@ struct ParametricMouth {
         endExclusive = ClampInt(endExclusive - 1, 0, n);
         
         if (start >= endExclusive) return;
-        int span = endExclusive - start;
-        if (span < 2) return;
 
-        for (int i = start; i < endExclusive; i++) outPoly.push_back(spline[i]);
+        // [FIX] DETECT DIRECTION
+        // Check if this segment runs Left->Right or Right->Left
+        bool isReversed = (spline[start].x > spline[endExclusive - 1].x);
 
+        // Assign limits based on direction
+        // If normal (L->R): Start=Left, End=Right
+        // If reversed (R->L): Start=Right, End=Left
+        float startLimit = isReversed ? limitRight : limitLeft;
+        float endLimit   = isReversed ? limitLeft  : limitRight;
+
+        float rangeX = limitRight - limitLeft;
+        if (fabsf(rangeX) < 1.0f) rangeX = (rangeX > 0) ? 1.0f : -1.0f;
+
+        // --- PHASE 1: THE GUM LINE (From Spline) ---
+        for (int i = start; i < endExclusive; i++) {
+            Vector2 p = spline[i];
+            
+            // Apply direction-aware limits
+            if (i == start) p.x = startLimit;
+            if (i == endExclusive - 1) p.x = endLimit;
+            
+            p.x = Clamp(p.x, limitLeft, limitRight);
+            outPoly.push_back(p);
+        }
+
+        // --- PHASE 2: THE BITING EDGE (Generated) ---
         for (int i = endExclusive - 1; i >= start; i--) {
             Vector2 p = spline[i];
-            float t = (float)(i - start) / (float)(span - 1);
             
+            // Apply direction-aware limits
+            if (i == start) p.x = startLimit;
+            if (i == endExclusive - 1) p.x = endLimit;
+            p.x = Clamp(p.x, limitLeft, limitRight);
+
+            // Calculate T (Position Percentage)
+            // T should always be 0.0 at limitLeft and 1.0 at limitRight
+            float t = (p.x - limitLeft) / rangeX;
+            t = Clamp(t, 0.0f, 1.0f); 
+
+            float taperSharpness = Lerp(0.2f, 0.05f, current.squareness);
             float s = std::sin(t * PI);
             s = Clamp(s, 0.0f, 1.0f);
-            float taper = std::pow(s, 0.2f); 
+            float taper = std::pow(s, taperSharpness); 
 
             float distToLine = (targetY - p.y) * dirY; 
             float h = std::max(0.0f, distToLine);
@@ -381,7 +467,69 @@ struct ParametricMouth {
             outPoly.push_back({p.x, finalY});
         }
         
-        RemoveNearDuplicates(outPoly);
+        RemoveNearDuplicates(outPoly, 2.0f); 
+        RemoveCollinearPoints(outPoly);
+    }
+    // Helper: Find start/end indices that fit within horizontal bounds [minX, maxX]
+    static void GetIndicesByX(const std::vector<Vector2>& poly, int rangeStart, int rangeEnd, 
+                              float minX, float maxX, int& outStart, int& outEnd) 
+    {
+        outStart = -1;
+        outEnd = -1;
+
+        // Scan the specified range of the polygon
+        for (int i = rangeStart; i < rangeEnd; i++) {
+            float x = poly[i].x;
+
+            // Check if this point is inside the dental zone
+            if (x >= minX && x <= maxX) {
+                if (outStart == -1) outStart = i; // First valid point
+                outEnd = i;                       // Update last valid point
+            }
+        }
+
+        // Safety: If nothing found, collapse to rangeStart
+        if (outStart == -1) {
+            outStart = rangeStart;
+            outEnd = rangeStart;
+        } else {
+            // [IMPORTANT] Buffer: Add one extra point on each side to ensure 
+            // the curve reaches all the way to the edge of the clip zone.
+            outStart = std::max(rangeStart, outStart - 1);
+            outEnd   = std::min(rangeEnd,   outEnd + 2); // +2 because standard loop is < end
+        }
+    }
+    // [NEW] Safety Clamp: Forces any polygon to stay strictly inside the mouth
+    // Used to prevent teeth corners from poking out of rounded mouths
+    static void ClampPolyToContainer(std::vector<Vector2>& subject, const std::vector<Vector2>& container, Vector2 center) {
+        if (subject.empty() || container.size() < 3) return;
+
+        std::vector<Vector2> safePoly;
+        safePoly.reserve(subject.size());
+
+        for (Vector2 p : subject) {
+            // 1. If point is already inside, keep it.
+            if (IsPointInsidePoly(p, container)) {
+                safePoly.push_back(p);
+            } 
+            else {
+                // 2. If outside, snap it to the nearest edge of the container
+                Vector2 snapped = GetClosestPointOnPoly(p, container);
+
+                // 3. Optional: Pull it inward by a tiny fraction (0.1 pixel) 
+                // to ensure it doesn't fail floating point checks later
+                Vector2 dir = V2Sub(center, snapped);
+                float dist = sqrtf(dir.x*dir.x + dir.y*dir.y);
+                if (dist > 0.001f) {
+                    // Pull in by 0.5 unit relative to scale to be safe
+                    float pullFactor = 0.5f / dist; 
+                    snapped = V2Add(snapped, V2Scale(dir, pullFactor));
+                }
+                safePoly.push_back(snapped);
+            }
+        }
+        // Update the original polygon
+        subject = safePoly;
     }
 
     void GenerateGeometry() {
@@ -466,7 +614,11 @@ struct ParametricMouth {
             Vector2 p1 = controlPoints[i];
             Vector2 p2 = controlPoints[(i+1)%16];
             Vector2 p3 = controlPoints[(i+2)%16];
-            for (int k = 0; k < 6; k++) smoothContour.push_back(CatmullRom(p0, p1, p2, p3, k / 6.0f));
+            const int subDivs = 16;
+            
+            for (int k = 0; k < subDivs; k++) {
+                float tt = (float)k / (float)subDivs;
+                smoothContour.push_back(CatmullRom(p0, p1, p2, p3, tt));
         }
         RemoveNearDuplicates(smoothContour);
         NormalizeContourForTeeth(smoothContour);
@@ -487,13 +639,33 @@ struct ParametricMouth {
             if ((maxY - minY) < 5.0f * SS) return; 
 
             // Teeth Generation
+            // [NEW] 1. Calculate the PHYSICAL boundaries of the teeth
+            float mouthMinX = 10000.0f;
+            float mouthMaxX = -10000.0f;
+            for(const auto& p : smoothContour) {
+                if(p.x < mouthMinX) mouthMinX = p.x;
+                if(p.x > mouthMaxX) mouthMaxX = p.x;
+            }
+            
+            float mouthRealWidth = mouthMaxX - mouthMinX;
+            float teethCX = (mouthMinX + mouthMaxX) * 0.5f;
+            
+            // Calculate the exact pixel X where teeth should start and end
+            float teethHalfW = (mouthRealWidth * current.teethWidth) * 0.5f;
+            float targetLeftX  = teethCX - teethHalfW;
+            float targetRightX = teethCX + teethHalfW;
+
+            // [NEW] 2. Find indices that match these physical coordinates
             int n = (int)smoothContour.size();
             int half = n / 2;
-            float span = (1.0f - current.teethWidth) / 2.0f;
-            int tStart = (int)(half * span);
-            int tEnd   = (int)(half * (1.0f - span));
-            int bStart = half + (int)((n - half) * span);
-            int bEnd   = half + (int)((n - half) * (1.0f - span));
+            
+            int tStart, tEnd, bStart, bEnd;
+            
+            // Scan Top Arch (0 to Half)
+            GetIndicesByX(smoothContour, 0, half, targetLeftX, targetRightX, tStart, tEnd);
+            
+            // Scan Bottom Arch (Half to End)
+            GetIndicesByX(smoothContour, half, n, targetLeftX, targetRightX, bStart, bEnd);
 
             float shiftY = current.teethY * 20.0f * SS;
             float gap = current.teethGap * SS;
@@ -505,18 +677,34 @@ struct ParametricMouth {
             topTarget = Clamp(topTarget, minY + margin, maxY - margin);
             botTarget = Clamp(botTarget, minY + margin, maxY - margin);
             
+            // [Alignment Fix] Recalculate center based on clamps
             float mid = (topTarget + botTarget) * 0.5f;
             float halfGap = gap * 0.5f;
-            
             topTarget = mid - halfGap;
             botTarget = mid + halfGap;
-            
             topTarget = Clamp(topTarget, minY + margin, maxY - margin);
             botTarget = Clamp(botTarget, minY + margin, maxY - margin);
 
+            // Build the initial geometry (which might poke out)
             if (topTarget < botTarget - 1.0f) {
-                BuildTeethToLine(smoothContour, tStart, tEnd, topTarget, 1.0f, topTeethPoly);
-                BuildTeethToLine(smoothContour, bStart, bEnd, botTarget, -1.0f, botTeethPoly);
+                // [FIX] Pass targetLeftX and targetRightX here to satisfy the 8-argument requirement
+                BuildTeethToLine(smoothContour, tStart, tEnd, topTarget, 1.0f, 
+                                 targetLeftX, targetRightX, 
+                                 topTeethPoly);
+                                 
+                BuildTeethToLine(smoothContour, bStart, bEnd, botTarget, -1.0f, 
+                                 targetLeftX, targetRightX, 
+                                 botTeethPoly);
+                
+                // [FIX] THE SAFETY PASS
+                // Force the newly created teeth to strictly respect the mouth boundaries.
+                // This crunches the sharp corners of the teeth so they fit inside the rounded lips.
+                ClampPolyToContainer(topTeethPoly, smoothContour, {teethCX, cy});
+                ClampPolyToContainer(botTeethPoly, smoothContour, {teethCX, cy});
+                
+                // Clean up any micro-segments created by the clamping
+                RemoveNearDuplicates(topTeethPoly, 1.0f);
+                RemoveNearDuplicates(botTeethPoly, 1.0f);
             }
         }
     }
@@ -531,11 +719,36 @@ struct ParametricMouth {
         for(auto& p : tris) rlVertex2f(p.x, p.y);
         rlEnd();
     }
+    // Draws a strip of lines with round joints (No gaps, no jagged corners)
+    void DrawLineStrip(const std::vector<Vector2>& points, float thick, Color c) {
+        if(points.size() < 2) return;
+        for(size_t i=0; i<points.size() - 1; i++) {
+            Vector2 p1 = points[i];
+            Vector2 p2 = points[i+1];
+            
+            DrawLineEx(p1, p2, thick, c);
+            DrawCircleV(p1, thick * 0.5f, c); // The Joint Fix
+        }
+        // Cap the very end
+        DrawCircleV(points.back(), thick * 0.5f, c);
+    }
     
     void DrawPolyOutline(const std::vector<Vector2>& poly, float thick, Color c) {
-        if(poly.size() < 2) return;
-        for(size_t i=0; i<poly.size(); i++) 
-            DrawLineEx(poly[i], poly[(i+1)%poly.size()], thick, c);
+           if(poly.size() < 2) return;
+           
+           // Use the default circle resolution (smooth enough)
+           // Draw segment AND a round cap at the start
+           for(size_t i=0; i<poly.size(); i++) {
+               Vector2 p1 = poly[i];
+               Vector2 p2 = poly[(i+1)%poly.size()];
+               
+               // 1. Draw the segment
+               DrawLineEx(p1, p2, thick, c);
+               
+               // 2. Draw the Round Join (The Fix)
+               // This covers the jagged corners where segments meet
+               DrawCircleV(p1, thick * 0.5f, c);
+           }
     }
 
     void Draw() {
@@ -545,10 +758,29 @@ struct ParametricMouth {
         ClearBackground(BLANK);
 
         if (current.open < 0.08f) {
-            rlEnableSmoothLines();
-            for (int i = 0; i < 8; i++) 
-                DrawLineEx(controlPoints[i], controlPoints[i+1], 6.0f * SS, colLine);
-            rlDisableSmoothLines();
+            // 1. Generate a High-Res Spline for the "Smile Line" (Top Arch: Indices 0-8)
+            // We use the same math as the open mouth so it matches quality perfectly.
+            std::vector<Vector2> closedLine;
+            closedLine.reserve(128); 
+            
+            for (int i = 0; i < 8; i++) { // Segments 0->1 ... 7->8
+                Vector2 p0 = controlPoints[(i - 1 + 16) % 16];
+                Vector2 p1 = controlPoints[i];
+                Vector2 p2 = controlPoints[(i + 1) % 16];
+                Vector2 p3 = controlPoints[(i + 2) % 16];
+                
+                const int subDivs = 16; // Match your open mouth quality
+                float tt = 0.0f;
+                for (int k = 0; k < subDivs; k++) {
+                    tt = (float)k / (float)subDivs;
+                    closedLine.push_back(CatmullRom(p0, p1, p2, p3, tt));
+                }
+            }
+            // Add the final corner point
+            closedLine.push_back(controlPoints[8]);
+            
+            // 2. Draw with Round Joins
+            DrawLineStrip(closedLine, 6.0f * SS, colLine);
         }
         else if (smoothContour.size() >= 3) {
             DrawPoly(smoothContour, WHITE);
@@ -577,83 +809,79 @@ struct ParametricMouth {
         rlEnableBackfaceCulling();
 
         Rectangle src = {0, 0, (float)RT_SIZE, -(float)RT_SIZE};
-        Rectangle dst = { centerPos.x, centerPos.y, (float)(RT_SIZE / SS) * outputScale, (float)(RT_SIZE / SS) * outputScale };
+        float finalScale =  (RT_SIZE / SS) * current.scale;
+        Rectangle dst = { centerPos.x, centerPos.y, finalScale, finalScale };
         Vector2 origin = { dst.width * 0.5f, dst.height * 0.5f };
         
         DrawTexturePro(maskTexture.texture, src, dst, origin, 0.0f, WHITE);
     }
 };
 
-// int main() {
-//     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-//     InitWindow(1280, 720, "BMO Rig - GOLDEN MASTER + TONGUE");
-//     SetTargetFPS(60);
+int main() {
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    InitWindow(1280, 720, "BMO Rig - GOLDEN MASTER + TONGUE");
+    SetTargetFPS(60);
 
-//     ParametricMouth mouth;
-//     mouth.Init({640, 360});
-//     mouth.outputScale = 1.0f;
+    ParametricMouth mouth;
+    mouth.Init({640, 360});
     
-//     float logTimer = 0.0f;
+    float logTimer = 0.0f;
 
-//     while (!WindowShouldClose()) {
-//         float dt = GetFrameTime();
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
         
-//         if (IsKeyDown(KEY_Q)) mouth.target.open += 2.0f * dt;
-//         if (IsKeyDown(KEY_A)) mouth.target.open -= 2.0f * dt;
-//         if (IsKeyDown(KEY_W)) mouth.target.width += 1.0f * dt;
-//         if (IsKeyDown(KEY_S)) mouth.target.width -= 1.0f * dt;
-//         if (IsKeyDown(KEY_E)) mouth.target.curve += 2.0f * dt; 
-//         if (IsKeyDown(KEY_D)) mouth.target.curve -= 2.0f * dt; 
-//         if (IsKeyDown(KEY_T)) mouth.target.teethY += 2.0f * dt;
-//         if (IsKeyDown(KEY_G)) mouth.target.teethY -= 2.0f * dt;
-//         if (IsKeyDown(KEY_R)) mouth.target.squeeze += 2.0f * dt;
-//         if (IsKeyDown(KEY_F)) mouth.target.squeeze -= 2.0f * dt;
-//         if (IsKeyPressed(KEY_SPACE)) mouth.usePhysics = !mouth.usePhysics;
+        if (IsKeyDown(KEY_Q)) mouth.target.open += 2.0f * dt;
+        if (IsKeyDown(KEY_A)) mouth.target.open -= 2.0f * dt;
+        if (IsKeyDown(KEY_W)) mouth.target.width += 1.0f * dt;
+        if (IsKeyDown(KEY_S)) mouth.target.width -= 1.0f * dt;
+        if (IsKeyDown(KEY_E)) mouth.target.curve += 2.0f * dt; 
+        if (IsKeyDown(KEY_D)) mouth.target.curve -= 2.0f * dt; 
+        if (IsKeyDown(KEY_T)) mouth.target.teethY += 2.0f * dt;
+        if (IsKeyDown(KEY_G)) mouth.target.teethY -= 2.0f * dt;
+        if (IsKeyDown(KEY_R)) mouth.target.squeeze += 2.0f * dt;
+        if (IsKeyDown(KEY_F)) mouth.target.squeeze -= 2.0f * dt;
+        if (IsKeyPressed(KEY_SPACE)) mouth.usePhysics = !mouth.usePhysics;
 
-//         if (IsKeyDown(KEY_Y)) mouth.target.tongueUp += 2.0f * dt;
-//         if (IsKeyDown(KEY_H)) mouth.target.tongueUp -= 2.0f * dt;
-//         if (IsKeyDown(KEY_U)) mouth.target.tongueWidth += 1.0f * dt;
-//         if (IsKeyDown(KEY_J)) mouth.target.tongueWidth -= 1.0f * dt;
+        if (IsKeyDown(KEY_Y)) mouth.target.tongueUp += 2.0f * dt;
+        if (IsKeyDown(KEY_H)) mouth.target.tongueUp -= 2.0f * dt;
+        if (IsKeyDown(KEY_U)) mouth.target.tongueWidth += 1.0f * dt;
+        if (IsKeyDown(KEY_J)) mouth.target.tongueWidth -= 1.0f * dt;
 
-//         if (IsKeyDown(KEY_UP)) mouth.outputScale += 1.0f * dt;
-//         if (IsKeyDown(KEY_DOWN)) mouth.outputScale -= 1.0f * dt;
-//         mouth.outputScale = Clamp(mouth.outputScale, 0.5f, 3.0f);
+        if (IsKeyDown(KEY_Z)) mouth.debugTeethWidthRatio -= 0.5f * dt;
+        if (IsKeyDown(KEY_X)) mouth.debugTeethWidthRatio += 0.5f * dt;
+        if (IsKeyDown(KEY_C)) mouth.debugTeethGap -= 20.0f * dt;
+        if (IsKeyDown(KEY_V)) mouth.debugTeethGap += 20.0f * dt;
 
-//         if (IsKeyDown(KEY_Z)) mouth.debugTeethWidthRatio -= 0.5f * dt;
-//         if (IsKeyDown(KEY_X)) mouth.debugTeethWidthRatio += 0.5f * dt;
-//         if (IsKeyDown(KEY_C)) mouth.debugTeethGap -= 20.0f * dt;
-//         if (IsKeyDown(KEY_V)) mouth.debugTeethGap += 20.0f * dt;
+        mouth.debugTeethWidthRatio = Clamp(mouth.debugTeethWidthRatio, 0.1f, 0.95f);
+        mouth.debugTeethGap = Clamp(mouth.debugTeethGap, 0.0f, 100.0f);
 
-//         mouth.debugTeethWidthRatio = Clamp(mouth.debugTeethWidthRatio, 0.1f, 0.95f);
-//         mouth.debugTeethGap = Clamp(mouth.debugTeethGap, 0.0f, 100.0f);
+        if (IsKeyPressed(KEY_ONE))   mouth.target = { 0.05f, 1.17f, 1.0f, 0.0f, -1.0f, 0.0f, 0.65f }; 
+        if (IsKeyPressed(KEY_TWO))   mouth.target = { 1.0f, 0.6f, 0.8f, 0.0f, 0.2f, 0.3f, 0.7f }; 
+        if (IsKeyPressed(KEY_THREE)) mouth.target = { 0.6f, 0.5f, 0.2f, 0.0f, -1.0f, 0.85f, 0.6f }; 
+        if (IsKeyPressed(KEY_FOUR))  mouth.target = { 0.5f, 0.8f, -0.2f, 0.0f, 0.0f, 0.1f, 0.8f }; 
 
-//         if (IsKeyPressed(KEY_ONE))   mouth.target = { 0.05f, 1.17f, 1.0f, 0.0f, -1.0f, 0.0f, 0.65f }; 
-//         if (IsKeyPressed(KEY_TWO))   mouth.target = { 1.0f, 0.6f, 0.8f, 0.0f, 0.2f, 0.3f, 0.7f }; 
-//         if (IsKeyPressed(KEY_THREE)) mouth.target = { 0.6f, 0.5f, 0.2f, 0.0f, -1.0f, 0.85f, 0.6f }; 
-//         if (IsKeyPressed(KEY_FOUR))  mouth.target = { 0.5f, 0.8f, -0.2f, 0.0f, 0.0f, 0.1f, 0.8f }; 
-
-//         mouth.UpdatePhysics(dt);
-//         mouth.GenerateGeometry();
+        mouth.UpdatePhysics(dt);
+        mouth.GenerateGeometry();
         
-//         BeginDrawing();
-//         ClearBackground({201, 228, 195, 255}); 
-//         mouth.Draw();
+        BeginDrawing();
+        ClearBackground({201, 228, 195, 255}); 
+        mouth.Draw();
         
-//         DrawText("Controls: Q/A(Open) W/S(Width) E/D(Curve) R/F(Squeeze) T/G(TeethY)", 20, 20, 20, DARKGRAY);
-//         DrawText("Tongue: Y/H(Up) U/J(Width) | Teeth: Z/X(Width) C/V(Gap)", 20, 50, 20, DARKGRAY);
-//         DrawText("Size: UP/DOWN | Presets: 1-4", 20, 80, 20, DARKGRAY);
+        DrawText("Controls: Q/A(Open) W/S(Width) E/D(Curve) R/F(Squeeze) T/G(TeethY)", 20, 20, 20, DARKGRAY);
+        DrawText("Tongue: Y/H(Up) U/J(Width) | Teeth: Z/X(Width) C/V(Gap)", 20, 50, 20, DARKGRAY);
+        DrawText("Size: UP/DOWN | Presets: 1-4", 20, 80, 20, DARKGRAY);
         
-//         // logTimer += dt;
-//         // if (logTimer > 0.2f) {
-//         //      printf("Tgt: O:%.2f W:%.2f C:%.2f TUp:%.2f TW:%.2f\n", 
-//         //        mouth.target.open, mouth.target.width, mouth.target.curve, 
-//         //        mouth.target.tongueUp, mouth.target.tongueWidth);
-//         //      logTimer = 0.0f;
-//         // }
+        // logTimer += dt;
+        // if (logTimer > 0.2f) {
+        //      printf("Tgt: O:%.2f W:%.2f C:%.2f TUp:%.2f TW:%.2f\n", 
+        //        mouth.target.open, mouth.target.width, mouth.target.curve, 
+        //        mouth.target.tongueUp, mouth.target.tongueWidth);
+        //      logTimer = 0.0f;
+        // }
 
-//         EndDrawing();
-//     }
-//     mouth.Unload();
-//     CloseWindow();
-//     return 0;
-// }
+        EndDrawing();
+    }
+    mouth.Unload();
+    CloseWindow();
+    return 0;
+}

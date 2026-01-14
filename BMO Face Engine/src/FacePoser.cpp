@@ -74,9 +74,9 @@ void AppendToDatabase(std::string name, FacialParams p) {
         file << "visemes[\"" << name << "\"] = { " 
              << p.open << "f, " << p.width << "f, " << p.curve << "f, " 
              << p.squeezeTop << "f, "<<p.squeezeBottom<<"f, " << p.teethY << "f, " 
-             << p.tongueUp << "f, " << p.tongueWidth << "f, "
+             << p.tongueUp << "f, " << p.tongueWidth << "f, "<<p.tongueX<<"f, "
              <<p.teethGap<<"f, "<<p.teethWidth<<"f, "
-             << p.asymmetry << "f };\n"; // Added asymmetry
+             <<p.squareness<<"f, "<<p.scale<<"f, "<<p.asymmetry << "f };\n"; // Added asymmetry
         file.close();
         std::cout << "Saved: " << name << std::endl;
     }
@@ -90,8 +90,8 @@ int main() {
     SetTargetFPS(60);
 
     // GUI Styling
-    GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt({ 35, 35, 35, 255 }));
-    GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL, ColorToInt({ 90, 90, 90, 255 }));
+    GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL, ColorToInt(BLACK));
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(BLACK));
     GuiSetStyle(DEFAULT, TEXT_COLOR_FOCUSED, ColorToInt(BLACK));
 
@@ -184,29 +184,35 @@ int main() {
             sy += rowH + rowGap;                                                       \
         } while (0)
 
+        DRAW_ROW_SLIDER("Scale",      rig.target.scale,         0.5f,  5.0f);
+        sy += spacerH;
         DRAW_ROW_SLIDER("Open",       rig.target.open,          0.0f,  1.2f);
         DRAW_ROW_SLIDER("Width",      rig.target.width,         0.1f,  1.5f);
         DRAW_ROW_SLIDER("Curve",      rig.target.curve,        -1.0f,  1.0f);
+        sy += spacerH;
         DRAW_ROW_SLIDER("Sqze Top",   rig.target.squeezeTop,    0.0f,  1.0f);
         DRAW_ROW_SLIDER("Sqze Bot",   rig.target.squeezeBottom, 0.0f,  1.0f);
+        sy += spacerH;
         DRAW_ROW_SLIDER("Teeth Y",    rig.target.teethY,       -1.0f,  1.0f);
+        DRAW_ROW_SLIDER("Teeth W",    rig.target.teethWidth,    0.1f,  0.95f);
+        DRAW_ROW_SLIDER("Teeth Gap",  rig.target.teethGap,      0.0f,  100.0f);
 
         sy += spacerH;
 
         DRAW_ROW_SLIDER("Tongue Up",  rig.target.tongueUp,      0.0f,  1.0f);
         DRAW_ROW_SLIDER("Tongue W",   rig.target.tongueWidth,   0.3f,  1.0f);
+        DRAW_ROW_SLIDER("Tongue X",   rig.target.tongueX,      -1.0f,  1.0f);
 
         sy += spacerH;
 
         DRAW_ROW_SLIDER("Asymmetry",  rig.target.asymmetry,    -1.0f,  1.0f);
         DRAW_ROW_SLIDER("Squareness", rig.target.squareness,    0.0f,  1.0f);
-        DRAW_ROW_SLIDER("Teeth W",    rig.target.teethWidth,    0.1f,  0.95f);
-        DRAW_ROW_SLIDER("Teeth Gap",  rig.target.teethGap,      0.0f,  100.0f);
+
 
         // Reset Button
         Rectangle resetBtn = { innerX, sy, innerW, btnH };
         if (GuiButton(resetBtn, "RESET TO NEUTRAL")) {
-            rig.target = { 0.05f, 0.5f, -1.0f, 0.0f, -1.0f, 0.0f, 0.65f, 0.0f };
+            rig.target = { 0.05f, 0.5f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.65f, 0.0f, 0.0f, 0.5f, 45.0f, 0.0f };
         }
         sy += btnH + rowGap;
 

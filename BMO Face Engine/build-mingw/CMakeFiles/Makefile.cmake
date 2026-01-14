@@ -13,7 +13,6 @@ set(CMAKE_MAKEFILE_DEPENDS
   "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake"
   "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeCommonLanguageInclude.cmake"
   "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeDependentOption.cmake"
-  "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeFindDependencyMacro.cmake"
   "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeGenericSystem.cmake"
   "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeInitializeConfigs.cmake"
   "C:/Program Files/CMake/share/cmake-4.2/Modules/CMakeLanguageInformation.cmake"
@@ -90,15 +89,6 @@ set(CMAKE_MAKEFILE_DEPENDS
   "_deps/raylib-src/src/external/glfw/CMake/glfw3Config.cmake.in"
   "_deps/raylib-src/src/external/glfw/CMakeLists.txt"
   "_deps/raylib-src/src/external/glfw/src/CMakeLists.txt"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/cppzmq/cppzmqConfig.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/cppzmq/cppzmqConfigVersion.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/cppzmq/cppzmqTargets.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/zeromq/ZeroMQConfig.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/zeromq/ZeroMQConfigVersion.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/zeromq/ZeroMQTargets-debug.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/zeromq/ZeroMQTargets-release.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/zeromq/ZeroMQTargets.cmake"
-  "C:/dev/vcpkg/installed/x64-mingw-dynamic/share/zeromq/vcpkg-cmake-wrapper.cmake"
   "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake"
   )
 
@@ -111,6 +101,7 @@ set(CMAKE_MAKEFILE_OUTPUTS
 # Byproducts of CMake generate step:
 set(CMAKE_MAKEFILE_PRODUCTS
   "_deps/raylib-subbuild/CMakeLists.txt"
+  "_deps/raygui-subbuild/CMakeLists.txt"
   "CMakeFiles/CMakeDirectoryInformation.cmake"
   "_deps/raylib-build/cmake_uninstall.cmake"
   "_deps/raylib-build/CMakeFiles/CMakeDirectoryInformation.cmake"
