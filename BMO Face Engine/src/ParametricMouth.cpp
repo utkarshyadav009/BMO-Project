@@ -141,7 +141,7 @@ struct SimpleTriangulator {
         float area = SignedArea(poly);
         float wantSign = (area >= 0.0f) ? 1.0f : -1.0f;
 
-        int count = poly.size(); 
+        int count = (int)poly.size(); 
         int safety = count * 4; 
 
         while (count > 2 && safety-- > 0) {
@@ -182,10 +182,21 @@ struct FacialParams {
     float open = 0.05f; 
     float width = 0.5f; 
     float curve = 0.0f; 
-    float squeeze = 0.0f; 
+    float squeezeTop = 0.0f;    // 0.0 to 1.0
+    float squeezeBottom = 0.0f; // 0.0 to 1.0 
     float teethY = 0.0f; 
     float tongueUp = 0.0f;      
     float tongueWidth = 0.65f;  
+
+    // [NEW] Controls vertical asymmetry
+    // 0.0 = Normal, 1.0 = Flat Top ("D"), -1.0 = Flat Bottom
+    float asymmetry = 0.0f;
+    // [NEW] Controls how "boxy" the shape is. 
+    // 0.0 = Oval (Pointed tips), 1.0 = Rounded Rect (Blunt tips)
+    float squareness = 0.0f;
+
+    float teethWidth = 0.50f;   // 0.1 to 0.95 (Ratio of mouth width)
+    float teethGap = 45.0f;     // 0.0 to 100.0 (Pixels in screen space)
 };
 
 struct ParametricMouth {
@@ -202,10 +213,8 @@ struct ParametricMouth {
     float outputScale = 1.0f; 
     bool usePhysics = true;
     const float SS = 4.0f; 
-    const int RT_SIZE = 1024;
-
-    float debugTeethWidthRatio = 0.50f;
-    float debugTeethGap = 45.0f; // [USER PREF] Kept large as requested
+    // CHANGE 1024 TO 2048
+    const int RT_SIZE = 4096;
 
     Color colBg     = { 61, 93, 55, 255 };
     Color colLine   = { 20, 35, 20, 255 };
@@ -237,10 +246,15 @@ struct ParametricMouth {
         target.open        = Clamp(target.open, 0.0f, 1.2f);
         target.width       = Clamp(target.width, 0.1f, 1.5f);
         target.curve       = Clamp(target.curve, -1.0f, 1.0f);
-        target.squeeze     = Clamp(target.squeeze, 0.0f, 1.0f);
+        target.squeezeTop = Clamp(target.squeezeTop, 0.0f, 1.0f);
+        target.squeezeBottom = Clamp(target.squeezeBottom, 0.0f, 1.0f);
         target.teethY      = Clamp(target.teethY, -1.0f, 1.0f);
         target.tongueUp    = Clamp(target.tongueUp, 0.0f, 1.0f);
         target.tongueWidth = Clamp(target.tongueWidth, 0.3f, 1.0f);
+        target.asymmetry   = Clamp(target.asymmetry, -1.0f, 1.0f);
+        target.squareness  = Clamp(target.squareness, 0.0f, 1.0f);
+        target.teethWidth = Clamp(target.teethWidth, 0.1f, 0.95f);
+        target.teethGap   = Clamp(target.teethGap, 0.0f, 100.0f);
 
         if (!usePhysics) { 
             current = target; 
@@ -261,18 +275,28 @@ struct ParametricMouth {
         Upd(current.open, velocity.open, target.open);
         Upd(current.width, velocity.width, target.width);
         Upd(current.curve, velocity.curve, target.curve);
-        Upd(current.squeeze, velocity.squeeze, target.squeeze);
+        Upd(current.squeezeTop, velocity.squeezeTop, target.squeezeTop);
+        Upd(current.squeezeBottom, velocity.squeezeBottom, target.squeezeBottom);
         Upd(current.teethY, velocity.teethY, target.teethY);
         Upd(current.tongueUp, velocity.tongueUp, target.tongueUp);
         Upd(current.tongueWidth, velocity.tongueWidth, target.tongueWidth);
-        
+        Upd(current.asymmetry, velocity.asymmetry, target.asymmetry);
+        Upd(current.squareness, velocity.squareness, target.squareness);
+        Upd(current.teethWidth, velocity.teethWidth, target.teethWidth);
+        Upd(current.teethGap,   velocity.teethGap,   target.teethGap);
+
         current.open        = Clamp(current.open, 0.0f, 1.2f);
         current.width       = Clamp(current.width, 0.1f, 1.5f);
         current.curve       = Clamp(current.curve, -1.0f, 1.0f);
-        current.squeeze     = Clamp(current.squeeze, 0.0f, 1.0f);
+        current.squeezeTop = Clamp(current.squeezeTop, 0.0f, 1.0f);
+        current.squeezeBottom = Clamp(current.squeezeBottom, 0.0f, 1.0f);
         current.teethY      = Clamp(current.teethY, -1.0f, 1.0f);
         current.tongueUp    = Clamp(current.tongueUp, 0.0f, 1.0f);
         current.tongueWidth = Clamp(current.tongueWidth, 0.3f, 1.0f);
+        current.asymmetry   = Clamp(current.asymmetry, -1.0f, 1.0f);
+        current.squareness  = Clamp(current.squareness, 0.0f, 1.0f);
+        current.teethWidth = Clamp(current.teethWidth, 0.1f, 0.95f);
+        current.teethGap   = Clamp(current.teethGap, 0.0f, 100.0f);
     }
 
     // Tongue with Radial Clamping
@@ -372,14 +396,58 @@ struct ParametricMouth {
             float t = (float)i / 16.0f;
             float angle = t * PI * 2.0f + PI; 
             float x = cosf(angle) * w;
-            float y = sinf(angle) * h;
+            // [NEW] Squareness Logic (Superellipse)
+            // Instead of y = sin(angle)*h, we use power function to inflate corners
+            float rawSin = sinf(angle);
+            float sign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
+            
+            // Map squareness 0..1 to exponent 1.0..0.2
+            // Exponent < 1.0 makes the wave "fatter" (approaching a square wave)
+            float power = 1.0f - (current.squareness * 0.8f); 
+            float shapedSin = std::pow(std::abs(rawSin), power) * sign;
+            
+            float y = shapedSin * h;
             
             float bendFactor = 15.0f * SS; 
             float normalizedX = x / w;
-            float bend = (normalizedX * normalizedX) * bendFactor * current.curve;
-            y -= bend; 
+            
+            // Standard bend calculation
+            float rawBend = (normalizedX * normalizedX) * bendFactor * current.curve;
 
-            if (std::abs(x) < w * 0.4f) y *= (1.0f - current.squeeze * 0.8f);
+            // [NEW] ASYMMETRY LOGIC
+            // Indices 0-8 are the Top Arch. Indices 8-16 are the Bottom Arch.
+            bool isTop = (i <= 8);
+            
+            float bendMult = 1.0f;
+            if (current.asymmetry > 0.05f) {
+                // Positive asymmetry -> Flatten Top (Reduce bend on top)
+                if (isTop) bendMult = 1.0f - current.asymmetry;
+            } 
+            else if (current.asymmetry < -0.05f) {
+                // Negative asymmetry -> Flatten Bottom (Reduce bend on bottom)
+                if (!isTop) bendMult = 1.0f - fabsf(current.asymmetry);
+            }
+
+            y -= rawBend * bendMult; 
+
+            // [NEW] INDEPENDENT SQUEEZE LOGIC
+            float activeSqueeze = isTop ? current.squeezeTop : current.squeezeBottom;
+
+            // Calculate normalized distance from center (0.0 = center, 1.0 = corner)
+            float tX = std::abs(x) / w;
+            
+            // COSINE FALLOFF: Creates a smooth "Hill" shape
+            // 1.0 at center, smoothly curving down to 0.0 at corners.
+            // This replaces the hard "if (x < 0.6)" check.
+            float influence = std::max(0.0f, cosf(tX * PI * 0.5f));
+
+            // Apply deformation
+            // We use 'influence' to blend the effect.
+            // Power of 2 makes the pinch slightly sharper at the very center (optional)
+            // y *= Lerp(1.0f, 1.0f - activeSqueeze, influence); 
+            
+            // Simple Multiplier version (Production Safe):
+            y *= (1.0f - (activeSqueeze * influence * 0.8f));
             
             controlPoints[i] = { cx + x, cy + y };
         }
@@ -421,14 +489,14 @@ struct ParametricMouth {
             // Teeth Generation
             int n = (int)smoothContour.size();
             int half = n / 2;
-            float span = (1.0f - debugTeethWidthRatio) / 2.0f;
+            float span = (1.0f - current.teethWidth) / 2.0f;
             int tStart = (int)(half * span);
             int tEnd   = (int)(half * (1.0f - span));
             int bStart = half + (int)((n - half) * span);
             int bEnd   = half + (int)((n - half) * (1.0f - span));
 
             float shiftY = current.teethY * 20.0f * SS;
-            float gap = debugTeethGap * SS;
+            float gap = current.teethGap * SS;
             
             float topTarget = cy + shiftY - (gap * 0.5f);
             float botTarget = cy + shiftY + (gap * 0.5f);
@@ -516,76 +584,76 @@ struct ParametricMouth {
     }
 };
 
-int main() {
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    InitWindow(1280, 720, "BMO Rig - GOLDEN MASTER + TONGUE");
-    SetTargetFPS(60);
+// int main() {
+//     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+//     InitWindow(1280, 720, "BMO Rig - GOLDEN MASTER + TONGUE");
+//     SetTargetFPS(60);
 
-    ParametricMouth mouth;
-    mouth.Init({640, 360});
-    mouth.outputScale = 1.0f;
+//     ParametricMouth mouth;
+//     mouth.Init({640, 360});
+//     mouth.outputScale = 1.0f;
     
-    float logTimer = 0.0f;
+//     float logTimer = 0.0f;
 
-    while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
+//     while (!WindowShouldClose()) {
+//         float dt = GetFrameTime();
         
-        if (IsKeyDown(KEY_Q)) mouth.target.open += 2.0f * dt;
-        if (IsKeyDown(KEY_A)) mouth.target.open -= 2.0f * dt;
-        if (IsKeyDown(KEY_W)) mouth.target.width += 1.0f * dt;
-        if (IsKeyDown(KEY_S)) mouth.target.width -= 1.0f * dt;
-        if (IsKeyDown(KEY_E)) mouth.target.curve += 2.0f * dt; 
-        if (IsKeyDown(KEY_D)) mouth.target.curve -= 2.0f * dt; 
-        if (IsKeyDown(KEY_T)) mouth.target.teethY += 2.0f * dt;
-        if (IsKeyDown(KEY_G)) mouth.target.teethY -= 2.0f * dt;
-        if (IsKeyDown(KEY_R)) mouth.target.squeeze += 2.0f * dt;
-        if (IsKeyDown(KEY_F)) mouth.target.squeeze -= 2.0f * dt;
-        if (IsKeyPressed(KEY_SPACE)) mouth.usePhysics = !mouth.usePhysics;
+//         if (IsKeyDown(KEY_Q)) mouth.target.open += 2.0f * dt;
+//         if (IsKeyDown(KEY_A)) mouth.target.open -= 2.0f * dt;
+//         if (IsKeyDown(KEY_W)) mouth.target.width += 1.0f * dt;
+//         if (IsKeyDown(KEY_S)) mouth.target.width -= 1.0f * dt;
+//         if (IsKeyDown(KEY_E)) mouth.target.curve += 2.0f * dt; 
+//         if (IsKeyDown(KEY_D)) mouth.target.curve -= 2.0f * dt; 
+//         if (IsKeyDown(KEY_T)) mouth.target.teethY += 2.0f * dt;
+//         if (IsKeyDown(KEY_G)) mouth.target.teethY -= 2.0f * dt;
+//         if (IsKeyDown(KEY_R)) mouth.target.squeeze += 2.0f * dt;
+//         if (IsKeyDown(KEY_F)) mouth.target.squeeze -= 2.0f * dt;
+//         if (IsKeyPressed(KEY_SPACE)) mouth.usePhysics = !mouth.usePhysics;
 
-        if (IsKeyDown(KEY_Y)) mouth.target.tongueUp += 2.0f * dt;
-        if (IsKeyDown(KEY_H)) mouth.target.tongueUp -= 2.0f * dt;
-        if (IsKeyDown(KEY_U)) mouth.target.tongueWidth += 1.0f * dt;
-        if (IsKeyDown(KEY_J)) mouth.target.tongueWidth -= 1.0f * dt;
+//         if (IsKeyDown(KEY_Y)) mouth.target.tongueUp += 2.0f * dt;
+//         if (IsKeyDown(KEY_H)) mouth.target.tongueUp -= 2.0f * dt;
+//         if (IsKeyDown(KEY_U)) mouth.target.tongueWidth += 1.0f * dt;
+//         if (IsKeyDown(KEY_J)) mouth.target.tongueWidth -= 1.0f * dt;
 
-        if (IsKeyDown(KEY_UP)) mouth.outputScale += 1.0f * dt;
-        if (IsKeyDown(KEY_DOWN)) mouth.outputScale -= 1.0f * dt;
-        mouth.outputScale = Clamp(mouth.outputScale, 0.5f, 3.0f);
+//         if (IsKeyDown(KEY_UP)) mouth.outputScale += 1.0f * dt;
+//         if (IsKeyDown(KEY_DOWN)) mouth.outputScale -= 1.0f * dt;
+//         mouth.outputScale = Clamp(mouth.outputScale, 0.5f, 3.0f);
 
-        if (IsKeyDown(KEY_Z)) mouth.debugTeethWidthRatio -= 0.5f * dt;
-        if (IsKeyDown(KEY_X)) mouth.debugTeethWidthRatio += 0.5f * dt;
-        if (IsKeyDown(KEY_C)) mouth.debugTeethGap -= 20.0f * dt;
-        if (IsKeyDown(KEY_V)) mouth.debugTeethGap += 20.0f * dt;
+//         if (IsKeyDown(KEY_Z)) mouth.debugTeethWidthRatio -= 0.5f * dt;
+//         if (IsKeyDown(KEY_X)) mouth.debugTeethWidthRatio += 0.5f * dt;
+//         if (IsKeyDown(KEY_C)) mouth.debugTeethGap -= 20.0f * dt;
+//         if (IsKeyDown(KEY_V)) mouth.debugTeethGap += 20.0f * dt;
 
-        mouth.debugTeethWidthRatio = Clamp(mouth.debugTeethWidthRatio, 0.1f, 0.95f);
-        mouth.debugTeethGap = Clamp(mouth.debugTeethGap, 0.0f, 100.0f);
+//         mouth.debugTeethWidthRatio = Clamp(mouth.debugTeethWidthRatio, 0.1f, 0.95f);
+//         mouth.debugTeethGap = Clamp(mouth.debugTeethGap, 0.0f, 100.0f);
 
-        if (IsKeyPressed(KEY_ONE))   mouth.target = { 0.05f, 1.17f, 1.0f, 0.0f, -1.0f, 0.0f, 0.65f }; 
-        if (IsKeyPressed(KEY_TWO))   mouth.target = { 1.0f, 0.6f, 0.8f, 0.0f, 0.2f, 0.3f, 0.7f }; 
-        if (IsKeyPressed(KEY_THREE)) mouth.target = { 0.6f, 0.5f, 0.2f, 0.0f, -1.0f, 0.85f, 0.6f }; 
-        if (IsKeyPressed(KEY_FOUR))  mouth.target = { 0.5f, 0.8f, -0.2f, 0.0f, 0.0f, 0.1f, 0.8f }; 
+//         if (IsKeyPressed(KEY_ONE))   mouth.target = { 0.05f, 1.17f, 1.0f, 0.0f, -1.0f, 0.0f, 0.65f }; 
+//         if (IsKeyPressed(KEY_TWO))   mouth.target = { 1.0f, 0.6f, 0.8f, 0.0f, 0.2f, 0.3f, 0.7f }; 
+//         if (IsKeyPressed(KEY_THREE)) mouth.target = { 0.6f, 0.5f, 0.2f, 0.0f, -1.0f, 0.85f, 0.6f }; 
+//         if (IsKeyPressed(KEY_FOUR))  mouth.target = { 0.5f, 0.8f, -0.2f, 0.0f, 0.0f, 0.1f, 0.8f }; 
 
-        mouth.UpdatePhysics(dt);
-        mouth.GenerateGeometry();
+//         mouth.UpdatePhysics(dt);
+//         mouth.GenerateGeometry();
         
-        BeginDrawing();
-        ClearBackground({201, 228, 195, 255}); 
-        mouth.Draw();
+//         BeginDrawing();
+//         ClearBackground({201, 228, 195, 255}); 
+//         mouth.Draw();
         
-        DrawText("Controls: Q/A(Open) W/S(Width) E/D(Curve) R/F(Squeeze) T/G(TeethY)", 20, 20, 20, DARKGRAY);
-        DrawText("Tongue: Y/H(Up) U/J(Width) | Teeth: Z/X(Width) C/V(Gap)", 20, 50, 20, DARKGRAY);
-        DrawText("Size: UP/DOWN | Presets: 1-4", 20, 80, 20, DARKGRAY);
+//         DrawText("Controls: Q/A(Open) W/S(Width) E/D(Curve) R/F(Squeeze) T/G(TeethY)", 20, 20, 20, DARKGRAY);
+//         DrawText("Tongue: Y/H(Up) U/J(Width) | Teeth: Z/X(Width) C/V(Gap)", 20, 50, 20, DARKGRAY);
+//         DrawText("Size: UP/DOWN | Presets: 1-4", 20, 80, 20, DARKGRAY);
         
-        // logTimer += dt;
-        // if (logTimer > 0.2f) {
-        //      printf("Tgt: O:%.2f W:%.2f C:%.2f TUp:%.2f TW:%.2f\n", 
-        //        mouth.target.open, mouth.target.width, mouth.target.curve, 
-        //        mouth.target.tongueUp, mouth.target.tongueWidth);
-        //      logTimer = 0.0f;
-        // }
+//         // logTimer += dt;
+//         // if (logTimer > 0.2f) {
+//         //      printf("Tgt: O:%.2f W:%.2f C:%.2f TUp:%.2f TW:%.2f\n", 
+//         //        mouth.target.open, mouth.target.width, mouth.target.curve, 
+//         //        mouth.target.tongueUp, mouth.target.tongueWidth);
+//         //      logTimer = 0.0f;
+//         // }
 
-        EndDrawing();
-    }
-    mouth.Unload();
-    CloseWindow();
-    return 0;
-}
+//         EndDrawing();
+//     }
+//     mouth.Unload();
+//     CloseWindow();
+//     return 0;
+// }
