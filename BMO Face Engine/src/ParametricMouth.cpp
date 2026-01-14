@@ -236,6 +236,26 @@ struct FacialParams {
     float scale = 1.0f;
 };
 
+static FacialParams MakeDefaultParams() {
+    FacialParams p{};
+    p.open = 0.05f;
+    p.width = 0.5f;
+    p.curve = 0.2f;
+    p.squeezeTop = 0.0f;
+    p.squeezeBottom = 0.0f;
+    p.teethY = -1.0f;
+    p.tongueUp = 0.0f;
+    p.tongueX = 0.0f;
+    p.tongueWidth = 0.65f;
+    p.asymmetry = 0.0f;
+    p.squareness = 0.0f;
+    p.teethWidth = 0.5f;
+    p.teethGap = 45.0f;
+    p.scale = 1.0f;
+    return p;
+}
+
+
 struct ParametricMouth {
     FacialParams current, target, velocity;
     std::vector<Vector2> controlPoints; 
@@ -250,7 +270,7 @@ struct ParametricMouth {
     bool usePhysics = true;
     const float SS = 4.0f; 
     // CHANGE 1024 TO 2048
-    const int RT_SIZE = 2048;
+    const int RT_SIZE = 1024;
 
     Color colBg     = { 61, 93, 55, 255 };
     Color colLine   = { 20, 35, 20, 255 };
@@ -272,13 +292,7 @@ struct ParametricMouth {
         SetTextureFilter(maskTexture.texture, TEXTURE_FILTER_BILINEAR);
         textureLoaded = true;
         
-        target = { 0.05f, 0.5f, 0.2f,
-           0.0f, 0.0f,
-          -1.0f,
-           0.0f, 0.0f, 0.65f,
-           0.0f, 0.0f,
-           0.5f, 45.0f,
-           1.0f };
+        target = MakeDefaultParams();
         current = target;
     }
 
@@ -298,7 +312,7 @@ struct ParametricMouth {
         target.squareness  = Clamp(target.squareness, 0.0f, 1.0f);
         target.teethWidth  = Clamp(target.teethWidth, 0.1f, 0.95f);
         target.teethGap    = Clamp(target.teethGap, 0.0f, 100.0f);
-        target.scale      = Clamp(target.scale, 0.5f, 5.0f); // Allows 0.5x to 5x scaling
+        target.scale      = Clamp(target.scale, 0.5f, SS); // Allows 0.5x to 5x scaling
 
         if (!usePhysics) { 
             current = target; 
@@ -344,7 +358,7 @@ struct ParametricMouth {
         current.squareness  = Clamp(current.squareness, 0.0f, 1.0f);
         current.teethWidth = Clamp(current.teethWidth, 0.1f, 0.95f);
         current.teethGap   = Clamp(current.teethGap, 0.0f, 100.0f);
-        current.scale      = Clamp(current.scale, 0.5f, 5.0f);
+        current.scale      = Clamp(current.scale, 0.5f, SS);
     }
 
     // Tongue with Radial Clamping
@@ -620,6 +634,7 @@ struct ParametricMouth {
                 float tt = (float)k / (float)subDivs;
                 smoothContour.push_back(CatmullRom(p0, p1, p2, p3, tt));
         }
+    }
         RemoveNearDuplicates(smoothContour);
         NormalizeContourForTeeth(smoothContour);
 
@@ -817,71 +832,3 @@ struct ParametricMouth {
     }
 };
 
-int main() {
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    InitWindow(1280, 720, "BMO Rig - GOLDEN MASTER + TONGUE");
-    SetTargetFPS(60);
-
-    ParametricMouth mouth;
-    mouth.Init({640, 360});
-    
-    float logTimer = 0.0f;
-
-    while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
-        
-        if (IsKeyDown(KEY_Q)) mouth.target.open += 2.0f * dt;
-        if (IsKeyDown(KEY_A)) mouth.target.open -= 2.0f * dt;
-        if (IsKeyDown(KEY_W)) mouth.target.width += 1.0f * dt;
-        if (IsKeyDown(KEY_S)) mouth.target.width -= 1.0f * dt;
-        if (IsKeyDown(KEY_E)) mouth.target.curve += 2.0f * dt; 
-        if (IsKeyDown(KEY_D)) mouth.target.curve -= 2.0f * dt; 
-        if (IsKeyDown(KEY_T)) mouth.target.teethY += 2.0f * dt;
-        if (IsKeyDown(KEY_G)) mouth.target.teethY -= 2.0f * dt;
-        if (IsKeyDown(KEY_R)) mouth.target.squeeze += 2.0f * dt;
-        if (IsKeyDown(KEY_F)) mouth.target.squeeze -= 2.0f * dt;
-        if (IsKeyPressed(KEY_SPACE)) mouth.usePhysics = !mouth.usePhysics;
-
-        if (IsKeyDown(KEY_Y)) mouth.target.tongueUp += 2.0f * dt;
-        if (IsKeyDown(KEY_H)) mouth.target.tongueUp -= 2.0f * dt;
-        if (IsKeyDown(KEY_U)) mouth.target.tongueWidth += 1.0f * dt;
-        if (IsKeyDown(KEY_J)) mouth.target.tongueWidth -= 1.0f * dt;
-
-        if (IsKeyDown(KEY_Z)) mouth.debugTeethWidthRatio -= 0.5f * dt;
-        if (IsKeyDown(KEY_X)) mouth.debugTeethWidthRatio += 0.5f * dt;
-        if (IsKeyDown(KEY_C)) mouth.debugTeethGap -= 20.0f * dt;
-        if (IsKeyDown(KEY_V)) mouth.debugTeethGap += 20.0f * dt;
-
-        mouth.debugTeethWidthRatio = Clamp(mouth.debugTeethWidthRatio, 0.1f, 0.95f);
-        mouth.debugTeethGap = Clamp(mouth.debugTeethGap, 0.0f, 100.0f);
-
-        if (IsKeyPressed(KEY_ONE))   mouth.target = { 0.05f, 1.17f, 1.0f, 0.0f, -1.0f, 0.0f, 0.65f }; 
-        if (IsKeyPressed(KEY_TWO))   mouth.target = { 1.0f, 0.6f, 0.8f, 0.0f, 0.2f, 0.3f, 0.7f }; 
-        if (IsKeyPressed(KEY_THREE)) mouth.target = { 0.6f, 0.5f, 0.2f, 0.0f, -1.0f, 0.85f, 0.6f }; 
-        if (IsKeyPressed(KEY_FOUR))  mouth.target = { 0.5f, 0.8f, -0.2f, 0.0f, 0.0f, 0.1f, 0.8f }; 
-
-        mouth.UpdatePhysics(dt);
-        mouth.GenerateGeometry();
-        
-        BeginDrawing();
-        ClearBackground({201, 228, 195, 255}); 
-        mouth.Draw();
-        
-        DrawText("Controls: Q/A(Open) W/S(Width) E/D(Curve) R/F(Squeeze) T/G(TeethY)", 20, 20, 20, DARKGRAY);
-        DrawText("Tongue: Y/H(Up) U/J(Width) | Teeth: Z/X(Width) C/V(Gap)", 20, 50, 20, DARKGRAY);
-        DrawText("Size: UP/DOWN | Presets: 1-4", 20, 80, 20, DARKGRAY);
-        
-        // logTimer += dt;
-        // if (logTimer > 0.2f) {
-        //      printf("Tgt: O:%.2f W:%.2f C:%.2f TUp:%.2f TW:%.2f\n", 
-        //        mouth.target.open, mouth.target.width, mouth.target.curve, 
-        //        mouth.target.tongueUp, mouth.target.tongueWidth);
-        //      logTimer = 0.0f;
-        // }
-
-        EndDrawing();
-    }
-    mouth.Unload();
-    CloseWindow();
-    return 0;
-}

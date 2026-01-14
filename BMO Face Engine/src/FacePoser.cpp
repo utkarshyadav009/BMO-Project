@@ -15,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <unordered_map>
 
 // Include your rig
 #include "ParametricMouth.cpp" 
@@ -71,12 +72,14 @@ struct ReferenceAtlas {
 void AppendToDatabase(std::string name, FacialParams p) {
     std::ofstream file("visemes_database.txt", std::ios::app);
     if (file.is_open()) {
-        file << "visemes[\"" << name << "\"] = { " 
-             << p.open << "f, " << p.width << "f, " << p.curve << "f, " 
-             << p.squeezeTop << "f, "<<p.squeezeBottom<<"f, " << p.teethY << "f, " 
-             << p.tongueUp << "f, " << p.tongueWidth << "f, "<<p.tongueX<<"f, "
-             <<p.teethGap<<"f, "<<p.teethWidth<<"f, "
-             <<p.squareness<<"f, "<<p.scale<<"f, "<<p.asymmetry << "f };\n"; // Added asymmetry
+        file << "visemes[\"" << name << "\"] = { "
+        << p.open << "f, " << p.width << "f, " << p.curve << "f, "
+        << p.squeezeTop << "f, " << p.squeezeBottom << "f, "
+        << p.teethY << "f, "
+        << p.tongueUp << "f, " << p.tongueX << "f, " << p.tongueWidth << "f, "
+        << p.asymmetry << "f, " << p.squareness << "f, "
+        << p.teethWidth << "f, " << p.teethGap << "f, "
+        << p.scale << "f };\n";
         file.close();
         std::cout << "Saved: " << name << std::endl;
     }
@@ -86,7 +89,8 @@ void AppendToDatabase(std::string name, FacialParams p) {
 // MAIN EDITOR
 // ---------------------------------------------------------
 int main() {
-    InitWindow(1280, 800, "BMO Face Poser (GUI Edition)");
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    InitWindow(1280, 1000, "BMO Face Poser (GUI Edition)");
     SetTargetFPS(60);
 
     // GUI Styling
@@ -107,7 +111,6 @@ int main() {
 
     ParametricMouth rig;
     rig.Init({ 800, 360 }); // Move rig to the right side
-    rig.outputScale = 1.0f;
 
     ReferenceAtlas atlas;
     atlas.Load("assets/BMO_Animation_LipSyncSprite.png",
@@ -184,7 +187,7 @@ int main() {
             sy += rowH + rowGap;                                                       \
         } while (0)
 
-        DRAW_ROW_SLIDER("Scale",      rig.target.scale,         0.5f,  5.0f);
+        DRAW_ROW_SLIDER("Scale",      rig.target.scale,         0.5f,  4.0f);
         sy += spacerH;
         DRAW_ROW_SLIDER("Open",       rig.target.open,          0.0f,  1.2f);
         DRAW_ROW_SLIDER("Width",      rig.target.width,         0.1f,  1.5f);
@@ -248,7 +251,7 @@ int main() {
         // --- RIGHT PANEL: VIEWPORT ---
         // Draw Reference
         if (showReference && !atlas.mouthNames.empty()) {
-            atlas.Draw(atlas.mouthNames[currentIdx], rig.centerPos, rig.outputScale, refOpacity);
+            atlas.Draw(atlas.mouthNames[currentIdx], rig.centerPos, 1.0f, refOpacity);
         }
 
         // Draw Rig
