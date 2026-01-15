@@ -154,7 +154,9 @@ static FacialParams MakeDefaultParams() {
 
 struct ParametricMouth {
     FacialParams current, target, velocity;
-    
+    float sigma = 0.45f;
+    float power = 6.0f;
+    float maxLiftValue = 0.55f;
     std::vector<Vector2> controlPoints; 
     std::vector<Vector2> smoothContour; 
     std::vector<Vector2> topTeethPoly, botTeethPoly;
@@ -260,7 +262,6 @@ struct ParametricMouth {
         Upd(current.outlineThickness, velocity.outlineThickness, target.outlineThickness);
     }
 
-    // [IMPROVED] Now supports "D-Shape" flattening for BMO style
     void GenerateGeometry() {
         float cx = GEO_SIZE * 0.5f; 
         float cy = GEO_SIZE * 0.5f;
@@ -317,11 +318,31 @@ struct ParametricMouth {
             
             y -= rawBend * bendMult; 
 
-            // 3. SQUEEZE (Corner Pinching)
+            // 3. SQUEEZE (Center lift) - smooth bean bump
             float activeSqueeze = isTop ? current.squeezeTop : current.squeezeBottom;
-            float tX = std::abs(x) / w;
-            float influence = std::max(0.0f, cosf(tX * PI * 0.5f));
-            y *= (1.0f - (activeSqueeze * influence * 0.8f));
+                    
+            // Normalize position across width (0 at center, 1 at corners)
+            float tX = std::abs(x) / (w + 1e-6f);
+            tX = Clamp(tX, 0.0f, 1.0f);
+                    
+            // Super-Gaussian bump: 1 at center -> smoothly to 0 at edges
+            // sigma controls how wide the lifted region is.
+            // power controls how flat/round the top of the bump is.
+            // float sigma = 0.42f;      // try 0.45..0.70
+            // float power = 6.5f;       // 2 = gaussian, 4/6 = rounder "U"
+            float u = tX / sigma;
+            float influence = expf(-powf(u, power));  // very smooth
+                    
+            // Additive displacement (NOT scaling y) to preserve curvature
+            // Tie magnitude to h so it behaves consistently as mouth opens.
+            float maxLift = (h * maxLiftValue);              // try 0.45..0.75
+            float lift = activeSqueeze * influence * maxLift;
+                    
+            // Direction: top arch should go DOWN, bottom arch should go UP
+            // Using rawSin sign is robust with your topology.
+            float archSign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
+            y -= lift * archSign;
+
             
             controlPoints[i] = { cx + x, cy + y };
         }
@@ -370,21 +391,41 @@ struct ParametricMouth {
             tonguePoly.push_back({tongueCX + tongueW, tongueBase + 10});
             tonguePoly.push_back({tongueCX - tongueW, tongueBase + 10});
             
-            // NOTE: The "Safety Clamp" loop was removed here to keep tongue round
-            // The shader handles the masking now.
+            // ... Inside GenerateGeometry ...
 
+            // 1. Calculate Bounds
             float teethW = (maxX - minX) * current.teethWidth * 0.5f;
             float gap = current.teethGap * SS;
             float midY = cy + (current.teethY * 20.0f * SS);
-            
-            topTeethPoly = {
-                {cx - teethW, minY}, {cx + teethW, minY},
-                {cx + teethW, midY - gap/2}, {cx - teethW, midY - gap/2}
-            };
-            botTeethPoly = {
-                {cx - teethW, midY + gap/2}, {cx + teethW, midY + gap/2},
-                {cx + teethW, maxY}, {cx - teethW, maxY}
-            };
+
+            // CPU Culling Checks
+            float mouthTop = minY; 
+            float mouthBottom = maxY;
+            float topTeethEdge = midY - gap/2;
+            float botTeethEdge = midY + gap/2;
+
+            // 2. TOP TEETH (Simple Box)
+            // We only send the 4 corners. The shader will turn this into a round pill.
+            if(gap != 400 && topTeethEdge > mouthTop + 5.0f) 
+            {
+                topTeethPoly = {
+                    {cx - teethW, minY},         // Top Left
+                    {cx + teethW, minY},         // Top Right
+                    {cx + teethW, topTeethEdge}, // Bottom Right
+                    {cx - teethW, topTeethEdge}  // Bottom Left
+                };
+            }
+
+            // 3. BOTTOM TEETH (Simple Box)
+            if(gap != 400 && botTeethEdge < mouthBottom - 5.0f)
+            {
+                botTeethPoly = {
+                    {cx - teethW, botTeethEdge}, // Top Left
+                    {cx + teethW, botTeethEdge}, // Top Right
+                    {cx + teethW, maxY},         // Bottom Right
+                    {cx - teethW, maxY}          // Bottom Left
+                };
+            }
         }
     }
 
