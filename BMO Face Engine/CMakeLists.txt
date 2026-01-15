@@ -61,9 +61,15 @@ file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_BINARY_DIR})
 # This ensures LoadShader(0, "mouth_es.fs") works when you run the app.
 # This automatically puts the file next to the .exe (in /Debug/ or /Release/)
 add_custom_command(TARGET BMO_Engine POST_BUILD
+    # Copy Mouth Shader
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/src/mouth_es.fs"
     "$<TARGET_FILE_DIR:BMO_Engine>/mouth_es.fs"
+
+    # Copy Eye Shader [NEW]
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/eyes_es.fs"
+    "$<TARGET_FILE_DIR:BMO_Engine>/eyes_es.fs"
 )
 
 

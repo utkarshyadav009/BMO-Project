@@ -1,6 +1,6 @@
-// ParametricMouth.cpp
+// ShaderParametricMouth.cpp
 // SHADER-BASED IMPLEMENTATION
-// Fixes: Division by Zero protection, Robust Resampling
+// Fixes: Scaled Outlines & Rounded Teeth
 
 #include "raylib.h"
 #include "rlgl.h" 
@@ -17,11 +17,8 @@ static inline Vector2 V2Add(Vector2 a, Vector2 b) { return {a.x + b.x, a.y + b.y
 static inline Vector2 V2Sub(Vector2 a, Vector2 b) { return {a.x - b.x, a.y - b.y}; }
 static inline Vector2 V2Scale(Vector2 a, float s) { return {a.x * s, a.y * s}; }
 static inline int ClampInt(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi) ? hi : v; }
-
-// [FIX] Use hypotf for better precision and speed
 static inline float V2Dist(Vector2 a, Vector2 b) { return hypotf(b.x - a.x, b.y - a.y); }
 
-// Normalize Color for Shader (0..255 -> 0.0..1.0)
 static Vector4 ColorNormalize(Color c) {
     return { c.r/255.0f, c.g/255.0f, c.b/255.0f, c.a/255.0f };
 }
@@ -37,9 +34,8 @@ static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float 
 }
 
 // ------------------------------
-// Geometry Processing (Shader Prep)
+// Geometry Processing
 // ------------------------------
-
 static float GetPolyPerimeter(const std::vector<Vector2>& poly, bool closed) {
     float len = 0.0f;
     for (size_t i = 0; i < poly.size(); i++) {
@@ -49,7 +45,6 @@ static float GetPolyPerimeter(const std::vector<Vector2>& poly, bool closed) {
     return len;
 }
 
-// 2. Arc-Length Resampler
 static void ResamplePoly(const std::vector<Vector2>& input, float* outputFlat, int maxPts, int& outCount, float scale, Vector2 offset, bool closedLoop) {
     if (input.empty()) { outCount = 0; return; }
 
@@ -69,7 +64,6 @@ static void ResamplePoly(const std::vector<Vector2>& input, float* outputFlat, i
     outputFlat[0] = (input[0].x - offset.x) * scale;
     outputFlat[1] = (input[0].y - offset.y) * scale;
     int ptsEmitted = 1;
-
     float currentDist = 0.0f;
     float nextSample = step;
     
@@ -81,11 +75,7 @@ static void ResamplePoly(const std::vector<Vector2>& input, float* outputFlat, i
         Vector2 p2 = input[(i + 1) % input.size()];
         float segLen = V2Dist(p1, p2);
         
-        // [FIX] Prevent Division By Zero on duplicate points
-        if (segLen < 1e-6f) {
-            currentDist += segLen;
-            continue;
-        }
+        if (segLen < 1e-6f) { currentDist += segLen; continue; }
         
         while (nextSample <= currentDist + segLen) {
             float t = (nextSample - currentDist) / segLen;
@@ -95,7 +85,6 @@ static void ResamplePoly(const std::vector<Vector2>& input, float* outputFlat, i
             outputFlat[ptsEmitted*2]     = (px - offset.x) * scale;
             outputFlat[ptsEmitted*2 + 1] = (py - offset.y) * scale;
             ptsEmitted++;
-            
             nextSample += step;
             if (ptsEmitted >= maxPts) break;
         }
@@ -143,27 +132,6 @@ static void NormalizeContourForTeeth(std::vector<Vector2>& c) {
         RotateContourToLeftmost(c); 
     }
 }
-static bool IsPointInsidePoly(Vector2 p, const std::vector<Vector2>& poly) {
-    if (poly.size() < 3) return false;
-    return CheckCollisionPointPoly(p, const_cast<Vector2*>(poly.data()), (int)poly.size());
-}
-static Vector2 GetClosestPointOnPoly(Vector2 p, const std::vector<Vector2>& poly) {
-    float minDistSq = 1e10f;
-    Vector2 bestPoint = p;
-    for (size_t i = 0; i < poly.size(); i++) {
-        Vector2 a = poly[i];
-        Vector2 b = poly[(i + 1) % poly.size()];
-        Vector2 ap = V2Sub(p, a);
-        Vector2 ab = V2Sub(b, a);
-        float denom = (ab.x * ab.x + ab.y * ab.y);
-        if (denom < 1e-6f) continue;
-        float t = Clamp((ap.x * ab.x + ap.y * ab.y) / denom, 0.0f, 1.0f);
-        Vector2 closest = V2Add(a, V2Scale(ab, t));
-        float dSq = powf(p.x - closest.x, 2) + powf(p.y - closest.y, 2);
-        if (dSq < minDistSq) { minDistSq = dSq; bestPoint = closest; }
-    }
-    return bestPoint;
-}
 
 // ------------------------------
 // MAIN CLASS
@@ -173,7 +141,7 @@ struct FacialParams {
     float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
     float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
-    float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f;
+    float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
 };
 
 static FacialParams MakeDefaultParams() {
@@ -199,11 +167,11 @@ struct ParametricMouth {
     int locTopPts, locTopCnt;
     int locBotPts, locBotCnt;
     int locTonguePts, locTongueCnt;
-    int locRes, locPadding, locColBg, locColLine, locColTeeth, locColTongue;
+    int locRes, locPadding, locScale, locOutlineThickness;
+    int locColBg, locColLine, locColTeeth, locColTongue;
 
     Vector2 centerPos; 
     bool usePhysics = true;
-
     const float GEO_SIZE = 1024.0f;
     const float SS = 4.0f; 
 
@@ -222,28 +190,37 @@ struct ParametricMouth {
         botTeethPoly.reserve(64);
         tonguePoly.reserve(64);
         
-        if (!FileExists("mouth_es.fs")) {
-            std::cout << "\n[Mouth] ERROR: mouth_es.fs NOT FOUND!" << std::endl;
+        // Robust Shader Loading
+        const char* filename = "mouth_es.fs";
+        std::string path = std::string(GetApplicationDirectory()) + filename;
+        if (!FileExists(path.c_str())) path = filename;
+
+        if (!FileExists(path.c_str())) {
+             std::cout << "\n[CRITICAL] SHADER FILE MISSING AT: " << path << std::endl;
         } else {
-            sdfShader = LoadShader(0, "mouth_es.fs");
-            if (sdfShader.id > 0) {
-                shaderLoaded = true;
-                locMouthPts = GetShaderLocation(sdfShader, "uMouthPts");
-                locMouthCnt = GetShaderLocation(sdfShader, "uMouthCount");
-                locTopPts   = GetShaderLocation(sdfShader, "uTopTeethPts");
-                locTopCnt   = GetShaderLocation(sdfShader, "uTopTeethCount");
-                locBotPts   = GetShaderLocation(sdfShader, "uBotTeethPts");
-                locBotCnt   = GetShaderLocation(sdfShader, "uBotTeethCount");
-                locTonguePts= GetShaderLocation(sdfShader, "uTonguePts");
-                locTongueCnt= GetShaderLocation(sdfShader, "uTongueCount");
-                locRes      = GetShaderLocation(sdfShader, "uResolution");
-                locPadding  = GetShaderLocation(sdfShader, "uPadding");
-                locColBg    = GetShaderLocation(sdfShader, "uColBg");
-                locColLine  = GetShaderLocation(sdfShader, "uColLine");
-                locColTeeth = GetShaderLocation(sdfShader, "uColTeeth");
-                locColTongue= GetShaderLocation(sdfShader, "uColTongue");
-                std::cout << "[Mouth] Shader Loaded. ID: " << sdfShader.id << std::endl;
-            }
+             sdfShader = LoadShader(0, path.c_str());
+             if (sdfShader.id > 0) {
+                 shaderLoaded = true;
+                 locMouthPts = GetShaderLocation(sdfShader, "uMouthPts");
+                 locMouthCnt = GetShaderLocation(sdfShader, "uMouthCount");
+                 locTopPts   = GetShaderLocation(sdfShader, "uTopTeethPts");
+                 locTopCnt   = GetShaderLocation(sdfShader, "uTopTeethCount");
+                 locBotPts   = GetShaderLocation(sdfShader, "uBotTeethPts");
+                 locBotCnt   = GetShaderLocation(sdfShader, "uBotTeethCount");
+                 locTonguePts= GetShaderLocation(sdfShader, "uTonguePts");
+                 locTongueCnt= GetShaderLocation(sdfShader, "uTongueCount");
+                 
+                 locRes      = GetShaderLocation(sdfShader, "uResolution");
+                 locPadding  = GetShaderLocation(sdfShader, "uPadding");
+                 locScale    = GetShaderLocation(sdfShader, "uScale"); // [NEW] Get Scale Loc
+                 locOutlineThickness = GetShaderLocation(sdfShader, "uOutlineThickness");
+                 
+                 locColBg    = GetShaderLocation(sdfShader, "uColBg");
+                 locColLine  = GetShaderLocation(sdfShader, "uColLine");
+                 locColTeeth = GetShaderLocation(sdfShader, "uColTeeth");
+                 locColTongue= GetShaderLocation(sdfShader, "uColTongue");
+                 std::cout << "[Mouth] SUCCESS: Shader Loaded. ID: " << sdfShader.id << std::endl;
+             }
         }
         target = MakeDefaultParams();
         current = target;
@@ -280,10 +257,9 @@ struct ParametricMouth {
         Upd(current.teethWidth, velocity.teethWidth, target.teethWidth);
         Upd(current.teethGap,   velocity.teethGap,   target.teethGap);
         Upd(current.scale,     velocity.scale,     target.scale);
+        Upd(current.outlineThickness, velocity.outlineThickness, target.outlineThickness);
     }
 
-    // --- GEOMETRY GENERATION ---
-    // --- GEOMETRY GENERATION ---
     // [IMPROVED] Now supports "D-Shape" flattening for BMO style
     void GenerateGeometry() {
         float cx = GEO_SIZE * 0.5f; 
@@ -418,8 +394,6 @@ struct ParametricMouth {
 
         const float paddingPx = 8.0f; 
         float unitScale = (256.0f / GEO_SIZE) * current.scale;
-        
-        // [FIX] Guard against tiny scale causing divide-by-zero
         if (unitScale < 0.0001f) unitScale = 0.0001f;
 
         Rectangle boundsPhys = GetBoundingBox(smoothContour);
@@ -466,6 +440,9 @@ struct ParametricMouth {
             float res[2] = { screenRect.width, screenRect.height };
             SetShaderValue(sdfShader, locRes, res, SHADER_UNIFORM_VEC2);
             SetShaderValue(sdfShader, locPadding, &paddingPx, SHADER_UNIFORM_FLOAT);
+            // [NEW] Send current scale to Shader for outline correction
+            SetShaderValue(sdfShader, locScale, &current.scale, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(sdfShader, locOutlineThickness, &current.outlineThickness, SHADER_UNIFORM_FLOAT);
             
             Vector4 cBg = ColorNormalize(colBg);
             Vector4 cLn = ColorNormalize(colLine);
