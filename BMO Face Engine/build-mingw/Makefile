@@ -245,29 +245,29 @@ update_mappings/fast:
 	$(MAKE) $(MAKESILENT) -f _deps\raylib-build\raylib\external\glfw\src\CMakeFiles\update_mappings.dir\build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 .PHONY : update_mappings/fast
 
-src/SoftBodyMouth.obj: src/SoftBodyMouth.cpp.obj
-.PHONY : src/SoftBodyMouth.obj
+src/FaceEngineV2.obj: src/FaceEngineV2.cpp.obj
+.PHONY : src/FaceEngineV2.obj
 
 # target to build an object file
-src/SoftBodyMouth.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.obj
-.PHONY : src/SoftBodyMouth.cpp.obj
+src/FaceEngineV2.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.obj
+.PHONY : src/FaceEngineV2.cpp.obj
 
-src/SoftBodyMouth.i: src/SoftBodyMouth.cpp.i
-.PHONY : src/SoftBodyMouth.i
+src/FaceEngineV2.i: src/FaceEngineV2.cpp.i
+.PHONY : src/FaceEngineV2.i
 
 # target to preprocess a source file
-src/SoftBodyMouth.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.i
-.PHONY : src/SoftBodyMouth.cpp.i
+src/FaceEngineV2.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.i
+.PHONY : src/FaceEngineV2.cpp.i
 
-src/SoftBodyMouth.s: src/SoftBodyMouth.cpp.s
-.PHONY : src/SoftBodyMouth.s
+src/FaceEngineV2.s: src/FaceEngineV2.cpp.s
+.PHONY : src/FaceEngineV2.s
 
 # target to generate assembly for a file
-src/SoftBodyMouth.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/SoftBodyMouth.cpp.s
-.PHONY : src/SoftBodyMouth.cpp.s
+src/FaceEngineV2.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.s
+.PHONY : src/FaceEngineV2.cpp.s
 
 # Help Target
 help:
@@ -288,9 +288,9 @@ help:
 	@echo ... BMO_Engine
 	@echo ... glfw
 	@echo ... raylib
-	@echo ... src/SoftBodyMouth.obj
-	@echo ... src/SoftBodyMouth.i
-	@echo ... src/SoftBodyMouth.s
+	@echo ... src/FaceEngineV2.obj
+	@echo ... src/FaceEngineV2.i
+	@echo ... src/FaceEngineV2.s
 .PHONY : help
 
 
