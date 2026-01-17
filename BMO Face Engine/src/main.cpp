@@ -307,7 +307,8 @@ int main() {
         bmo.Update(dt, time, isPlaying);
 
         BeginDrawing();
-        ClearBackground({131, 220, 169, 255}); 
+        ClearBackground({201, 228, 195, 255}); // BMO Face Color
+        //ClearBackground({131, 220, 169, 255}); // BMO Body Color
         
         bmo.Draw(W, H, time, isPlaying);
         

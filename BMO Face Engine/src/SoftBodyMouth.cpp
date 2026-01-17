@@ -192,7 +192,7 @@ struct SoftBlob {
         Vector2 delta = V2Sub(m, lastM);
         lastM = m;
 
-        physicsEnabled = IsKeyDown(KEY_SPACE); // Hold SPACE for physics
+        physicsEnabled = true; // Hold SPACE for physics
 
         if (IsKeyDown(KEY_LEFT_BRACKET)) ResizeBlob(0.99f);
         if (IsKeyDown(KEY_RIGHT_BRACKET)) ResizeBlob(1.01f);
