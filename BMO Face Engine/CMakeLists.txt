@@ -27,7 +27,7 @@ FetchContent_MakeAvailable(raygui)
 # SOURCE FILES
 # -----------------------------------------------------------------------------
 # Since FacePoser.cpp includes ParametricMouth.cpp directly, we only list FacePoser here.
-add_executable(BMO_Engine src/FaceEngineV2.cpp)
+add_executable(BMO_Engine src/SEyePoser.cpp)
 
 # Silence the "enum-compare" warnings from raygui
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
