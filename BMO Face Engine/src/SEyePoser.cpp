@@ -188,6 +188,8 @@ int main() {
     InitWindow(1280, 800, "BMO Eye Poser (Shader Edition)");
     SetTargetFPS(60);
 
+    Color starEyesColour = { 255, 184, 0, 255 };
+
     // Style Setup (Dark Theme)
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(WHITE));
@@ -249,7 +251,11 @@ int main() {
             renderP.lookX = rig.sLookX.val;
             renderP.lookY = rig.sLookY.val;
         }
-        rig.Draw(centerScreen, renderP, BLACK);
+
+        if(currentParams.shapeID<4.5 && currentParams.shapeID >3.5 || currentParams.shapeID >7.5)
+            rig.Draw(centerScreen, renderP, starEyesColour);
+        else   
+            rig.Draw(centerScreen, renderP, BLACK);
 
 
         // --- GUI ---
@@ -288,7 +294,9 @@ int main() {
 
         int shapeInt = (int)currentParams.shapeID;
         GuiLabel({startX+10, sy, labelW, 20}, "Shape");
-        GUI_SLIDE("Shape", currentParams.shapeID, 0.0f, 7.0f);
+        GUI_SLIDE("Shape", currentParams.shapeID, 0.0f, 8.0f);
+        if(currentParams.shapeID<6.5 && currentParams.shapeID >5.5)
+            GUI_SLIDE("SpiralSpeed", currentParams.spiralSpeed, -10.0f, 7.0f);
         sy += 25;
         
         GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);

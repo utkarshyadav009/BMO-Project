@@ -38,6 +38,7 @@ struct EyeParams {
     float scaleX = 1.0f;      
     float scaleY = 1.0f;      
     float spacing = 200.0f;   
+    float spiralSpeed = 1.2f;
 };
 
 struct ParametricEyes {
@@ -60,6 +61,7 @@ struct ParametricEyes {
     // Shader Locations
     int locRes, locColor, locShape, locBend, locThick, locPupil;
     int locEyebrow, locEyebrowY, locTears;
+    int locDeltaTime; int locSpiralSpeed;
 
     void Init() {
         // Try multiple paths to find the shader
@@ -79,6 +81,9 @@ struct ParametricEyes {
         locEyebrow  = GetShaderLocation(shader, "uEyebrow");
         locEyebrowY = GetShaderLocation(shader, "uEyebrowY");
         locTears    = GetShaderLocation(shader, "uTears");
+
+        locDeltaTime = GetShaderLocation(shader, "uTime");
+        locSpiralSpeed = GetShaderLocation(shader, "uSpiralSpeed");
     }
     
     void Unload() {
@@ -142,10 +147,23 @@ struct ParametricEyes {
     }
 
     // Helper to draw a single eye
-    // Helper to draw a single eye
     void DrawSingleEye(Rectangle rect, EyeParams p, Color c) {
         rlSetTexture(0);
         BeginShaderMode(shader);
+            // Apply Physics transforms
+            Rectangle drawRect = rect;
+            drawRect.x += sLookX.val;
+            drawRect.y += sLookY.val;
+            
+            // Apply Scaling from center
+            float oldW = drawRect.width;
+            float oldH = drawRect.height;
+            drawRect.width  *= sScaleX.val;
+            drawRect.height *= sScaleY.val;
+            drawRect.x += (oldW - drawRect.width) * 0.5f;
+            drawRect.y += (oldH - drawRect.height) * 0.5f;
+
+
             float res[2] = { rect.width, rect.height };
             SetShaderValue(shader, locRes, res, SHADER_UNIFORM_VEC2);
             float col[4] = { c.r/255.0f, c.g/255.0f, c.b/255.0f, c.a/255.0f };
@@ -165,18 +183,13 @@ struct ParametricEyes {
             SetShaderValue(shader, locEyebrowY, &p.eyebrowY, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shader, locTears,    &p.tears, SHADER_UNIFORM_FLOAT);
 
-            // Apply Physics transforms
-            Rectangle drawRect = rect;
-            drawRect.x += sLookX.val;
-            drawRect.y += sLookY.val;
+            //Time parameter to GPU 
+             float totalTime = (float)GetTime(); 
+            SetShaderValue(shader, locDeltaTime,    &totalTime, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shader, locSpiralSpeed,    &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
+
+
             
-            // Apply Scaling from center
-            float oldW = drawRect.width;
-            float oldH = drawRect.height;
-            drawRect.width  *= sScaleX.val;
-            drawRect.height *= sScaleY.val;
-            drawRect.x += (oldW - drawRect.width) * 0.5f;
-            drawRect.y += (oldH - drawRect.height) * 0.5f;
 
             rlBegin(RL_QUADS);
                 rlColor4ub(c.r, c.g, c.b, c.a);
