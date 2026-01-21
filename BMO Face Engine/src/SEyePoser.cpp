@@ -119,7 +119,7 @@ struct EyeDatabase {
                         std::replace(valStr.begin(), valStr.end(), 'f', ' ');
                         
                         std::stringstream ss(valStr);
-                        ss >> e.params.shapeID >> e.params.bend >> e.params.thickness 
+                        ss >> e.params.eyeShapeID >> e.params.bend >> e.params.thickness 
                            >> e.params.pupilSize >> e.params.lookX >> e.params.lookY 
                            >> e.params.scaleX >> e.params.scaleY >> e.params.spacing;
                         
@@ -150,7 +150,7 @@ struct EyeDatabase {
 
         std::stringstream newLine;
         newLine << "eyes[\"" << name << "\"] = { "
-                << p.shapeID << "f, " << p.bend << "f, " << p.thickness << "f, "
+                << p.eyeShapeID << "f, " << p.bend << "f, " << p.thickness << "f, "
                 << p.pupilSize << "f, " << p.lookX << "f, " << p.lookY << "f, "
                 << p.scaleX << "f, " << p.scaleY << "f, " << p.spacing << "f };";
 
@@ -188,7 +188,6 @@ int main() {
     InitWindow(1280, 800, "BMO Eye Poser (Shader Edition)");
     SetTargetFPS(60);
 
-    Color starEyesColour = { 255, 184, 0, 255 };
 
     // Style Setup (Dark Theme)
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
@@ -213,7 +212,6 @@ int main() {
     EyeParams currentParams;
     currentParams.scaleX = 1.0f; 
     currentParams.scaleY = 1.0f;
-    currentParams.spacing = 180.0f;
 
     int currentIdx = 0;
     bool showReference = true;
@@ -252,10 +250,8 @@ int main() {
             renderP.lookY = rig.sLookY.val;
         }
 
-        if(currentParams.shapeID<4.5 && currentParams.shapeID >3.5 || currentParams.shapeID >7.5)
-            rig.Draw(centerScreen, renderP, starEyesColour);
-        else   
-            rig.Draw(centerScreen, renderP, BLACK);
+          
+        rig.Draw(centerScreen, renderP, BLACK);
 
 
         // --- GUI ---
@@ -281,7 +277,7 @@ int main() {
         sy += 130.0f;
 
         // PARAMETERS
-        GuiGroupBox({startX, sy, w, 320}, "EYE SETTINGS");
+        GuiGroupBox({startX, sy, w, 280}, "EYE SETTINGS");
         sy += 20.0f;
         
         float labelW = 80; float valW = 50; float sliderW = w - labelW - valW - 30;
@@ -292,12 +288,15 @@ int main() {
             GuiLabel({startX+10+labelW+sliderW+5, sy, valW, 20}, TextFormat("%.2f", var)); \
             sy += 25;
 
-        int shapeInt = (int)currentParams.shapeID;
+        int shapeInt = (int)currentParams.eyeShapeID;
         GuiLabel({startX+10, sy, labelW, 20}, "Shape");
-        GUI_SLIDE("Shape", currentParams.shapeID, 0.0f, 8.0f);
-        if(currentParams.shapeID<6.5 && currentParams.shapeID >5.5)
+        GUI_SLIDE("Shape", currentParams.eyeShapeID, 0.0f, 8.0f);
+        if(currentParams.eyeShapeID < 6.5f && currentParams.eyeShapeID > 5.5f)
+        {
             GUI_SLIDE("SpiralSpeed", currentParams.spiralSpeed, -10.0f, 7.0f);
-        sy += 25;
+            sy += 10;
+
+        }
         
         GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);
         GUI_SLIDE("Thick", currentParams.thickness, 1.0f, 20.0f);
@@ -310,41 +309,58 @@ int main() {
         GUI_SLIDE("Look X", currentParams.lookX, -200.0f, 200.0f);
         GUI_SLIDE("Look Y", currentParams.lookY, -200.0f, 200.0f);
 
-        // NEW CONTROLS
-        sy += 10;
-        //GuiLabel({startX+10, sy, w, 20}, "--- EXTRAS ---"); sy += 20;
 
-        GUI_SLIDE("Eyebrow", currentParams.eyebrowType, 0.0f, 3.0f); // Snap this to int in logic if preferred
-        GUI_SLIDE("Brow Y", currentParams.eyebrowY, -50.0f, 50.0f);
-        GUI_SLIDE("Tears", currentParams.tears, 0.0f, 1.0f);
-        GUI_SLIDE("Highlight", currentParams.pupilSize, 0.0f, 1.0f); // Re-label pupil as Highlight/Pupil
-
-
-
-        // DATABASE LOAD
         sy += 30;
-        GuiGroupBox({startX, sy, w, 150}, "DATABASE LOAD");
+        GuiGroupBox({startX, sy, w, 110}, "ELEMENTS");
         sy += 20;
+        GuiCheckBox({startX+10, sy+10, 20, 20}, "Eyebrows", &currentParams.showBrow);
+        GuiCheckBox({startX+100, sy+10, 20, 20}, "Tears", &currentParams.showTears);
+        GuiCheckBox({startX+190, sy+10, 20, 20}, "Blush", &currentParams.showBlush);
         
-        if (GuiDropdownBox({startX+10, sy, w-50, 25}, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode)) {
-            dropdownEditMode = !dropdownEditMode;
+        sy += 40;
+
+        if (currentParams.showBrow) {
+              GUI_SLIDE("Brow Type", currentParams.eyebrowType, 0, 3);
+              GUI_SLIDE("Brow Y", currentParams.eyebrowY, -50, 50);
         }
-        if (GuiButton({startX+w-35, sy, 25, 25}, "R")) db.Load("eyes_database.txt");
+        sy += 10;
+
+        if (currentParams.showTears) {
+             GUI_SLIDE("Tear Lvl", currentParams.tearsLevel, 0, 1);
+        }
+
         
-        sy += 35;
-        if (GuiButton({startX+10, sy, w-20, 30}, "LOAD SELECTED")) {
+        
+        
+        // VIEWPORT CONTROLS
+        float vx = 1000; float vy = 20;
+
+        GuiGroupBox({vx, vy, w-70, 100}, "DATABASE LOAD");
+        vy += 20;
+
+        if (GuiButton({vx+10, vy+35, w-90, 30}, "LOAD SELECTED")) {
             if (!db.entries.empty() && dropdownActive < db.entries.size()) {
                 currentParams = db.entries[dropdownActive].params;
             }
         }
         
-        // VIEWPORT CONTROLS
-        float vx = 1000; float vy = 20;
+        if (GuiDropdownBox({vx+10, vy, w-120, 25}, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode)) {
+            dropdownEditMode = !dropdownEditMode;
+        }
+
+        if (GuiButton({vx+220, vy, 25, 25}, "R")) db.Load("eyes_database.txt");
+        
+
+        // DATABASE LOAD
+        vy += 600;
         GuiGroupBox({vx, vy, 250, 100}, "VIEWPORT");
         GuiCheckBox({vx+10, vy+25, 20, 20}, "Show Ref", &showReference);
         GuiSliderBar({vx+80, vy+55, 100, 20}, "Opac", NULL, &refOpacity, 0.0f, 1.0f);
         GuiCheckBox({vx+10, vy+80, 20, 20}, "Test Physics", &usePhysics);
 
+
+
+        
 
         // KEYBOARD
         if (IsKeyPressed(KEY_LEFT)) currentIdx--;

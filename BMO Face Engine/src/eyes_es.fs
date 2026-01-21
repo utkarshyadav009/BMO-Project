@@ -7,289 +7,219 @@ uniform vec2 uResolution;
 uniform vec4 uColor;
 
 // --- PARAMS ---
-uniform float uShapeID;      // 0=Dot, 1=Line, 2=Arc, 3=Cross, 4=Star, 5=Heart, 6=Spiral, 7=Chevron
-uniform float uBend;         // shape-dependent params
-uniform float uThickness;    // line half-thickness
+uniform float uShapeID;      // 0-8=Eyes, 10=Blush, 20=Eyebrow, 21=Tears
+uniform float uBend;         
+uniform float uThickness;    
 uniform float uPupilSize;    
 
-// NEW PARAMS
-uniform float uEyebrow;      
+// ELEMENT TOGGLES (0 = Off, 1 = On)
+uniform int uShowBrow;
+uniform int uShowTears;
+uniform int uShowBlush;
+
+// ELEMENT PARAMS
+uniform float uEyebrowType;  // 0=None, 1=Angry, 2=Sad, 3=Raised
 uniform float uEyebrowY;     
-uniform float uTears;   
-uniform float uSpiralSpeed;     
+uniform float uTearsLevel;   // 0.0 to 1.0
 uniform float uTime; 
+uniform float uSpiralSpeed;
+
+// NEW: DISTORTION (For eyebrows or wavy eyes)
+uniform int uDistortMode;
+
 
 // ---------------------------
-// SDF helpers
+// SDF HELPERS (Keep existing)
 // ---------------------------
 float sdCircle(vec2 p, float r) { return length(p) - r; }
-
-float sdBox(vec2 p, vec2 b) {
-    vec2 d = abs(p) - b;
-    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
-}
-
+float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
 float sdSegment(vec2 p, vec2 a, vec2 b) {
-    vec2 pa = p - a, ba = b - a;
-    float denom = dot(ba, ba);
-    float h = (denom > 1e-8) ? clamp(dot(pa, ba) / denom, 0.0, 1.0) : 0.0;
-    return length(pa - ba * h);
+    vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h);
 }
-
-vec2 rotate2D(vec2 p, float a) {
-    float s = sin(a), c = cos(a);
-    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
-}
-
+vec2 rotate2D(vec2 p, float a) { float s = sin(a), c = cos(a); return vec2(c*p.x - s*p.y, s*p.x + c*p.y); }
 float sdArc(vec2 p, float ra, float rb, float aperture) {
-    vec2 sc = vec2(sin(aperture), cos(aperture));
-    p.x = abs(p.x);
-    float k = (sc.y*p.x > sc.x*p.y) ? length(p - sc*ra) : abs(length(p) - ra);
-    return k - rb;
+    vec2 sc = vec2(sin(aperture), cos(aperture)); p.x = abs(p.x);
+    float k = (sc.y*p.x > sc.x*p.y) ? length(p - sc*ra) : abs(length(p) - ra); return k - rb;
 }
 
 // ---------------------------
-// STAR FUNCTIONS
+// SHAPE FUNCTIONS (Keep existing)
 // ---------------------------
-
-// 5-POINT STAR (Fixed for Scale)
 float sdStar5(vec2 p, float r, float rf) {
-    // 1. Normalize to Unit Space (Fixes the black fill issue)
-    p /= r;
-    float inner = rf / r; // Normalize inner radius
-
-    const vec2 k1 = vec2(0.809016994375, -0.587785252292);
-    const vec2 k2 = vec2(-k1.x, k1.y);
-    
-    p.x = abs(p.x);
-    p -= 2.0 * max(dot(k1, p), 0.0) * k1;
-    p -= 2.0 * max(dot(k2, p), 0.0) * k2;
-    p.x = abs(p.x);
-    p.y -= 1.0; // Top point is now at 1.0
-    
-    vec2 ba = inner * vec2(-k1.y, k1.x) - vec2(0, 1);
+    p /= r; float inner = rf / r; const vec2 k1 = vec2(0.809016994375, -0.587785252292); const vec2 k2 = vec2(-k1.x, k1.y);
+    p.x = abs(p.x); p -= 2.0 * max(dot(k1, p), 0.0) * k1; p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+    p.x = abs(p.x); p.y -= 1.0; vec2 ba = inner * vec2(-k1.y, k1.x) - vec2(0, 1);
     float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, 1.0);
-    
-    // 2. Denormalize return value back to Pixels
     return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y) * r;
 }
-
-// 4-POINT SHURIKEN (Fixed Sign)
 float sdStar4(vec2 p, float r, float rf) {
-    // 1. Normalize
-    p /= r;
-    float k = rf / r; // inner ratio
-    
-    // 2. Symmetry (1/8th sector)
-    p = abs(p);
-    if (p.x < p.y) p = p.yx;
-    
-    // 3. Edge definition
-    const float s = 0.70710678; // sin(45)
-    vec2 p1 = vec2(1.0, 0.0);
-    vec2 p2 = vec2(k*s, k*s); // Inner valley at 45 deg
-    
-    vec2 e = p2 - p1;
-    vec2 w = p - p1;
-    
-    // 4. Distance to edge
-    vec2 b = w - e*clamp(dot(w,e)/dot(e,e), 0.0, 1.0);
-    float d = length(b);
-    
-    // 5. Sign Correction
-    // Cross product: e.x*w.y - e.y*w.x
-    // det > 0 means we are on the "inside" of the edge vector.
-    // SDF Convention: Inside must be NEGATIVE.
-    float det = e.x*w.y - e.y*w.x;
-    float sgn = (det > 0.0) ? -1.0 : 1.0; // [FIXED] Flipped sign here
-    
+    p /= r; float k = rf / r; p = abs(p); if (p.x < p.y) p = p.yx;
+    const float s = 0.70710678; vec2 p1 = vec2(1.0, 0.0); vec2 p2 = vec2(k*s, k*s);
+    vec2 e = p2 - p1; vec2 w = p - p1; vec2 b = w - e*clamp(dot(w,e)/dot(e,e), 0.0, 1.0);
+    float d = length(b); float det = e.x*w.y - e.y*w.x; float sgn = (det > 0.0) ? -1.0 : 1.0; 
     return d * sgn * r;
 }
-
 float sdHeart(vec2 p) {
     p.x = abs(p.x);
-    p.y += 0.25;
-    float a = atan(p.x, p.y) / 3.14159265;
-    float r = length(p);
-    float h = abs(a);
-    float d = r - (0.8 - 0.2*h);
-    d = max(d, -(p.y - 0.15));
-    return d;
+    if (p.y + p.x > 1.0) { vec2 d = p - vec2(0.25, 0.75); return sqrt(dot(d,d)) - sqrt(2.0)/4.0; }
+    vec2 d1 = p - vec2(0.00, 1.00); vec2 d2 = p - 0.5 * max(p.x + p.y, 0.0);
+    return sqrt(min(dot(d1,d1), dot(d2,d2))) * sign(p.x - p.y);
 }
-
-// ---------------------------
-// ARTIFACT-FREE SPIRAL
-// ---------------------------
-float sdSpiral(vec2 p, float R, float turns, float halfTh, float thetaOffset, float dir, float osc)
-{
+float sdSpiral(vec2 p, float R, float turns, float halfTh, float thetaOffset, float dir, float osc) {
     const float TWO_PI = 6.2831853;
-
-    // 1. Transform Space
-    p.x *= dir; // Flip X
-    float r = length(p);
-    float a = atan(p.y, p.x);
-    a -= thetaOffset; // Rotate
-
-    // 2. Dynamic Spacing
+    p.x *= dir; float r = length(p); float a = atan(p.y, p.x); a -= thetaOffset; 
     float spacing = (R / max(turns, 1e-4)) * (1.0 + 0.05 * osc);
-
-    // 3. Estimate closest winding
-    // r ~= spacing * (n + a/2pi)  ->  n ~= r/spacing - a/2pi
-    float n_est = (r / spacing) - (a / TWO_PI);
-    float n_center = round(n_est);
-
-    // 4. Check Neighbors (The "Iterative" Fix)
-    // We check the estimated ring, plus the inner and outer neighbors.
-    // This removes the "seam" artifact where the winding number jumps.
-    
+    float n_est = (r / spacing) - (a / TWO_PI); float n_center = round(n_est);
     float minD = 1e5;
-
     for(float i = -1.0; i <= 1.0; i += 1.0) {
-        float k = n_center + i;
-
-        // Calculate the angle "phi" for this specific winding
-        // phi goes from 0 to infinity along the spiral line
-        float phi = TWO_PI * k + a;
-
-        // 5. CLAMP the spiral (The Fade Fix)
-        // By clamping phi, we restrict the geometry to exactly the requested turns.
-        // If the pixel is past the end, "phi_clamped" becomes the tip angle.
-        // The distance calculation then naturally becomes the distance to the tip cap.
+        float k = n_center + i; float phi = TWO_PI * k + a;
         float phi_clamped = clamp(phi, 0.0, turns * TWO_PI);
-
-        // Calculate the point on the spiral curve at phi_clamped
         float r_curve = spacing * (phi_clamped / TWO_PI);
-        
-        // Note: We must use phi_clamped for the position!
         vec2 p_curve = vec2(cos(phi_clamped), sin(phi_clamped)) * r_curve;
-
-        // Distance from pixel p to this point on the curve
-        float dist = distance(p, p_curve);
-        minD = min(minD, dist);
+        minD = min(minD, distance(p, p_curve));
     }
-
-    // Subtract thickness
     return minD - halfTh;
 }
 
-// Replace your old aaFill with this
-float aaFill(float d) {
-    // Don't use fwidth(d). It explodes on discontinuities.
-    // Use a fixed pixel width (1.5 is a safe blur amount).
-    return 1.0 - smoothstep(-0.75, 0.75, d);
-}
+// ---------------------------
+// ANTI-ALIASING
+// ---------------------------
+float aaFill_HighQuality(float d) { float w = fwidth(d); w = max(w, 1.0); return 1.0 - smoothstep(0.0, w, d); }
+float aaFill_Safe(float d) { return 1.0 - smoothstep(-0.75, 0.75, d); }
 
-// // Proper AA from derivatives
-// float aaFill(float d) {
-//     float w = fwidth(d);
-//     w = max(w, 1.0);
-//     return 1.0 - smoothstep(0.0, w, d);
-// }
-
+// ---------------------------
+// MAIN
+// ---------------------------
 void main() {
     vec2 p = (fragTexCoord - 0.5) * uResolution;
     float r = 0.4 * min(uResolution.x, uResolution.y);
     float th = max(uThickness, 1.0); 
+    bool useSafeAA = false; 
 
-    float d = 1e10;
+    // -------------------------
+    // A) EYE SHAPE (uShapeID 0..8)
+    // -------------------------
+    float dEye = 1e10;
 
-    // --- 1) BASE EYE SHAPE ---
-    if (uShapeID < 0.5) { // 0: DOT
-        d = sdCircle(p, r);
+    // Domain Distortion (Only affects Eye, not Brow)
+    vec2 pEye = p; 
+    if (uDistortMode == 1) { 
+        float nx = pEye.x / r; 
+        pEye.y += (nx * nx) * (uBend * 0.5) * r;
+    }
+
+    if (uShapeID < 0.5) { // DOT
+        dEye = sdCircle(pEye, r);
         if (uPupilSize > 0.001) {
-            vec2 hlPos = p - vec2(r * 0.28, -r * 0.28);
-            float hl = sdCircle(hlPos, r * 0.28);
-            d = max(d, -hl * clamp(uPupilSize, 0.0, 1.0));
+            vec2 hlPos = pEye - vec2(r * 0.28, -r * 0.28);
+            dEye = max(dEye, -sdCircle(hlPos, r * 0.28) * clamp(uPupilSize, 0.0, 1.0));
         }
     }
-    else if (uShapeID < 1.5) { // 1: LINE
-        d = sdBox(p, vec2(r, th));
-    }
-    else if (uShapeID < 2.5) { // 2: ARC
+    else if (uShapeID < 1.5) { dEye = sdBox(pEye, vec2(r, th)); }
+    else if (uShapeID < 2.5) { // ARC
         float bend = clamp(uBend, -1.0, 1.0);
-        vec2 pp = p;
-        pp.y *= (bend >= 0.0) ? -1.0 : 1.0;
+        vec2 pp = pEye; pp.y *= (bend >= 0.0) ? -1.0 : 1.0;
         float a = mix(1.35, 0.85, abs(bend));
-        float w = max(1.2, 0.001); // avoid divide by 0
-        pp.x /= w; 
-        d = sdArc(pp, r * 0.85, th, a);
+        vec2 pp2 = pp; pp2.x /= max(1.2, 0.001); 
+        dEye = sdArc(pp2, r * 0.85, th, a);
     }
-    else if (uShapeID < 3.5) { // 3: CROSS
-        vec2 p1 = rotate2D(p, 0.785398);
-        vec2 p2 = rotate2D(p, -0.785398);
-        d = min(sdBox(p1, vec2(r, th)), sdBox(p2, vec2(r, th)));
+    else if (uShapeID < 3.5) { // CROSS
+        vec2 p1 = rotate2D(pEye, 0.785398); vec2 p2 = rotate2D(pEye, -0.785398);
+        dEye = min(sdBox(p1, vec2(r, th)), sdBox(p2, vec2(r, th)));
     }
-    else if (uShapeID < 4.5) { // 4: STAR (5-POINT)
-        // Map uBend (-1 to 1) to Inner Radius (0.2 to 0.7)
-        // Default (uBend=0) gives 0.5 ratio
+    else if (uShapeID < 4.5) { // STAR 5
         float sharp = 0.5 + (uBend * 0.3); 
-        d = sdStar5(p, r, r * sharp);
+        dEye = sdStar5(rotate2D(pEye, -0.610865), r, r * sharp);
     }
-    else if (uShapeID < 5.5) { // 5: HEART
-        vec2 hp = p / (r * 0.95);
-        d = sdHeart(hp) * (r * 0.95);
+    else if (uShapeID < 5.5) { // HEART
+        vec2 hp = pEye / (r * 1.0); hp.y *= -1.0; hp.y += 0.5;
+        dEye = sdHeart(hp) * (r * 1.0);
     }
-    else if (uShapeID < 6.5) { // 6: SPIRAL
-        float turns = 3.0;
-        float R = r * 0.92; // Max radius
-        float dir = (uBend >= 0.0) ? 1.0 : -1.0;
-
-        float spin      = uTime * uSpiralSpeed;           // rigid rotation
-        float osc       = sin(uTime * 1.7);      // breathing
-
-        vec2 pSpin = rotate2D(p, spin);
-
-        d = sdSpiral(pSpin, R, turns, th, 0, dir, osc);
-        
+    else if (uShapeID < 6.5) { // SPIRAL
+        useSafeAA = true;
+        float turns = 3.0; float R = r * 0.92; float dir = (uBend >= 0.0) ? 1.0 : -1.0;
+        float spin = uTime * uSpiralSpeed;
+        dEye = sdSpiral(rotate2D(pEye, spin), R, turns, th, 0, dir, 0.0);
     }
-    else if (uShapeID < 7.5){ // 7: CHEVRON
-        float dir = (uBend >= 0.0) ? 1.0 : -1.0;
-        vec2 pc = vec2(p.x * dir, p.y);
-        vec2 a = vec2(-r * 0.45, -r * 0.35);
-        vec2 b = vec2( r * 0.35,  0.00);
-        vec2 c = vec2(-r * 0.45,  r * 0.35);
-        d = min(sdSegment(pc, a, b) - th, sdSegment(pc, c, b) - th);
+    else if (uShapeID < 7.5){ // CHEVRON
+        float dir = (uBend >= 0.0) ? 1.0 : -1.0; vec2 pc = vec2(pEye.x * dir, pEye.y);
+        vec2 a = vec2(-r * 0.45, -r * 0.35); vec2 b = vec2( r * 0.35,  0.00); vec2 c = vec2(-r * 0.45,  r * 0.35);
+        dEye = min(sdSegment(pc, a, b) - th, sdSegment(pc, c, b) - th);
     }
-    else { // 8: SHURIKEN (4-POINT STAR)
-        // Map uBend to sharpness
-        float sharp = 0.4 + (uBend * 0.3);
-        d = sdStar4(p, r, r * sharp);
+    else { // SHURIKEN
+        float sharp = 0.4 + (uBend * 0.3); dEye = sdStar4(pEye, r, r * sharp);
     }
-
-    // --- 2) EYEBROWS ---
-    if (uEyebrow > 0.5) {
-        float browBaseY = -r * 1.25 + uEyebrowY;
+    
+    // -------------------------
+    // B) EYEBROWS
+    // -------------------------
+    float dBrow = 1e10;
+    if (uShowBrow == 1) {
+        float browBaseY = -r * 1.5 + uEyebrowY; // Position above eye
         vec2 bp = p - vec2(0.0, browBaseY);
-        float mode = uEyebrow;
-        float browAngle = 0.0;
-        float raise = 0.0;
-        if (mode < 1.5) { browAngle = 0.45; }
-        else if (mode < 2.5) { browAngle = -0.45; }
-        else { browAngle = 0.0; raise = -r * 0.12; }
-        bp.y += raise;
+        float mode = uEyebrowType;
+        float browAngle = (mode < 1.5) ? 0.45 : (mode < 2.5) ? -0.45 : 0.0;
+        
         vec2 br = rotate2D(bp, browAngle);
-        d = min(d, sdBox(br, vec2(r * 0.75, th * 0.85)));
+        
+        // Use uBend for brow curve (Parabola)
+        float nx = br.x / r; 
+        br.y += (nx * nx) * (uBend * 0.5) * r;
+
+        dBrow = sdBox(br, vec2(r * 0.8, th * 0.85));
     }
 
-    // --- 3) TEARS ---
-    if (uTears > 0.01) {
-        float t = clamp(uTears, 0.0, 1.0);
-        vec2 start = vec2(0.0, r * 0.65);
-        vec2 end   = vec2(0.0, r * (1.75 + 0.5 * t));
-        vec2 tp = p;
-        tp.x -= sin(tp.y * 0.03) * (r * 0.05) * t;
+    // -------------------------
+    // C) TEARS
+    // -------------------------
+    float dTear = 1e10;
+    if (uShowTears == 1 && uTearsLevel > 0.01) {
+        float t = clamp(uTearsLevel, 0.0, 1.0);
+        vec2 start = vec2(0.0, -r); 
+        vec2 end   = vec2(0.0, r * (0.5 + 1.5 * t));
+        vec2 tp = p; tp.x -= sin(tp.y * 0.03) * (r * 0.05) * t;
         float stream = sdSegment(tp, start, end) - (th * 0.65) * mix(0.8, 1.3, t);
         float drop = sdCircle(tp - end, r * 0.10 * mix(0.8, 1.25, t));
-        float mask = (p.y > start.y) ? -1e5 : 1e5;
-        d = min(d, max(min(stream, drop), mask));
+        dTear = min(stream, drop);
     }
 
-    // --- Final shading ---
-    vec4 color = uColor;
-    color.a *= aaFill(d);
+    // -------------------------
+    // D) BLUSH (Alpha Only)
+    // -------------------------
+    float blushAlpha = 0.0;
+    if (uShowBlush == 1) {
+        float dBlush = sdCircle(p - vec2(0.0, r*2), r * 0.6); // Below eye
+        blushAlpha = 1.0 - smoothstep(0.0, r, dBlush + r * 0.2);
+        blushAlpha *= 0.5; // Opacity
+    }
 
-    if (color.a < 0.01) discard;
-    finalColor = color;
+    // -------------------------
+    // E) COMBINE & COLOR
+    // -------------------------
+    
+    // 1. Determine Main Shape Distance
+    float dSolid = min(dEye, min(dBrow, dTear));
+    
+    // 2. Determine Color (Multi-Material Support!)
+    vec3 outColor = uColor.rgb; // Default to Eye Color
+    
+    // If Brow is the closest shape, make it Black
+    if (dBrow < dEye && dBrow < dTear) {
+        outColor = vec3(0.0, 0.0, 0.0);
+    }
+    // If Tear is the closest shape, make it Blue
+    else if (dTear < dEye && dTear < dBrow) {
+        outColor = vec3(0.4, 0.7, 1.0);
+    }
+
+    // 3. Alpha Calculation
+    float alpha = (useSafeAA ? aaFill_Safe(dSolid) : aaFill_HighQuality(dSolid));
+    
+    // 4. Mix Blush (Additive-ish)
+    vec3 blushColor = vec3(1.0, 0.7, 0.8); // Pink
+    outColor = mix(outColor, blushColor, blushAlpha);
+    alpha = max(alpha, blushAlpha);
+
+    if (alpha < 0.01) discard;
+    finalColor = vec4(outColor, alpha);
 }
-
-

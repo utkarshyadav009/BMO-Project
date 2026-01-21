@@ -23,26 +23,37 @@ struct Spring {
 };
 
 struct EyeParams {
-    float shapeID = 0.0f;     // 0=Dot, 1=Line, 2=Arc, 3=Cross, 4=Star, 5=Heart, 6=Spiral, 7=Chevron
+    float eyeShapeID = 0.0f;     // 0=Dot, 1=Line, 2=Arc, 3=Cross, 4=Star, 5=Heart, 6=Spiral, 7=Chevron
     float bend = 0.0f;        
     float thickness = 4.0f;   
     float pupilSize = 0.0f;   // Used for Pupil OR Highlight size
     
-    // NEW PARAMS
-    float eyebrowType = 0.0f; // 0=None, 1=Angry, 2=Sad, 3=Neutral
-    float eyebrowY = 0.0f;    // Offset Y
-    float tears = 0.0f;       // 0.0 to 1.0
-    
     float lookX = 0.0f;
-    float lookY = 0.0f;
+    float lookY = 62.50f;
     float scaleX = 1.0f;      
     float scaleY = 1.0f;      
-    float spacing = 200.0f;   
-    float spiralSpeed = 1.2f;
+    float spacing = 612.0f;   
+    
+    // TOGGLES
+    bool showBrow = false;
+    bool showTears = false;
+    bool showBlush = false;
+
+    // ELEMENT DETAILS
+    float eyebrowType = 0.0f; 
+    float eyebrowY = 0.0f;
+    float tearsLevel = 0.0f;
+
+    // EXTRAS
+    int distortMode = 0;      
+    float spiralSpeed = -1.2f;
 };
 
 struct ParametricEyes {
     Shader shader;
+
+    Color starEyesColour = { 255, 184, 0, 255 };
+    Color heartEyesColour = { 220, 1, 1, 255};
     
     // PHYSICS SPRINGS
     Spring sScaleX = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f}; 
@@ -62,6 +73,8 @@ struct ParametricEyes {
     int locRes, locColor, locShape, locBend, locThick, locPupil;
     int locEyebrow, locEyebrowY, locTears;
     int locDeltaTime; int locSpiralSpeed;
+    int locShowBrow, locShowTears, locShowBlush;
+    int locBrowType, locBrowY, locTearsLevel, locDistort;
 
     void Init() {
         // Try multiple paths to find the shader
@@ -84,6 +97,15 @@ struct ParametricEyes {
 
         locDeltaTime = GetShaderLocation(shader, "uTime");
         locSpiralSpeed = GetShaderLocation(shader, "uSpiralSpeed");
+        locDistort = GetShaderLocation(shader, "uDistortMode");
+
+        locShowBrow = GetShaderLocation(shader, "uShowBrow");
+        locShowTears = GetShaderLocation(shader, "uShowTears");
+        locShowBlush = GetShaderLocation(shader, "uShowBlush");
+
+        locBrowType = GetShaderLocation(shader, "uEyebrowType");
+        locBrowY    = GetShaderLocation(shader, "uEyebrowY");
+        locTearsLevel = GetShaderLocation(shader, "uTearsLevel");
     }
     
     void Unload() {
@@ -104,7 +126,7 @@ struct ParametricEyes {
         // --- AUTO BLINK LOGIC ---
         // Only blink if shape is Dot (0) or Heart (5) or Star (4)
         // Don't blink if already in "Line" or "Cross" mode
-        bool canBlink = (params.shapeID < 0.5f || params.shapeID > 3.5f);
+        bool canBlink = (params.eyeShapeID < 0.5f || params.eyeShapeID > 3.5f);
         
         if (canBlink) {
             blinkTimer += dt;
@@ -170,7 +192,7 @@ struct ParametricEyes {
             SetShaderValue(shader, locColor, col, SHADER_UNIFORM_VEC4);
 
             // If Blinking (Phase 2), force Shape to Line/Arc
-            float finalShape = (blinkPhase == 2) ? 1.0f : p.shapeID; // 1.0 is Line
+            float finalShape = (blinkPhase == 2) ? 1.0f : p.eyeShapeID; // 1.0 is Line
             
             // --- CORE PARAMS ---
             SetShaderValue(shader, locShape, &finalShape, SHADER_UNIFORM_FLOAT);
@@ -178,16 +200,25 @@ struct ParametricEyes {
             SetShaderValue(shader, locThick, &p.thickness, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shader, locPupil, &p.pupilSize, SHADER_UNIFORM_FLOAT);
 
-            // --- [FIX] SEND NEW PARAMS TO GPU ---
-            SetShaderValue(shader, locEyebrow,  &p.eyebrowType, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shader, locEyebrowY, &p.eyebrowY, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shader, locTears,    &p.tears, SHADER_UNIFORM_FLOAT);
-
             //Time parameter to GPU 
              float totalTime = (float)GetTime(); 
             SetShaderValue(shader, locDeltaTime,    &totalTime, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shader, locSpiralSpeed,    &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shader, locDistort, &p.distortMode, SHADER_UNIFORM_INT);
 
+
+            // 2. Toggles (Convert Bool to Int)
+            int sb = p.showBrow ? 1 : 0;
+            int st = p.showTears ? 1 : 0;
+            int sl = p.showBlush ? 1 : 0;
+            SetShaderValue(shader, locShowBrow, &sb, SHADER_UNIFORM_INT);
+            SetShaderValue(shader, locShowTears, &st, SHADER_UNIFORM_INT);
+            SetShaderValue(shader, locShowBlush, &sl, SHADER_UNIFORM_INT);
+
+            // 3. Detail Params
+            SetShaderValue(shader, locBrowType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shader, locBrowY,    &p.eyebrowY, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shader, locTearsLevel, &p.tearsLevel, SHADER_UNIFORM_FLOAT);
 
             
 
@@ -200,22 +231,38 @@ struct ParametricEyes {
             rlEnd();
         EndShaderMode();
     }
-    
+       
     // Main Draw Call - Draws BOTH eyes based on center position
     void Draw(Vector2 centerPos, EyeParams p, Color c) {
         float eyeSize = 100.0f; // Base size of the eye box
         
+
+        float eyeHeight  = 150.0f;  
+
+        // [FIX] TALLER RECTANGLES
+        // We multiply height by 2.0 to create "headroom" for the eyebrows.
+        // We subtract eyeSize * 0.5 from Y to keep the eye visually centered where it was.
+        
+        float drawWidth  = eyeSize;
+        float drawHeight = eyeSize * 2.5f;
+
         Rectangle leftRect = { 
-            centerPos.x - (p.spacing/2) - (eyeSize/2), 
-            centerPos.y - (eyeSize/2), 
-            eyeSize, eyeSize 
+            centerPos.x - (p.spacing/2) - (drawWidth/2), 
+            centerPos.y - eyeHeight - (drawHeight/2), 
+            drawWidth, drawHeight 
         };
 
         Rectangle rightRect = { 
-            centerPos.x + (p.spacing/2) - (eyeSize/2), 
-            centerPos.y - (eyeSize/2), 
-            eyeSize, eyeSize 
+            centerPos.x + (p.spacing/2) - (drawWidth/2), 
+            centerPos.y - eyeHeight - (drawHeight/2), 
+            drawWidth, drawHeight 
         };
+
+        if(p.eyeShapeID<4.5 && p.eyeShapeID >3.5 || p.eyeShapeID >7.5)
+            c = starEyesColour;
+
+        if(p.eyeShapeID<5.5&&p.eyeShapeID>4.5)
+            c = heartEyesColour;    
 
         DrawSingleEye(leftRect, p, c);
         DrawSingleEye(rightRect, p, c);
