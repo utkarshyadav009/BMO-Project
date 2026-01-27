@@ -27,7 +27,7 @@ FetchContent_MakeAvailable(raygui)
 # SOURCE FILES
 # -----------------------------------------------------------------------------
 # Since FacePoser.cpp includes ParametricMouth.cpp directly, we only list FacePoser here.
-add_executable(BMO_Engine src/SEyePoser.cpp)
+add_executable(BMO_Engine src/VIsemeTest.cpp)
 
 # Silence the "enum-compare" warnings from raygui
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -39,8 +39,8 @@ target_link_libraries(BMO_Engine
   PRIVATE
     raylib
     winmm
-    # cppzmq  <-- Uncomment if you installed ZeroMQ
-    # libzmq
+    cppzmq  #<-- Uncomment if you installed ZeroMQ
+    libzmq
 )
 
 # 4. Include Directories
@@ -70,6 +70,16 @@ add_custom_command(TARGET BMO_Engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eyes_es.fs"
     "$<TARGET_FILE_DIR:BMO_Engine>/eyes_es.fs"
+
+    # Copy Brow Shader [NEW]
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/brow_es.fs"
+    "$<TARGET_FILE_DIR:BMO_Engine>/brow_es.fs"
+
+    # Copy Tears Shader [NEW]
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/tears_es.fs"
+    "$<TARGET_FILE_DIR:BMO_Engine>/tears_es.fs"
 )
 
 

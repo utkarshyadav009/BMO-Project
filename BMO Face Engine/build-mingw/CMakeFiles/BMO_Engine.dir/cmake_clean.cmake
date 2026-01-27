@@ -2,8 +2,8 @@ file(REMOVE_RECURSE
   "BMO_Engine.exe"
   "BMO_Engine.exe.manifest"
   "BMO_Engine.pdb"
-  "CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.obj"
-  "CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.obj.d"
+  "CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj"
+  "CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj.d"
   "libBMO_Engine.dll.a"
 )
 

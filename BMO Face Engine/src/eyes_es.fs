@@ -4,47 +4,41 @@ in vec2 fragTexCoord;
 out vec4 finalColor;
 
 uniform vec2 uResolution;
-uniform vec4 uColor;
+uniform vec4 uColor; 
 
 // --- PARAMS ---
-uniform float uShapeID;      // 0-8=Eyes, 10=Blush, 20=Eyebrow, 21=Tears
+uniform float uShapeID;      // 0-8=Standard, 9=Kawaii, 10=Shocked
 uniform float uBend;         
 uniform float uThickness;    
 uniform float uPupilSize;    
-
-// ELEMENT TOGGLES (0 = Off, 1 = On)
-uniform int uShowBrow;
-uniform int uShowTears;
-uniform int uShowBlush;
-
-// ELEMENT PARAMS
-uniform float uEyebrowType;  // 0=None, 1=Angry, 2=Sad, 3=Raised
-uniform float uEyebrowY;     
-uniform float uTearsLevel;   // 0.0 to 1.0
 uniform float uTime; 
 uniform float uSpiralSpeed;
 
-// NEW: DISTORTION (For eyebrows or wavy eyes)
-uniform int uDistortMode;
-
+// --- SURFACE EFFECTS ---
+uniform float uStressLevel;  // 0-1: Angry lines under eye
+uniform float uGloomLevel;   // 0-1: Shocked vertical lines
+uniform int uDistortMode;    // 1: Squash/Stretch distortion
 
 // ---------------------------
-// SDF HELPERS (Keep existing)
+// UTILS
 // ---------------------------
 float sdCircle(vec2 p, float r) { return length(p) - r; }
 float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
+vec2 rotate2D(vec2 p, float a) { float s = sin(a), c = cos(a); return vec2(c*p.x - s*p.y, s*p.x + c*p.y); }
 float sdSegment(vec2 p, vec2 a, vec2 b) {
     vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h);
 }
-vec2 rotate2D(vec2 p, float a) { float s = sin(a), c = cos(a); return vec2(c*p.x - s*p.y, s*p.x + c*p.y); }
 float sdArc(vec2 p, float ra, float rb, float aperture) {
     vec2 sc = vec2(sin(aperture), cos(aperture)); p.x = abs(p.x);
     float k = (sc.y*p.x > sc.x*p.y) ? length(p - sc*ra) : abs(length(p) - ra); return k - rb;
 }
 
 // ---------------------------
-// SHAPE FUNCTIONS (Keep existing)
+// SHAPE FUNCTIONS
 // ---------------------------
+// [Existing Shapes 0-8 Omitted for brevity, assume standard implementations for Star, Heart, Spiral etc.]
+// ... Paste your sdStar5, sdStar4, sdHeart, sdSpiral here ... 
+
 float sdStar5(vec2 p, float r, float rf) {
     p /= r; float inner = rf / r; const vec2 k1 = vec2(0.809016994375, -0.587785252292); const vec2 k2 = vec2(-k1.x, k1.y);
     p.x = abs(p.x); p -= 2.0 * max(dot(k1, p), 0.0) * k1; p -= 2.0 * max(dot(k2, p), 0.0) * k2;
@@ -81,145 +75,122 @@ float sdSpiral(vec2 p, float R, float turns, float halfTh, float thetaOffset, fl
     return minD - halfTh;
 }
 
-// ---------------------------
+// KAWAII EYE (ID 9)
+float sdKawaii(vec2 p, float r) {
+    float d = sdCircle(p, r);
+    vec2 hl1 = p - vec2(-r*0.35, -r*0.35); float dHl1 = sdCircle(hl1, r * 0.25);
+    vec2 hl2 = p - vec2(r*0.2, r*0.3); float dHl2 = sdCircle(hl2, r * 0.1);
+    d = max(d, -dHl1); d = max(d, -dHl2);
+    return d;
+}
+
+// SHOCKED EYE (ID 10)
+float sdShocked(vec2 p, float r, float th) {
+    float dOuter = sdCircle(p, r);
+    float dInner = sdCircle(p, r - th);
+    return max(dOuter, -dInner);
+}
+
+// STRESS LINES (Angry Feature)
+float sdStressLines(vec2 p, float r) {
+    p.y -= r * 1.2; p.x = abs(p.x);
+    vec2 p1 = rotate2D(p - vec2(r*0.3, 0.0), 0.5);
+    float d = sdBox(p1, vec2(r*0.02, r*0.15));
+    float d2 = sdBox(p - vec2(0.0, r*0.05), vec2(r*0.02, r*0.15));
+    return min(d, d2);
+}
+
+// GLOOM LINES (Shocked Feature)
+float sdGloomLines(vec2 p, float r) {
+    float xPattern = abs(sin(p.x * 20.0)); 
+    float d = smoothstep(0.9, 1.0, xPattern); 
+    float mask = smoothstep(0.0, -r, p.y);
+    return (1.0 - d) * mask; 
+}
+
 // ANTI-ALIASING
-// ---------------------------
 float aaFill_HighQuality(float d) { float w = fwidth(d); w = max(w, 1.0); return 1.0 - smoothstep(0.0, w, d); }
 float aaFill_Safe(float d) { return 1.0 - smoothstep(-0.75, 0.75, d); }
 
-// ---------------------------
-// MAIN
-// ---------------------------
+// --- MAIN ---
 void main() {
     vec2 p = (fragTexCoord - 0.5) * uResolution;
     float r = 0.4 * min(uResolution.x, uResolution.y);
-    float th = max(uThickness, 1.0); 
-    bool useSafeAA = false; 
+    float th = max(uThickness, 1.0);
+    bool useSafeAA = false;
 
-    // -------------------------
-    // A) EYE SHAPE (uShapeID 0..8)
-    // -------------------------
-    float dEye = 1e10;
-
-    // Domain Distortion (Only affects Eye, not Brow)
-    vec2 pEye = p; 
+    // 1. DOMAIN DISTORTION
     if (uDistortMode == 1) { 
-        float nx = pEye.x / r; 
-        pEye.y += (nx * nx) * (uBend * 0.5) * r;
+        float nx = p.x / r; 
+        p.y += (nx * nx) * (uBend * 0.5) * r;
     }
 
+    // 2. MAIN SHAPE
+    float d = 1e5;
     if (uShapeID < 0.5) { // DOT
-        dEye = sdCircle(pEye, r);
+        d = sdCircle(p, r);
         if (uPupilSize > 0.001) {
-            vec2 hlPos = pEye - vec2(r * 0.28, -r * 0.28);
-            dEye = max(dEye, -sdCircle(hlPos, r * 0.28) * clamp(uPupilSize, 0.0, 1.0));
+            vec2 hlPos = p - vec2(r * 0.28, -r * 0.28);
+            d = max(d, -sdCircle(hlPos, r * 0.28) * clamp(uPupilSize, 0.0, 1.0));
         }
     }
-    else if (uShapeID < 1.5) { dEye = sdBox(pEye, vec2(r, th)); }
+    else if (uShapeID < 1.5) { d = sdBox(p, vec2(r, th)); }
     else if (uShapeID < 2.5) { // ARC
         float bend = clamp(uBend, -1.0, 1.0);
-        vec2 pp = pEye; pp.y *= (bend >= 0.0) ? -1.0 : 1.0;
+        vec2 pp = p; pp.y *= (bend >= 0.0) ? -1.0 : 1.0;
         float a = mix(1.35, 0.85, abs(bend));
         vec2 pp2 = pp; pp2.x /= max(1.2, 0.001); 
-        dEye = sdArc(pp2, r * 0.85, th, a);
+        d = sdArc(pp2, r * 0.85, th, a);
     }
     else if (uShapeID < 3.5) { // CROSS
-        vec2 p1 = rotate2D(pEye, 0.785398); vec2 p2 = rotate2D(pEye, -0.785398);
-        dEye = min(sdBox(p1, vec2(r, th)), sdBox(p2, vec2(r, th)));
+        vec2 p1 = rotate2D(p, 0.785398); vec2 p2 = rotate2D(p, -0.785398);
+        d = min(sdBox(p1, vec2(r, th)), sdBox(p2, vec2(r, th)));
     }
     else if (uShapeID < 4.5) { // STAR 5
         float sharp = 0.5 + (uBend * 0.3); 
-        dEye = sdStar5(rotate2D(pEye, -0.610865), r, r * sharp);
+        d = sdStar5(rotate2D(p, -0.610865), r, r * sharp);
     }
     else if (uShapeID < 5.5) { // HEART
-        vec2 hp = pEye / (r * 1.0); hp.y *= -1.0; hp.y += 0.5;
-        dEye = sdHeart(hp) * (r * 1.0);
+        vec2 hp = p / (r * 1.0); hp.y *= -1.0; hp.y += 0.5;
+        d = sdHeart(hp) * (r * 1.0);
     }
     else if (uShapeID < 6.5) { // SPIRAL
         useSafeAA = true;
         float turns = 3.0; float R = r * 0.92; float dir = (uBend >= 0.0) ? 1.0 : -1.0;
         float spin = uTime * uSpiralSpeed;
-        dEye = sdSpiral(rotate2D(pEye, spin), R, turns, th, 0, dir, 0.0);
+        d = sdSpiral(rotate2D(p, spin), R, turns, th, 0, dir, 0.0);
     }
     else if (uShapeID < 7.5){ // CHEVRON
-        float dir = (uBend >= 0.0) ? 1.0 : -1.0; vec2 pc = vec2(pEye.x * dir, pEye.y);
+        float dir = (uBend >= 0.0) ? 1.0 : -1.0; vec2 pc = vec2(p.x * dir, p.y);
         vec2 a = vec2(-r * 0.45, -r * 0.35); vec2 b = vec2( r * 0.35,  0.00); vec2 c = vec2(-r * 0.45,  r * 0.35);
-        dEye = min(sdSegment(pc, a, b) - th, sdSegment(pc, c, b) - th);
+        d = min(sdSegment(pc, a, b) - th, sdSegment(pc, c, b) - th);
     }
-    else { // SHURIKEN
-        float sharp = 0.4 + (uBend * 0.3); dEye = sdStar4(pEye, r, r * sharp);
+    else if (uShapeID < 8.5) { // SHURIKEN
+        float sharp = 0.4 + (uBend * 0.3); d = sdStar4(p, r, r * sharp);
     }
-    
-    // -------------------------
-    // B) EYEBROWS
-    // -------------------------
-    float dBrow = 1e10;
-    if (uShowBrow == 1) {
-        float browBaseY = -r * 1.5 + uEyebrowY; // Position above eye
-        vec2 bp = p - vec2(0.0, browBaseY);
-        float mode = uEyebrowType;
-        float browAngle = (mode < 1.5) ? 0.45 : (mode < 2.5) ? -0.45 : 0.0;
-        
-        vec2 br = rotate2D(bp, browAngle);
-        
-        // Use uBend for brow curve (Parabola)
-        float nx = br.x / r; 
-        br.y += (nx * nx) * (uBend * 0.5) * r;
-
-        dBrow = sdBox(br, vec2(r * 0.8, th * 0.85));
+    else if (uShapeID < 9.5) { // KAWAII
+        d = sdKawaii(p, r);
+    }
+    else if (uShapeID < 10.5) { // SHOCKED
+        d = sdShocked(p, r, th);
     }
 
-    // -------------------------
-    // C) TEARS
-    // -------------------------
-    float dTear = 1e10;
-    if (uShowTears == 1 && uTearsLevel > 0.01) {
-        float t = clamp(uTearsLevel, 0.0, 1.0);
-        vec2 start = vec2(0.0, -r); 
-        vec2 end   = vec2(0.0, r * (0.5 + 1.5 * t));
-        vec2 tp = p; tp.x -= sin(tp.y * 0.03) * (r * 0.05) * t;
-        float stream = sdSegment(tp, start, end) - (th * 0.65) * mix(0.8, 1.3, t);
-        float drop = sdCircle(tp - end, r * 0.10 * mix(0.8, 1.25, t));
-        dTear = min(stream, drop);
+    // 3. ANGRY STRESS LINES
+    if (uStressLevel > 0.01) {
+        float dStress = sdStressLines(p, r);
+        d = min(d, dStress);
     }
 
-    // -------------------------
-    // D) BLUSH (Alpha Only)
-    // -------------------------
-    float blushAlpha = 0.0;
-    if (uShowBlush == 1) {
-        float dBlush = sdCircle(p - vec2(0.0, r*2), r * 0.6); // Below eye
-        blushAlpha = 1.0 - smoothstep(0.0, r, dBlush + r * 0.2);
-        blushAlpha *= 0.5; // Opacity
-    }
+    // 4. COLOR & COMPOSITE
+    vec4 col = uColor;
+    float alpha = (useSafeAA ? aaFill_Safe(d) : aaFill_HighQuality(d));
 
-    // -------------------------
-    // E) COMBINE & COLOR
-    // -------------------------
-    
-    // 1. Determine Main Shape Distance
-    float dSolid = min(dEye, min(dBrow, dTear));
-    
-    // 2. Determine Color (Multi-Material Support!)
-    vec3 outColor = uColor.rgb; // Default to Eye Color
-    
-    // If Brow is the closest shape, make it Black
-    if (dBrow < dEye && dBrow < dTear) {
-        outColor = vec3(0.0, 0.0, 0.0);
+    // 5. SHOCKED GLOOM (Vertical lines overlay)
+    if (uGloomLevel > 0.01) {
+        float gloom = sdGloomLines(p, r);
+        col.rgb = mix(col.rgb, vec3(0.1, 0.1, 0.4), gloom * uGloomLevel * 0.6);
     }
-    // If Tear is the closest shape, make it Blue
-    else if (dTear < dEye && dTear < dBrow) {
-        outColor = vec3(0.4, 0.7, 1.0);
-    }
-
-    // 3. Alpha Calculation
-    float alpha = (useSafeAA ? aaFill_Safe(dSolid) : aaFill_HighQuality(dSolid));
-    
-    // 4. Mix Blush (Additive-ish)
-    vec3 blushColor = vec3(1.0, 0.7, 0.8); // Pink
-    outColor = mix(outColor, blushColor, blushAlpha);
-    alpha = max(alpha, blushAlpha);
 
     if (alpha < 0.01) discard;
-    finalColor = vec4(outColor, alpha);
+    finalColor = vec4(col.rgb, alpha * col.a);
 }

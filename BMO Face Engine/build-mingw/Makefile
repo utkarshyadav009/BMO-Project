@@ -245,29 +245,29 @@ update_mappings/fast:
 	$(MAKE) $(MAKESILENT) -f _deps\raylib-build\raylib\external\glfw\src\CMakeFiles\update_mappings.dir\build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 .PHONY : update_mappings/fast
 
-src/FaceEngineV2.obj: src/FaceEngineV2.cpp.obj
-.PHONY : src/FaceEngineV2.obj
+src/VIsemeTest.obj: src/VIsemeTest.cpp.obj
+.PHONY : src/VIsemeTest.obj
 
 # target to build an object file
-src/FaceEngineV2.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.obj
-.PHONY : src/FaceEngineV2.cpp.obj
+src/VIsemeTest.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.obj
+.PHONY : src/VIsemeTest.cpp.obj
 
-src/FaceEngineV2.i: src/FaceEngineV2.cpp.i
-.PHONY : src/FaceEngineV2.i
+src/VIsemeTest.i: src/VIsemeTest.cpp.i
+.PHONY : src/VIsemeTest.i
 
 # target to preprocess a source file
-src/FaceEngineV2.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.i
-.PHONY : src/FaceEngineV2.cpp.i
+src/VIsemeTest.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.i
+.PHONY : src/VIsemeTest.cpp.i
 
-src/FaceEngineV2.s: src/FaceEngineV2.cpp.s
-.PHONY : src/FaceEngineV2.s
+src/VIsemeTest.s: src/VIsemeTest.cpp.s
+.PHONY : src/VIsemeTest.s
 
 # target to generate assembly for a file
-src/FaceEngineV2.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/FaceEngineV2.cpp.s
-.PHONY : src/FaceEngineV2.cpp.s
+src/VIsemeTest.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\BMO_Engine.dir\build.make CMakeFiles/BMO_Engine.dir/src/VIsemeTest.cpp.s
+.PHONY : src/VIsemeTest.cpp.s
 
 # Help Target
 help:
@@ -288,9 +288,9 @@ help:
 	@echo ... BMO_Engine
 	@echo ... glfw
 	@echo ... raylib
-	@echo ... src/FaceEngineV2.obj
-	@echo ... src/FaceEngineV2.i
-	@echo ... src/FaceEngineV2.s
+	@echo ... src/VIsemeTest.obj
+	@echo ... src/VIsemeTest.i
+	@echo ... src/VIsemeTest.s
 .PHONY : help
 
 
