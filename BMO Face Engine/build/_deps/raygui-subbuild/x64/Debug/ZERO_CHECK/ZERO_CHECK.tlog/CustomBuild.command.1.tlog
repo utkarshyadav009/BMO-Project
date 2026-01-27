@@ -1,0 +1,10 @@
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\09E40FB346440D73D2389F5F733B9167\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" "-SD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild" "-BD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate.sln"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/raylib-populate"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/ef99c04ce0b52f89cc3be78740616fa1/raylib-populate.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/095b8fcf5bc5b042a63638972a895d83/raylib-populate-complete.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-build.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-configure.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-download.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-install.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-patch.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-test.rule"
+		},
+		{
+			"file" : "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/c206d8bca78db8cfa266c8f128b79fad/raylib-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"raylib-populate"
+		],
+		"name" : "raylib-populate"
+	}
+}

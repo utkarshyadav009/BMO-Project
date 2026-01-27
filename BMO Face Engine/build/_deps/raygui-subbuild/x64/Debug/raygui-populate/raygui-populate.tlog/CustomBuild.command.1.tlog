@@ -1,0 +1,152 @@
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/tmp/raygui-populate-mkdirs.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-mkdir"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-DOWNLOAD.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/download-raygui-populate.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/verify-raygui-populate.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/extract-raygui-populate.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-download"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-UPDATE.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-update"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-patch"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-CONFIGURE.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raygui-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-configure"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-BUILD.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raygui-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-build"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-INSTALL.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raygui-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-install"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\EBFA89AABEAAE255856E8F77B79E84BF\RAYGUI-POPULATE-TEST.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raygui-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-test"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\5232579F879E84663772C8867417719A\RAYGUI-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E make_directory "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/CMakeFiles/Debug"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/CMakeFiles/Debug/raygui-populate-complete"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/raygui-populate-stamp/Debug/raygui-populate-done"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKEFILES\09E40FB346440D73D2389F5F733B9167\RAYGUI-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYGUI-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" "-SD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild" "-BD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild" --check-stamp-file "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

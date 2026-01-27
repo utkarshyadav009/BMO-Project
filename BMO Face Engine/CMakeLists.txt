@@ -27,7 +27,7 @@ FetchContent_MakeAvailable(raygui)
 # SOURCE FILES
 # -----------------------------------------------------------------------------
 # Since FacePoser.cpp includes ParametricMouth.cpp directly, we only list FacePoser here.
-add_executable(BMO_Engine src/VIsemeTest.cpp)
+add_executable(BMO_Engine src/SEyePoser.cpp)
 
 # Silence the "enum-compare" warnings from raygui
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -39,8 +39,8 @@ target_link_libraries(BMO_Engine
   PRIVATE
     raylib
     winmm
-    cppzmq  #<-- Uncomment if you installed ZeroMQ
-    libzmq
+    #cppzmq  #<-- Uncomment if you installed ZeroMQ
+    #libzmq
 )
 
 # 4. Include Directories

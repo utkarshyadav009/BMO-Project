@@ -16,6 +16,8 @@
 #include <string>
 #include <algorithm>
 #include <unordered_map>
+#include <filesystem>
+
 
 // Include the NEW Shader-based Eye Engine
 // Ensure ShaderParametricEyes.cpp is in the same folder or src/
@@ -119,7 +121,7 @@ struct EyeDatabase {
                         std::replace(valStr.begin(), valStr.end(), 'f', ' ');
                         
                         std::stringstream ss(valStr);
-                        ss >> e.params.eyeShapeID >> e.params.bend >> e.params.thickness 
+                        ss >> e.params.eyeShapeID >> e.params.bend >> e.params.eyeThickness 
                            >> e.params.pupilSize >> e.params.lookX >> e.params.lookY 
                            >> e.params.scaleX >> e.params.scaleY >> e.params.spacing;
                         
@@ -150,7 +152,7 @@ struct EyeDatabase {
 
         std::stringstream newLine;
         newLine << "eyes[\"" << name << "\"] = { "
-                << p.eyeShapeID << "f, " << p.bend << "f, " << p.thickness << "f, "
+                << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, "
                 << p.pupilSize << "f, " << p.lookX << "f, " << p.lookY << "f, "
                 << p.scaleX << "f, " << p.scaleY << "f, " << p.spacing << "f };";
 
@@ -184,6 +186,9 @@ struct EyeDatabase {
 // MAIN EDITOR
 // ---------------------------------------------------------
 int main() {
+
+    std::cout << "BasePath: " << GetApplicationDirectory() << std::endl;
+
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(1280, 800, "BMO Eye Poser (Shader Edition)");
     SetTargetFPS(60);
@@ -301,12 +306,12 @@ int main() {
         }
         
         GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);
-        GUI_SLIDE("Thickness", currentParams.thickness, 1.0f, 30.0f);
+        GUI_SLIDE(" Eye Thickness", currentParams.eyeThickness, 1.0f, 30.0f);
         GUI_SLIDE("Pupil/Hole", currentParams.pupilSize, 0.0f, 1.0f);
         
         sy += 5; // Spacer
-        GUI_SLIDE("Scale X", currentParams.scaleX, 0.1f, 3.0f);
-        GUI_SLIDE("Scale Y", currentParams.scaleY, 0.0f, 3.0f);
+        GUI_SLIDE("Scale X", currentParams.scaleX, 0.1f, 10.0f);
+        GUI_SLIDE("Scale Y", currentParams.scaleY, 0.1f, 10.0f);
         GUI_SLIDE("Spacing", currentParams.spacing, 0.0f, 1000.0f);
         GUI_SLIDE("Look X", currentParams.lookX, -200.0f, 200.0f);
         GUI_SLIDE("Look Y", currentParams.lookY, -200.0f, 200.0f);
@@ -323,9 +328,15 @@ int main() {
         sy += 30.0f;
 
         if (currentParams.showBrow) {
-            GUI_SLIDE("Brow Type", currentParams.eyebrowType, 0, 3);
-            GUI_SLIDE("Brow Y", currentParams.eyebrowY, -100, 100);
+            GUI_SLIDE("Brow Type", currentParams.eyebrowType, 0, 4);
+            GUI_SLIDE("Brow Thick", currentParams.eyebrowThickness, 1, 20);
+            GUI_SLIDE("Brow Y", currentParams.eyebrowY, -10, 10);
             GUI_SLIDE("Brow Len", currentParams.eyebrowLength, 0.5f, 2.0f); // [NEW]
+            GUI_SLIDE("Brow Scale", currentParams.browScale, 0.5f, 2.0f);   // [NEW]
+            GUI_SLIDE("Brow Angle", currentParams.browAngle, -45.0f, 45.0f); // [NEW]
+            GUI_SLIDE("Brow Bend", currentParams.browBend, -2.0f, 2.0f);   // Re-use bend
+            GUI_SLIDE("Brow Bend Off", currentParams.browBendOffset, 0.0f, 0.99f); // [NEW]
+            GuiCheckBox({startX+10, sy, 20, 20}, "Lower Brow", &currentParams.useLowerBrow); // [NEW]
         }
         
         if (currentParams.showTears) {

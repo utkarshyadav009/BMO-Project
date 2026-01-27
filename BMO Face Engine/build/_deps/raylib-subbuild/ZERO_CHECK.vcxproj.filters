@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raylib-subbuild\CMakeFiles\ef99c04ce0b52f89cc3be78740616fa1\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{3B29A2A7-FCA8-3299-877E-12DD7EAEF621}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

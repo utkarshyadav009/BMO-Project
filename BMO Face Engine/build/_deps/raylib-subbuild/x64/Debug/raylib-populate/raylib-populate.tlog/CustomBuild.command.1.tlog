@@ -1,0 +1,152 @@
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/tmp/raylib-populate-mkdirs.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-mkdir"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-DOWNLOAD.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/download-raylib-populate.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/verify-raylib-populate.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/extract-raylib-populate.cmake"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-download"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-UPDATE.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-update"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-patch"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-CONFIGURE.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raylib-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-configure"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-BUILD.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raylib-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-build"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-INSTALL.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raylib-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-install"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\C206D8BCA78DB8CFA266C8F128B79FAD\RAYLIB-POPULATE-TEST.RULE
+setlocal
+cd "D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\build\_deps\raylib-build"
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-test"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\095B8FCF5BC5B042A63638972A895D83\RAYLIB-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E make_directory "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/Debug"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/Debug/raylib-populate-complete"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/raylib-populate-stamp/Debug/raylib-populate-done"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKEFILES\EF99C04CE0B52F89CC3BE78740616FA1\RAYLIB-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\_DEPS\RAYLIB-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" "-SD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild" "-BD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild" --check-stamp-file "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,10 @@
+^D:\LOCALWORKDIR\U521785\BMO-PROJECT\BMO FACE ENGINE\BUILD\CMAKEFILES\DF76A18FD07C2E6EA375569AC787D202\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" "-SD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine" "-BD:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/BMO_Face_Engine.sln"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

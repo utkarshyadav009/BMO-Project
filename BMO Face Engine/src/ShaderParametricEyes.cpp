@@ -33,8 +33,9 @@ struct EyeParams {
     // --- MAIN EYE PARAMS ---
     float eyeShapeID = 0.0f;     // 0-8=Std, 9=Kawaii, 10=Shocked
     float bend = 0.0f;        
-    float thickness = 4.0f;   
+    float eyeThickness = 4.0f;   
     float pupilSize = 0.0f;   
+    float eyeSide = 0.0f;
     
     // --- NEW SURFACE FX (For Angry/Shocked Sprites) ---
     float stressLevel = 0.0f;    // 0-1: Angry lines
@@ -48,9 +49,16 @@ struct EyeParams {
 
     // --- ELEMENT DETAILS ---
     float eyebrowType = 0.0f; 
+    float eyebrowThickness = 4.0f;
     float eyebrowY = 0.0f;
-    float eyebrowLength = 1.0f;  // New: Control brow width
-    
+    float eyebrowLength = 1.0f;
+    float browScale = 1.0f;      
+    float browSide = 1.0f;        // New: 1.0 for left, -1.0 for right (mirrors the brow)
+    float browAngle = 0.0f;       // New: Angle to rotate the brow
+    float browBend = 0.0f;        // Re-use bend for brow arching
+    float browBendOffset = 0.85f;  // New: Offset for brow bend
+    bool useLowerBrow = false;   
+
     float tearsLevel = 0.0f;
     int tearMode = 0;            // 0=Drip, 1=Wail
 
@@ -95,12 +103,12 @@ struct ParametricEyes {
 
     // SHADER LOCATIONS (Cached for performance)
     // Eye Shader
-    int locResEye, locTimeEye, locColorEye;
-    int locShape, locBend, locThick, locPupil, locSpiral, locDistort, locStress, locGloom;
+    int locResEye, locTimeEye, locColorEye, locEyeSide;
+    int locShape, locBend, locEyeThick, locPupil, locSpiral, locDistort, locStress, locGloom;
     
     // Brow Shader
     int locResBrow, locColorBrow;
-    int locBrowType, locBrowBend, locBrowThick, locBrowLen;
+    int locBrowType, locBrowBend, locBrowThick, locBrowLen, locBrowY, locBrowSide, locBrowAngle, locBrowBendOffset;
 
     // Tears Shader
     int locResTear, locTimeTear;
@@ -123,7 +131,8 @@ struct ParametricEyes {
         locColorEye = GetShaderLocation(shEye, "uColor");
         locShape    = GetShaderLocation(shEye, "uShapeID");
         locBend     = GetShaderLocation(shEye, "uBend");
-        locThick    = GetShaderLocation(shEye, "uThickness");
+        locEyeThick = GetShaderLocation(shEye, "uThickness");
+        locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
         locPupil    = GetShaderLocation(shEye, "uPupilSize");
         locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
         locDistort  = GetShaderLocation(shEye, "uDistortMode");
@@ -137,6 +146,10 @@ struct ParametricEyes {
         locBrowBend  = GetShaderLocation(shBrow, "uBend");
         locBrowThick = GetShaderLocation(shBrow, "uThickness");
         locBrowLen   = GetShaderLocation(shBrow, "uEyeBrowLength");
+        locBrowY     = GetShaderLocation(shBrow, "uEyeBrowY");
+        locBrowSide  = GetShaderLocation(shBrow, "uBrowSide");
+        locBrowAngle = GetShaderLocation(shBrow, "uAngle");
+        locBrowBendOffset = GetShaderLocation(shBrow, "uBendOffset");
 
         // --- GET LOCATIONS (TEARS) ---
         locResTear   = GetShaderLocation(shTears, "uResolution");
@@ -225,10 +238,10 @@ struct ParametricEyes {
 
     // Helper to draw a specific layer into a rect
     // layerType: 0=Eye, 1=Brow, 2=Tears
-    void DrawLayer(Rectangle rect, EyeParams p, Color color, int layerType) {
+    void DrawLayer(Rectangle rect, Vector2 sourceRes,EyeParams p, Color color, int layerType) {
         Shader* targetShader = nullptr;
         float time = (float)GetTime();
-        float res[2] = { rect.width, rect.height };
+        float res[2] = { sourceRes.x, sourceRes.y };
         float colVec[4] = { color.r/255.0f, color.g/255.0f, color.b/255.0f, color.a/255.0f };
 
         // Select Shader
@@ -252,8 +265,9 @@ struct ParametricEyes {
             
             SetShaderValue(shEye, locShape, &finalShape, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locBend, &p.bend, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locThick, &p.thickness, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shEye, locEyeThick, &p.eyeThickness, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locPupil, &p.pupilSize, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shEye, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locSpiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locDistort, &p.distortMode, SHADER_UNIFORM_INT);
             SetShaderValue(shEye, locStress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
@@ -264,9 +278,13 @@ struct ParametricEyes {
             SetShaderValue(shBrow, locColorBrow, colVec, SHADER_UNIFORM_VEC4);
             
             SetShaderValue(shBrow, locBrowType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowBend, &p.bend, SHADER_UNIFORM_FLOAT); // Re-use bend
-            SetShaderValue(shBrow, locBrowThick, &p.thickness, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow, locBrowBend, &p.browBend, SHADER_UNIFORM_FLOAT); // Re-use bend
+            SetShaderValue(shBrow, locBrowThick, &p.eyebrowThickness, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow, locBrowY, &p.eyebrowY, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow, locBrowSide, &p.browSide, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow, locBrowAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow, locBrowBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
         }
         else if (layerType == 2) { // TEARS
             SetShaderValue(shTears, locResTear, res, SHADER_UNIFORM_VEC2);
@@ -298,30 +316,93 @@ struct ParametricEyes {
 
     // Draws all 3 layers for a single eye stack
     void DrawSingleEyeStack(Rectangle rect, EyeParams p, Color c) {
+
+        Vector2 originalRes = { rect.width, rect.height }; // Save this!
+
         // 1. CALCULATE PHYSICS TRANSFORM
-        Rectangle drawRect = rect;
-        drawRect.x += sLookX.val;
-        drawRect.y += sLookY.val;
+        Rectangle eyeRect = rect;
+        eyeRect.x += sLookX.val;
+        eyeRect.y += sLookY.val;
         
-        float oldW = drawRect.width;
-        float oldH = drawRect.height;
-        drawRect.width  *= sScaleX.val;
-        drawRect.height *= sScaleY.val;
-        drawRect.x += (oldW - drawRect.width) * 0.5f;
-        drawRect.y += (oldH - drawRect.height) * 0.5f;
+        float oldW = eyeRect.width;
+        float oldH = eyeRect.height;
+        eyeRect.width  *= sScaleX.val;
+        eyeRect.height *= sScaleY.val;
+        eyeRect.x += (oldW - eyeRect.width) * 0.5f;
+        eyeRect.y += (oldH - eyeRect.height) * 0.5f;
 
         // 2. LAYER 1: MAIN EYE
-        DrawLayer(drawRect, p, c, 0);
+        DrawLayer(eyeRect, originalRes, p, c, 0);
+        DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
+        DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
 
         // 3. LAYER 2: EYEBROW (If enabled)
+        //Offsetting the brow ret so that it doesn't share or use the same
+        // resolution as the eye (makes it less squashed)
         if (p.showBrow) {
-            DrawLayer(drawRect, p, BLACK, 1);
+
+            Rectangle browRect = rect;
+
+            browRect.width  = rect.width * 2.0f * p.browScale * p.eyebrowLength; 
+            browRect.height = rect.height * 0.5f * p.browScale;
+
+            browRect.x = rect.x + sLookX.val; 
+            browRect.y = rect.y + sLookY.val - (rect.height * 0.5f); // Position above eye
+
+            browRect.x += (rect.width - browRect.width) * 0.5f;
+            browRect.y += (rect.height - browRect.height) * 0.5f;
+            Vector2 browRes = { browRect.width, browRect.height };
+
+            DrawLayer(browRect, browRes, p, BLACK, 1);
+            if (p.useLowerBrow) 
+            {
+                EyeParams lowerP = p;
+                lowerP.eyebrowY = 0.0f;
+                lowerP.bend = -p.bend; 
+            
+                // 1. Calculate the exact bottom pixel of the eye
+                Vector2 eyeCenter = { 
+                    eyeRect.x + eyeRect.width * 0.5f,
+                    eyeRect.y + eyeRect.height * 0.5f 
+                };
+
+                // Use 0.5f to get the radius (distance from center to bottom)
+                float ryEye = eyeRect.height * 0.5f; 
+                float eyeBottomY = eyeCenter.y + ryEye;
+            
+                Rectangle lowerRect = eyeRect;
+                lowerRect.width  = eyeRect.width  * 2.5f * p.browScale * p.eyebrowLength;
+                lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
+
+                // Center X
+                lowerRect.x = eyeRect.x + (eyeRect.width - lowerRect.width) * 0.5f;
+            
+                // --- THE CRITICAL FIX ---
+                // Currently you are doing: lowerRect.y = eyeBottomY;
+                // You need to Move it UP by half its height so the 'Line' sits on the edge
+                lowerRect.y = eyeBottomY - (lowerRect.height * 0.5f);
+
+                // 2. Optional Nudge
+                // If the line feels too thick and sits "outside" the eye, 
+                // subtract a tiny bit more to push it UP into the eye.
+                lowerRect.y -= eyeRect.height * 0.3f;
+            
+                Vector2 lowerRes = { lowerRect.width, lowerRect.height };
+                DrawLayer(lowerRect, lowerRes, lowerP, BLACK, 1);
+
+                // Debug visuals
+                DrawRectangleLinesEx(lowerRect, 2.0f, { 0, 255, 0, 150 });
+            }
+            
+
+            DrawRectangleLinesEx(browRect, 2.0f, { 255, 255, 0, 150 });
+            DrawRectangleRec(browRect, { 255, 255, 0, 40 }); // Faint fill
         }
 
         // 4. LAYER 3: TEARS / BLUSH (If enabled)
         // (Note: Color passed here is ignored by shader in favor of internal uniform colors)
         if (p.showTears || p.showBlush) {
-            DrawLayer(drawRect, p, WHITE, 2);
+            DrawLayer(eyeRect, originalRes, p, WHITE, 2);
         }
     }
        
@@ -332,7 +413,7 @@ struct ParametricEyes {
 
         // [FIX] TALLER RECTANGLES (Kept from your original code)
         float drawWidth  = eyeSize;
-        float drawHeight = eyeSize * 2.5f;
+        float drawHeight = eyeSize*2.0f;
 
         Rectangle leftRect = { 
             centerPos.x - (p.spacing/2) - (drawWidth/2), 
@@ -356,7 +437,14 @@ struct ParametricEyes {
             c = heartEyesColour;    
 
         // Draw Stack
-        DrawSingleEyeStack(leftRect, p, c);
-        DrawSingleEyeStack(rightRect, p, c);
+        EyeParams leftParams = p;
+        leftParams.browSide = -1.0f;  // Left brow: no flip
+        leftParams.eyeSide = 1.0f; // Left eye: flipped
+        DrawSingleEyeStack(leftRect, leftParams, c);
+        
+        EyeParams rightParams = p;
+        rightParams.browSide = 1.0f;  // Right brow: flipped
+        rightParams.eyeSide = -1.0f;   // Right eye: normal
+        DrawSingleEyeStack(rightRect, rightParams, c);
     }
 };
