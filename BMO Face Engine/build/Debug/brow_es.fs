@@ -96,7 +96,7 @@ void main() {
     vec2 br = rotate2D(p, angle);
     
     // Vertical Offset
-    br.y -= uEyeBrowY * r; 
+    //br.y -= uEyeBrowY * r; 
     
     // --- 2. DEFINE SHAPE POINTS ---
     float halfLen = r * uEyeBrowLength; 

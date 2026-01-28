@@ -100,42 +100,96 @@ struct EyeDatabase {
         dropdownStr = "";
         
         std::ifstream in(filename);
-        if (!in.is_open()) return; // File might not exist yet
+        if (!in.is_open()) return;
 
         std::string line;
         while (std::getline(in, line)) {
-            // Simple Parse: eyes["NAME"] = { ... }
             size_t namePos = line.find("eyes[\"");
             if (namePos != std::string::npos) {
                 size_t endPos = line.find("\"]");
                 if (endPos != std::string::npos) {
                     Entry e;
+                    // Initialize defaults to be safe in case line is short
+                    e.params = EyeParams(); 
+
                     e.name = line.substr(namePos + 6, endPos - (namePos + 6));
-                    
-                    // Extract numbers
+
                     size_t bracePos = line.find("{");
                     if (bracePos != std::string::npos) {
                         std::string valStr = line.substr(bracePos + 1);
+
+                        // Clean up syntax characters
                         std::replace(valStr.begin(), valStr.end(), '}', ' '); 
                         std::replace(valStr.begin(), valStr.end(), ',', ' ');
                         std::replace(valStr.begin(), valStr.end(), 'f', ' ');
-                        
+
                         std::stringstream ss(valStr);
-                        ss >> e.params.eyeShapeID >> e.params.bend >> e.params.eyeThickness 
-                           >> e.params.pupilSize >> e.params.lookX >> e.params.lookY 
-                           >> e.params.scaleX >> e.params.scaleY >> e.params.spacing;
-                        
-                        // Default check if parsing failed for newer params
+
+                        // Temp ints for bool conversion
+                        int tShowBrow, tShowTears, tShowBlush, tUseLowerBrow;
+
+                        // --- READ VARIABLES (MUST MATCH SAVE ORDER) ---
+                        ss  // 1. MAIN
+                            >> e.params.eyeShapeID 
+                            >> e.params.bend 
+                            >> e.params.eyeThickness 
+                            >> e.params.pupilSize 
+                            >> e.params.eyeSide
+
+                            // 2. SURFACE FX
+                            >> e.params.stressLevel 
+                            >> e.params.gloomLevel 
+                            >> e.params.distortMode
+
+                            // 3. TOGGLES (Read as Ints)
+                            >> tShowBrow 
+                            >> tShowTears 
+                            >> tShowBlush
+
+                            // 4. BROW DETAILS
+                            >> e.params.eyebrowType 
+                            >> e.params.eyebrowThickness 
+                            >> e.params.eyebrowY 
+                            >> e.params.eyebrowX 
+                            >> e.params.eyebrowLength 
+                            >> e.params.browScale 
+                            >> e.params.browSide 
+                            >> e.params.browAngle 
+                            >> e.params.browBend 
+                            >> e.params.browBendOffset 
+                            >> tUseLowerBrow // (Int)
+
+                            // 5. TEARS
+                            >> e.params.tearsLevel 
+                            >> e.params.tearMode
+
+                            // 6. EXTRAS
+                            >> e.params.spiralSpeed
+
+                            // 7. PHYSICS/LAYOUT
+                            >> e.params.lookX 
+                            >> e.params.lookY 
+                            >> e.params.scaleX 
+                            >> e.params.scaleY 
+                            >> e.params.spacing;
+
+                        // Convert Ints back to Bools
+                        e.params.showBrow     = (bool)tShowBrow;
+                        e.params.showTears    = (bool)tShowTears;
+                        e.params.showBlush    = (bool)tShowBlush;
+                        e.params.useLowerBrow = (bool)tUseLowerBrow;
+
+                        // Legacy/Safety Checks
                         if (e.params.scaleX == 0) e.params.scaleX = 1.0f;
                         if (e.params.scaleY == 0) e.params.scaleY = 1.0f;
                         if (e.params.spacing == 0) e.params.spacing = 200.0f;
-                        
+
                         entries.push_back(e);
                     }
                 }
             }
         }
-        
+
         // Build Dropdown String
         for (size_t i = 0; i < entries.size(); i++) {
             dropdownStr += entries[i].name;
@@ -144,7 +198,6 @@ struct EyeDatabase {
     }
 
     void Save(const char* filename, std::string name, EyeParams p) {
-        // Read all existing lines first
         std::ifstream infile(filename);
         std::vector<std::string> lines;
         std::string line;
@@ -152,13 +205,35 @@ struct EyeDatabase {
 
         std::stringstream newLine;
         newLine << "eyes[\"" << name << "\"] = { "
+                // 1. MAIN
                 << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, "
-                << p.pupilSize << "f, " << p.lookX << "f, " << p.lookY << "f, "
+                << p.pupilSize << "f, " << p.eyeSide << "f, "
+
+                // 2. SURFACE FX
+                << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", "
+
+                // 3. TOGGLES (Cast bool to int for safety)
+                << (int)p.showBrow << ", " << (int)p.showTears << ", " << (int)p.showBlush << ", "
+
+                // 4. BROW DETAILS
+                << p.eyebrowType << "f, " << p.eyebrowThickness << "f, " 
+                << p.eyebrowY << "f, " << p.eyebrowX << "f, " << p.eyebrowLength << "f, "
+                << p.browScale << "f, " << p.browSide << "f, " << p.browAngle << "f, "
+                << p.browBend << "f, " << p.browBendOffset << "f, " 
+                << (int)p.useLowerBrow << ", "
+
+                // 5. TEARS
+                << p.tearsLevel << "f, " << p.tearMode << ", "
+
+                // 6. EXTRAS
+                << p.spiralSpeed << "f, "
+
+                // 7. PHYSICS/LAYOUT
+                << p.lookX << "f, " << p.lookY << "f, "
                 << p.scaleX << "f, " << p.scaleY << "f, " << p.spacing << "f };";
 
         if (infile.is_open()) {
             while (std::getline(infile, line)) {
-                // Check if this line is the one we are updating
                 if (line.find("eyes[\"" + name + "\"]") != std::string::npos) {
                     lines.push_back(newLine.str());
                     found = true;
@@ -171,13 +246,10 @@ struct EyeDatabase {
 
         if (!found) lines.push_back(newLine.str());
 
-        // Write back
         std::ofstream outfile(filename);
         for (const auto& l : lines) outfile << l << "\n";
-        
+
         std::cout << "Saved Eye Preset: " << name << std::endl;
-        
-        // Reload RAM copy
         Load(filename);
     }
 };
@@ -190,7 +262,7 @@ int main() {
     std::cout << "BasePath: " << GetApplicationDirectory() << std::endl;
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    InitWindow(1280, 800, "BMO Eye Poser (Shader Edition)");
+    InitWindow(400, 200, "BMO Eye Poser (Shader Edition)");
     SetTargetFPS(60);
 
 
@@ -242,7 +314,8 @@ int main() {
 
         // --- DRAWING ---
         BeginDrawing();
-        ClearBackground({131, 220, 169, 255}); // BMO Body Color
+        //ClearBackground({131, 220, 169, 255}); // BMO Body Color
+        ClearBackground({201, 228, 195, 255}); // BMO Face Color
 
         // 1. Draw Reference (Behind)
         if (showReference && !atlas.eyeNames.empty()) {
@@ -265,129 +338,146 @@ int main() {
         // --------------------------------------------------------
         float sy = startY;
 
+        // Toggle to control whether the large GUI block should be drawn
+        static bool enableGUI = true;
+
+        // Bottom-right "Enable GUI" checkbox (positioned relative to window size)
+        float cbX = float(GetScreenWidth()) - 180;
+        float cbY = float(GetScreenHeight()) - 40;
+        GuiGroupBox({cbX - 10, cbY - 30, 170, 40}, "");
+        GuiCheckBox({cbX-5, cbY-15, 20, 20}, "Enable GUI", &enableGUI);
+
+        // NOTE: Replace the later `if(true)` with `if(enableGUI)` so the main GUI block respects this checkbox.
+
         // --- 1. SPRITE REFERENCE (Top Left) ---
-        GuiGroupBox({startX, sy, w, 110}, "SPRITE REFERENCE");
-        if (GuiButton({startX + 10, sy + 30, 40, 30}, "<")) {
-            currentIdx--; if (currentIdx < 0) currentIdx = (int)atlas.eyeNames.size() - 1;
-        }
-        if (GuiButton({startX + 270, sy + 30, 40, 30}, ">")) {
-            currentIdx = (int)((currentIdx + 1) % (int)atlas.eyeNames.size());
-        }
-        std::string lbl = atlas.eyeNames.empty() ? "NONE" : atlas.eyeNames[currentIdx];
-        GuiLabel({startX + 60, sy + 30, 200, 30}, lbl.c_str());
-        
-        if (GuiButton({startX + 10, sy + 70, w - 20, 30}, "SAVE PRESET (Enter)")) {
-            std::string name = atlas.eyeNames.empty() ? "custom" : atlas.eyeNames[currentIdx];
-            db.Save("eyes_database.txt", name, currentParams);
-        }
-        sy += 120.0f;
-
-        // --- 2. MAIN EYE SETTINGS (Left Column) ---
-        GuiGroupBox({startX, sy, w, 320}, "MAIN EYE SETTINGS");
-        sy += 20.0f;
-        
-        float labelW = 80; float valW = 40; float sliderW = w - labelW - valW - 30;
-        
-        #define GUI_SLIDE(txt, var, min, max) \
-            GuiLabel({startX+10, sy, labelW, 20}, txt); \
-            GuiSliderBar({startX+10+labelW, sy, sliderW, 20}, NULL, NULL, &var, min, max); \
-            GuiLabel({startX+10+labelW+sliderW+5, sy, valW, 20}, TextFormat("%.2f", var)); \
-            sy += 25;
-
-        int shapeInt = (int)currentParams.eyeShapeID;
-        GUI_SLIDE("Shape ID", currentParams.eyeShapeID, 0.0f, 10.0f); // Range 0-10
-        
-        // Contextual Label for Shape
-        const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked" };
-        if(shapeInt >= 0 && shapeInt <= 10) GuiLabel({startX+10+labelW, sy-25, sliderW, 20}, shapeNames[shapeInt]);
-
-        if(currentParams.eyeShapeID > 5.5f && currentParams.eyeShapeID < 6.5f) {
-            GUI_SLIDE("Spiral Spd", currentParams.spiralSpeed, -10.0f, 10.0f);
-        }
-        
-        GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);
-        GUI_SLIDE(" Eye Thickness", currentParams.eyeThickness, 1.0f, 30.0f);
-        GUI_SLIDE("Pupil/Hole", currentParams.pupilSize, 0.0f, 1.0f);
-        
-        sy += 5; // Spacer
-        GUI_SLIDE("Scale X", currentParams.scaleX, 0.1f, 10.0f);
-        GUI_SLIDE("Scale Y", currentParams.scaleY, 0.1f, 10.0f);
-        GUI_SLIDE("Spacing", currentParams.spacing, 0.0f, 1000.0f);
-        GUI_SLIDE("Look X", currentParams.lookX, -200.0f, 200.0f);
-        GUI_SLIDE("Look Y", currentParams.lookY, -200.0f, 200.0f);
-
-        // --- 3. ELEMENTS & FX (Left Column, Below Main) ---
-        sy += 25.0f;
-        GuiGroupBox({startX, sy, w, 280}, "ELEMENTS & FX");
-        sy += 20.0f;
-
-        // Toggles Row
-        GuiCheckBox({startX+10, sy, 20, 20}, "Brows", &currentParams.showBrow);
-        GuiCheckBox({startX+90, sy, 20, 20}, "Tears", &currentParams.showTears);
-        GuiCheckBox({startX+170, sy, 20, 20}, "Blush", &currentParams.showBlush);
-        sy += 30.0f;
-
-        if (currentParams.showBrow) {
-            GUI_SLIDE("Brow Type", currentParams.eyebrowType, 0, 4);
-            GUI_SLIDE("Brow Thick", currentParams.eyebrowThickness, 1, 20);
-            GUI_SLIDE("Brow Y", currentParams.eyebrowY, -10, 10);
-            GUI_SLIDE("Brow Len", currentParams.eyebrowLength, 0.5f, 2.0f); // [NEW]
-            GUI_SLIDE("Brow Scale", currentParams.browScale, 0.5f, 2.0f);   // [NEW]
-            GUI_SLIDE("Brow Angle", currentParams.browAngle, -45.0f, 45.0f); // [NEW]
-            GUI_SLIDE("Brow Bend", currentParams.browBend, -2.0f, 2.0f);   // Re-use bend
-            GUI_SLIDE("Brow Bend Off", currentParams.browBendOffset, 0.0f, 0.99f); // [NEW]
-            GuiCheckBox({startX+10, sy, 20, 20}, "Lower Brow", &currentParams.useLowerBrow); // [NEW]
-        }
-        
-        if (currentParams.showTears) {
-            GUI_SLIDE("Tear Lvl", currentParams.tearsLevel, 0, 1);
-            
-            // Tear Mode Toggle
-            GuiLabel({startX+10, sy, labelW, 20}, "Tear Mode");
-            if (GuiButton({startX+10+labelW, sy, 80, 20}, currentParams.tearMode == 0 ? "DRIP" : "WAIL")) {
-                currentParams.tearMode = !currentParams.tearMode;
+        if(enableGUI)
+        {
+            GuiGroupBox({startX, sy, w, 110}, "SPRITE REFERENCE");
+            if (GuiButton({startX + 10, sy + 30, 40, 30}, "<")) {
+                currentIdx--; if (currentIdx < 0) currentIdx = (int)atlas.eyeNames.size() - 1;
             }
-            sy += 25;
-        }
-
-        sy += 10; // Spacer for FX
-        GuiLabel({startX+10, sy, w, 20}, "--- SURFACE FX ---");
-        sy += 20;
-        
-        GUI_SLIDE("Stress (Angry)", currentParams.stressLevel, 0.0f, 1.0f); // [NEW]
-        GUI_SLIDE("Gloom (Shock)", currentParams.gloomLevel, 0.0f, 1.0f);  // [NEW]
-        
-        // Distortion Toggle
-        bool distMode = (currentParams.distortMode == 1);
-        if (GuiCheckBox({startX+10, sy, 20, 20}, "Squash/Stretch Distortion", &distMode)) {
-            currentParams.distortMode = distMode ? 1 : 0;
-        }
-
-
-        // --- 4. RIGHT SIDE CONTROLS (Database & Viewport) ---
-        float vx = 1000; float vy = 20;
-
-        GuiGroupBox({vx, vy, 250, 120}, "DATABASE LOAD");
-        vy += 20;
-        
-        if (GuiDropdownBox({vx+10, vy, 230, 25}, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode)) {
-            dropdownEditMode = !dropdownEditMode;
-        }
-        vy += 35;
-
-        if (GuiButton({vx+10, vy, 160, 30}, "LOAD SELECTED")) {
-            if (!db.entries.empty() && dropdownActive < db.entries.size()) {
-                currentParams = db.entries[dropdownActive].params;
+            if (GuiButton({startX + 270, sy + 30, 40, 30}, ">")) {
+                currentIdx = (int)((currentIdx + 1) % (int)atlas.eyeNames.size());
             }
+            std::string lbl = atlas.eyeNames.empty() ? "NONE" : atlas.eyeNames[currentIdx];
+            GuiLabel({startX + 60, sy + 30, 200, 30}, lbl.c_str());
+
+            if (GuiButton({startX + 10, sy + 70, w - 20, 30}, "SAVE PRESET (Enter)")) {
+                std::string name = atlas.eyeNames.empty() ? "custom" : atlas.eyeNames[currentIdx];
+                db.Save("eyes_database.txt", name, currentParams);
+            }
+            sy += 120.0f;
+
+            // --- 2. MAIN EYE SETTINGS (Left Column) ---
+            GuiGroupBox({startX, sy, w, 320}, "MAIN EYE SETTINGS");
+            sy += 20.0f;
+
+            float labelW = 80; float valW = 40; float sliderW = w - labelW - valW - 30;
+
+            #define GUI_SLIDE(txt, var, min, max) \
+                GuiLabel({startX+10, sy, labelW, 20}, txt); \
+                GuiSliderBar({startX+10+labelW, sy, sliderW, 20}, NULL, NULL, &var, min, max); \
+                GuiLabel({startX+10+labelW+sliderW+5, sy, valW, 20}, TextFormat("%.2f", var)); \
+                sy += 25;
+
+            int shapeInt = (int)currentParams.eyeShapeID;
+            GUI_SLIDE("Shape ID", currentParams.eyeShapeID, 0.0f, 10.0f); // Range 0-10
+
+            // Contextual Label for Shape
+            const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked" };
+            if(shapeInt >= 0 && shapeInt <= 10) GuiLabel({startX+10+labelW, sy-25, sliderW, 20}, shapeNames[shapeInt]);
+
+            if(currentParams.eyeShapeID > 5.5f && currentParams.eyeShapeID < 6.5f) {
+                GUI_SLIDE("Spiral Spd", currentParams.spiralSpeed, -10.0f, 10.0f);
+            }
+
+            GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);
+            GUI_SLIDE(" Eye Thickness", currentParams.eyeThickness, 1.0f, 30.0f);
+            GUI_SLIDE("Pupil/Hole", currentParams.pupilSize, 0.0f, 1.0f);
+
+            sy += 5; // Spacer
+            GUI_SLIDE("Scale X", currentParams.scaleX, 0.1f, 10.0f);
+            GUI_SLIDE("Scale Y", currentParams.scaleY, 0.1f, 10.0f);
+            GUI_SLIDE("Spacing", currentParams.spacing, 0.0f, 1000.0f);
+            GUI_SLIDE("Look X", currentParams.lookX, -300.0f, 300.0f);
+            GUI_SLIDE("Look Y", currentParams.lookY, -300.0f, 300.0f);
+
+            // --- 3. ELEMENTS & FX (Left Column, Below Main) ---
+            sy += 25.0f;
+            GuiGroupBox({startX, sy, w, 280}, "ELEMENTS & FX");
+            sy += 20.0f;
+
+            // Toggles Row
+            GuiCheckBox({startX+10, sy, 20, 20}, "Brows", &currentParams.showBrow);
+            GuiCheckBox({startX+90, sy, 20, 20}, "Tears", &currentParams.showTears);
+            GuiCheckBox({startX+170, sy, 20, 20}, "Blush", &currentParams.showBlush);
+            sy += 30.0f;
+
+            if (currentParams.showBrow) {
+                GUI_SLIDE("Brow Type", currentParams.eyebrowType, 0, 4);
+                GUI_SLIDE("Brow Thick", currentParams.eyebrowThickness, 1, 20);
+                GUI_SLIDE("Brow Y", currentParams.eyebrowY, -10, 10);
+                GUI_SLIDE("Brow X", currentParams.eyebrowX, -10, 10); // [NEW]
+                GUI_SLIDE("Brow Len", currentParams.eyebrowLength, 0.5f, 2.0f); // [NEW]
+                GUI_SLIDE("Brow Scale", currentParams.browScale, 0.5f, 2.0f);   // [NEW]
+                GUI_SLIDE("Brow Angle", currentParams.browAngle, -45.0f, 45.0f); // [NEW]
+                GUI_SLIDE("Brow Bend", currentParams.browBend, -2.0f, 2.0f);   // Re-use bend
+                GUI_SLIDE("Brow Bend Off", currentParams.browBendOffset, 0.0f, 0.99f); // [NEW]
+                GuiCheckBox({startX+10, sy, 20, 20}, "Lower Brow", &currentParams.useLowerBrow); // [NEW]
+            }
+
+            if (currentParams.showTears) {
+                GUI_SLIDE("Tear Lvl", currentParams.tearsLevel, 0, 1);
+
+                // Tear Mode Toggle
+                GuiLabel({startX+10, sy, labelW, 20}, "Tear Mode");
+                if (GuiButton({startX+10+labelW, sy, 80, 20}, currentParams.tearMode == 0 ? "DRIP" : "WAIL")) {
+                    currentParams.tearMode = !currentParams.tearMode;
+                }
+                sy += 25;
+            }
+
+            sy += 10; // Spacer for FX
+            GuiLabel({startX+10, sy, w, 20}, "--- SURFACE FX ---");
+            sy += 20;
+
+            GUI_SLIDE("Stress (Angry)", currentParams.stressLevel, 0.0f, 1.0f); // [NEW]
+            GUI_SLIDE("Gloom (Shock)", currentParams.gloomLevel, 0.0f, 1.0f);  // [NEW]
+
+            // Distortion Toggle
+            bool distMode = (currentParams.distortMode == 1);
+            if (GuiCheckBox({startX+10, sy, 20, 20}, "Squash/Stretch Distortion", &distMode)) {
+                currentParams.distortMode = distMode ? 1 : 0;
+            }
+
+
+            // --- 4. RIGHT SIDE CONTROLS (Database & Viewport) ---
+            float vx = 1000; float vy = 20;
+
+            GuiGroupBox({vx, vy, 250, 120}, "DATABASE LOAD");
+
+            vy += 55;
+
+            if (GuiButton({vx+10, vy, 160, 30}, "LOAD SELECTED")) {
+                if (!db.entries.empty() && dropdownActive < db.entries.size()) {
+                    currentParams = db.entries[dropdownActive].params;
+                }
+            }
+            if (GuiButton({vx+180, vy, 50, 30}, "RELOAD")) db.Load("eyes_database.txt");
+
+            vy -= 35;
+
+            if (GuiDropdownBox({vx+10, vy, 230, 25}, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode)) {
+                dropdownEditMode = !dropdownEditMode;
+            }
+
+            // VIEWPORT SETTINGS
+            vy = 680; // Bottom Right
+            GuiGroupBox({vx, vy, 250, 100}, "VIEWPORT");
+            GuiCheckBox({vx+10, vy+25, 20, 20}, "Show Ref", &showReference);
+            GuiSliderBar({vx+80, vy+55, 100, 20}, "Opac", NULL, &refOpacity, 0.0f, 1.0f);
+            GuiCheckBox({vx+10, vy+80, 20, 20}, "Test Physics", &usePhysics);
         }
-        if (GuiButton({vx+180, vy, 50, 30}, "RELOAD")) db.Load("eyes_database.txt");
-        
-        // VIEWPORT SETTINGS
-        vy = 680; // Bottom Right
-        GuiGroupBox({vx, vy, 250, 100}, "VIEWPORT");
-        GuiCheckBox({vx+10, vy+25, 20, 20}, "Show Ref", &showReference);
-        GuiSliderBar({vx+80, vy+55, 100, 20}, "Opac", NULL, &refOpacity, 0.0f, 1.0f);
-        GuiCheckBox({vx+10, vy+80, 20, 20}, "Test Physics", &usePhysics);
 
         // KEYBOARD
         if (IsKeyPressed(KEY_LEFT)) currentIdx--;

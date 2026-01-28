@@ -7,6 +7,8 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <iostream>
 
 // --------------------------------------------------------
 // PHYSICS STRUCTS
@@ -51,6 +53,7 @@ struct EyeParams {
     float eyebrowType = 0.0f; 
     float eyebrowThickness = 4.0f;
     float eyebrowY = 0.0f;
+    float eyebrowX = 0.0f;
     float eyebrowLength = 1.0f;
     float browScale = 1.0f;      
     float browSide = 1.0f;        // New: 1.0 for left, -1.0 for right (mirrors the brow)
@@ -115,50 +118,50 @@ struct ParametricEyes {
     int locTearLevel, locTearMode, locShowBlush, locBlushCol, locTearCol;
 
 
+    // HOT RELOAD DATA
+    long eyeFragTime = 0;
+    long tearFragTime = 0;
+    long browFragTime = 0;
+    std::string eyeFragPath = "eyes_es.fs"; // Store the path
+    std::string tearFragPath = "tears_es.fs";
+    std::string browFragPath = "brow_es.fs";
+
+    float hotReloadTimer = 0.0f;
+
     // ----------------------------------------------------
     // INIT
     // ----------------------------------------------------
     void Init() {
         // Load the 3 separate shaders
         // Assuming they are in the same directory as the executable or src/
-        shEye   = LoadShaderOrFallback("eyes_es.fs");
-        shBrow  = LoadShaderOrFallback("brow_es.fs");
-        shTears = LoadShaderOrFallback("tears_es.fs");
+        //shEye   = LoadShaderOrFallback("eyes_es.fs");
+        //shBrow  = LoadShaderOrFallback("brow_es.fs");
+        //shTears = LoadShaderOrFallback("tears_es.fs");
 
-        // --- GET LOCATIONS (EYE) ---
-        locResEye   = GetShaderLocation(shEye, "uResolution");
-        locTimeEye  = GetShaderLocation(shEye, "uTime");
-        locColorEye = GetShaderLocation(shEye, "uColor");
-        locShape    = GetShaderLocation(shEye, "uShapeID");
-        locBend     = GetShaderLocation(shEye, "uBend");
-        locEyeThick = GetShaderLocation(shEye, "uThickness");
-        locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
-        locPupil    = GetShaderLocation(shEye, "uPupilSize");
-        locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
-        locDistort  = GetShaderLocation(shEye, "uDistortMode");
-        locStress   = GetShaderLocation(shEye, "uStressLevel");
-        locGloom    = GetShaderLocation(shEye, "uGloomLevel");
+        //Loading Eye Shader (Hot Reload Enabled)
+        if (FileExists("eyes_es.fs")) eyeFragPath = "eyes_es.fs";
+        else if (FileExists("src/eyes_es.fs")) eyeFragPath = "src/eyes_es.fs";
+        else eyeFragPath = "eyes_es.fs"; // Default fallback
+        shEye = LoadShader(0, eyeFragPath.c_str());
+        eyeFragTime = GetFileModTime(eyeFragPath.c_str());
+        GetEyeLocations();
 
-        // --- GET LOCATIONS (BROW) ---
-        locResBrow   = GetShaderLocation(shBrow, "uResolution");
-        locColorBrow = GetShaderLocation(shBrow, "uColor");
-        locBrowType  = GetShaderLocation(shBrow, "uEyebrowType");
-        locBrowBend  = GetShaderLocation(shBrow, "uBend");
-        locBrowThick = GetShaderLocation(shBrow, "uThickness");
-        locBrowLen   = GetShaderLocation(shBrow, "uEyeBrowLength");
-        locBrowY     = GetShaderLocation(shBrow, "uEyeBrowY");
-        locBrowSide  = GetShaderLocation(shBrow, "uBrowSide");
-        locBrowAngle = GetShaderLocation(shBrow, "uAngle");
-        locBrowBendOffset = GetShaderLocation(shBrow, "uBendOffset");
+        //Loading Brow Shader (Hot Reload Enabled)
+        if (FileExists("brow_es.fs")) browFragPath = "brow_es.fs";
+        else if (FileExists("src/brow_es.fs")) browFragPath = "src/brow_es.fs";
+        else browFragPath = "brow_es.fs"; // Default fallback
+        shBrow = LoadShader(0, browFragPath.c_str());
+        browFragTime = GetFileModTime(browFragPath.c_str());
+        GetBrowLocations();
 
-        // --- GET LOCATIONS (TEARS) ---
-        locResTear   = GetShaderLocation(shTears, "uResolution");
-        locTimeTear  = GetShaderLocation(shTears, "uTime");
-        locTearLevel = GetShaderLocation(shTears, "uTearsLevel");
-        locTearMode  = GetShaderLocation(shTears, "uTearMode");
-        locShowBlush = GetShaderLocation(shTears, "uShowBlush");
-        locBlushCol  = GetShaderLocation(shTears, "uBlushColor");
-        locTearCol   = GetShaderLocation(shTears, "uTearColor");
+        //Loading Tears Shader (Hot Reload Enabled)
+        if (FileExists("tears_es.fs")) tearFragPath = "tears_es.fs";
+        else if (FileExists("src/tears_es.fs")) tearFragPath = "src/tears_es.fs";
+        else tearFragPath = "tears_es.fs"; // Default fallback
+        shTears = LoadShader(0, tearFragPath.c_str());
+        tearFragTime = GetFileModTime(tearFragPath.c_str());
+        GetTearLocations();
+
     }
 
     // Helper to find shader path (kept from your code)
@@ -179,6 +182,13 @@ struct ParametricEyes {
     // UPDATE (Physics & Blink)
     // ----------------------------------------------------
     void Update(float dt, EyeParams& params) {
+
+        hotReloadTimer += dt;
+        if (hotReloadTimer > 1.0f) {
+            CheckHotReload();
+            hotReloadTimer = 0.0f;
+        }
+
         if (!usePhysics) {
             // DIRECT MAPPING (For Editor)
             sScaleX.val = params.scaleX;
@@ -278,10 +288,9 @@ struct ParametricEyes {
             SetShaderValue(shBrow, locColorBrow, colVec, SHADER_UNIFORM_VEC4);
             
             SetShaderValue(shBrow, locBrowType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowBend, &p.browBend, SHADER_UNIFORM_FLOAT); // Re-use bend
+            SetShaderValue(shBrow, locBrowBend, &p.browBend, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowThick, &p.eyebrowThickness, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowY, &p.eyebrowY, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowSide, &p.browSide, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
@@ -292,6 +301,7 @@ struct ParametricEyes {
             
             SetShaderValue(shTears, locTearLevel, &p.tearsLevel, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shTears, locTearMode, &p.tearMode, SHADER_UNIFORM_INT);
+            SetShaderValue(shTears, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
             
             int blushToggle = p.showBlush ? 1 : 0;
             SetShaderValue(shTears, locShowBlush, &blushToggle, SHADER_UNIFORM_INT);
@@ -330,11 +340,12 @@ struct ParametricEyes {
         eyeRect.height *= sScaleY.val;
         eyeRect.x += (oldW - eyeRect.width) * 0.5f;
         eyeRect.y += (oldH - eyeRect.height) * 0.5f;
+        
 
         // 2. LAYER 1: MAIN EYE
         DrawLayer(eyeRect, originalRes, p, c, 0);
-        DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
-        DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
+        //DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
+        //DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
 
         // 3. LAYER 2: EYEBROW (If enabled)
         //Offsetting the brow ret so that it doesn't share or use the same
@@ -351,6 +362,8 @@ struct ParametricEyes {
 
             browRect.x += (rect.width - browRect.width) * 0.5f;
             browRect.y += (rect.height - browRect.height) * 0.5f;
+            browRect.x += p.eyebrowX*20.f* p.browSide; // Apply X offset
+            browRect.y += p.eyebrowY*20.f; // Apply Y offset
             Vector2 browRes = { browRect.width, browRect.height };
 
             DrawLayer(browRect, browRes, p, BLACK, 1);
@@ -358,7 +371,9 @@ struct ParametricEyes {
             {
                 EyeParams lowerP = p;
                 lowerP.eyebrowY = 0.0f;
-                lowerP.bend = -p.bend; 
+                lowerP.bend = -p.bend;
+                lowerP.eyebrowLength = 1.37f;
+                lowerP.eyebrowThickness = 7.15f;
             
                 // 1. Calculate the exact bottom pixel of the eye
                 Vector2 eyeCenter = { 
@@ -371,7 +386,7 @@ struct ParametricEyes {
                 float eyeBottomY = eyeCenter.y + ryEye;
             
                 Rectangle lowerRect = eyeRect;
-                lowerRect.width  = eyeRect.width  * 2.5f * p.browScale * p.eyebrowLength;
+                lowerRect.width  = eyeRect.width  * 2.5f * p.browScale * lowerP.eyebrowLength;
                 lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
 
                 // Center X
@@ -380,29 +395,64 @@ struct ParametricEyes {
                 // --- THE CRITICAL FIX ---
                 // Currently you are doing: lowerRect.y = eyeBottomY;
                 // You need to Move it UP by half its height so the 'Line' sits on the edge
-                lowerRect.y = eyeBottomY - (lowerRect.height * 0.5f);
+                lowerRect.y = eyeBottomY - (lowerRect.height * 0.53f);
 
                 // 2. Optional Nudge
                 // If the line feels too thick and sits "outside" the eye, 
                 // subtract a tiny bit more to push it UP into the eye.
                 lowerRect.y -= eyeRect.height * 0.3f;
-            
+
+                float myFixedOffset = 48.6235f;
+                lowerRect.x += myFixedOffset;
+                std::cout<<"Lower Brow X Offset Applied: "<< myFixedOffset <<std::endl; 
+
+                
+                //lowerRect.x += p.eyebrowX*20.f; // Apply X offset
+                //std::cout<<"Lower Brow X: "<< lowerRect.x <<std::endl;
+
                 Vector2 lowerRes = { lowerRect.width, lowerRect.height };
                 DrawLayer(lowerRect, lowerRes, lowerP, BLACK, 1);
 
                 // Debug visuals
-                DrawRectangleLinesEx(lowerRect, 2.0f, { 0, 255, 0, 150 });
+                //DrawRectangleLinesEx(lowerRect, 2.0f, { 0, 255, 0, 150 });
             }
             
 
-            DrawRectangleLinesEx(browRect, 2.0f, { 255, 255, 0, 150 });
-            DrawRectangleRec(browRect, { 255, 255, 0, 40 }); // Faint fill
+            // DrawRectangleLinesEx(browRect, 2.0f, { 255, 255, 0, 150 });
+            // DrawRectangleRec(browRect, { 255, 255, 0, 40 }); // Faint fill
         }
 
         // 4. LAYER 3: TEARS / BLUSH (If enabled)
         // (Note: Color passed here is ignored by shader in favor of internal uniform colors)
         if (p.showTears || p.showBlush) {
-            DrawLayer(eyeRect, originalRes, p, WHITE, 2);
+
+            // Use the same width as the incoming rect (drawWidth from caller)
+            float tearWidth = rect.width+130.0f;
+
+            // Calculate how much space is left from the eye to the bottom of the screen
+            // + a buffer (e.g. 100px) to ensure tears fall completely off-screen
+            float startY = rect.y + (rect.height * 0.5f);
+            float tearHeight = (float)GetScreenHeight() - startY + 100.0f;          
+
+            // 2. DEFINE RECT (Anchored at Eye Center)
+            Rectangle tearRect = {
+                rect.x + (rect.width * 0.5f) - (tearWidth * 0.5f), // Center X
+                startY,                                            // Start Y (Pupil Center)
+                tearWidth,
+                tearHeight
+            };
+
+            // Small wrapper that accepts a single Rectangle and forwards to DrawLayer
+            auto DrawTearRect = [&](Rectangle r) {
+            Vector2 rRes = { r.width, r.height };
+            DrawLayer(r, rRes, p, WHITE, 2);
+            };
+
+            // Pass only the tearRect into the wrapper
+            DrawTearRect(tearRect);
+
+            //DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
+            //DrawRectangleRec(tearRect, { 255, 200, 0, 40 }); // Faint fill
         }
     }
        
@@ -412,8 +462,8 @@ struct ParametricEyes {
         float eyeHeight  = 150.0f;  
 
         // [FIX] TALLER RECTANGLES (Kept from your original code)
-        float drawWidth  = eyeSize;
-        float drawHeight = eyeSize*2.0f;
+        float drawWidth  = eyeSize*2.7f;
+        float drawHeight = eyeSize*2.7f;
 
         Rectangle leftRect = { 
             centerPos.x - (p.spacing/2) - (drawWidth/2), 
@@ -429,7 +479,7 @@ struct ParametricEyes {
 
         // --- COLOR OVERRIDES ---
         // Star Eyes -> Gold
-        if((p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || p.eyeShapeID > 7.5)
+        if((p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5))
             c = starEyesColour;
         
         // Heart Eyes -> Red
@@ -446,5 +496,140 @@ struct ParametricEyes {
         rightParams.browSide = 1.0f;  // Right brow: flipped
         rightParams.eyeSide = -1.0f;   // Right eye: normal
         DrawSingleEyeStack(rightRect, rightParams, c);
+    }
+
+    // MOVED: Extract this from Init() so we can reuse it
+    void GetEyeLocations() {
+        locResEye   = GetShaderLocation(shEye, "uResolution");
+        locTimeEye  = GetShaderLocation(shEye, "uTime");
+        locColorEye = GetShaderLocation(shEye, "uColor");
+        locShape    = GetShaderLocation(shEye, "uShapeID");
+        locBend     = GetShaderLocation(shEye, "uBend");
+        locEyeThick = GetShaderLocation(shEye, "uThickness");
+        locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
+        locPupil    = GetShaderLocation(shEye, "uPupilSize");
+        locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
+        locDistort  = GetShaderLocation(shEye, "uDistortMode");
+        locStress   = GetShaderLocation(shEye, "uStressLevel");
+        locGloom    = GetShaderLocation(shEye, "uGloomLevel");
+    }
+
+    void GetBrowLocations() {
+        locResBrow   = GetShaderLocation(shBrow, "uResolution");
+        locColorBrow = GetShaderLocation(shBrow, "uColor");
+        locBrowType  = GetShaderLocation(shBrow, "uEyebrowType");
+        locBrowBend  = GetShaderLocation(shBrow, "uBend");
+        locBrowThick = GetShaderLocation(shBrow, "uThickness");
+        locBrowLen   = GetShaderLocation(shBrow, "uEyeBrowLength");
+        locBrowSide  = GetShaderLocation(shBrow, "uBrowSide");
+        locBrowAngle = GetShaderLocation(shBrow, "uAngle");
+        locBrowBendOffset = GetShaderLocation(shBrow, "uBendOffset");
+    }
+
+    void GetTearLocations() {
+        locResTear   = GetShaderLocation(shTears, "uResolution");
+        locTimeTear  = GetShaderLocation(shTears, "uTime");
+        locTearLevel = GetShaderLocation(shTears, "uTearsLevel");
+        locTearMode  = GetShaderLocation(shTears, "uTearMode");
+        locShowBlush = GetShaderLocation(shTears, "uShowBlush");
+        locBlushCol  = GetShaderLocation(shTears, "uBlushColor");
+        locTearCol   = GetShaderLocation(shTears, "uTearColor");
+        locEyeSide   = GetShaderLocation(shTears, "uSide");
+    }
+
+    void CheckHotReload() {
+        long eyeModTimeNow  = GetFileModTime(eyeFragPath.c_str());
+        long tearModTimeNow = GetFileModTime(tearFragPath.c_str());
+        long browModTimeNow = GetFileModTime(browFragPath.c_str());
+
+        std::cout << "[HOT RELOAD] Checking shaders... Eye: " << eyeModTimeNow << " (last " << eyeFragTime << ")"
+                  << " | Tears: " << tearModTimeNow << " (last " << tearFragTime << ")"
+                  << " | Brow: " << browModTimeNow << " (last " << browFragTime << ")" << std::endl;
+
+        std::ofstream logFile("hotreload_debug.log", std::ios::app);
+        logFile << "[HOT RELOAD] Check called. Eye: " << eyeModTimeNow << " (last " << eyeFragTime << "), "
+                << "Tears: " << tearModTimeNow << " (last " << tearFragTime << "), "
+                << "Brow: " << browModTimeNow << " (last " << browFragTime << ")\n";
+
+        bool anyChanged = (eyeModTimeNow > eyeFragTime) || (tearModTimeNow > tearFragTime) || (browModTimeNow > browFragTime);
+        if (!anyChanged) {
+            std::cout << "[HOT RELOAD] No changes detected." << std::endl;
+            logFile << "[HOT RELOAD] No changes detected.\n";
+            logFile.close();
+            return;
+        }
+
+        std::cout << "[HOT RELOAD] Change detected. Attempting per-shader reload..." << std::endl;
+        logFile << "[HOT RELOAD] Change detected. Attempting per-shader reload...\n";
+
+        // --- Eye Shader ---
+        if (eyeModTimeNow > eyeFragTime) {
+            std::cout << "[HOT RELOAD] Reloading Eye shader from: " << eyeFragPath << std::endl;
+            logFile << "[HOT RELOAD] Reloading Eye shader from: " << eyeFragPath << "\n";
+
+            Shader newEyeShader = LoadShader(0, eyeFragPath.c_str());
+            if (newEyeShader.id != rlGetShaderIdDefault()) {
+                UnloadShader(shEye);
+                shEye = newEyeShader;
+                GetEyeLocations();
+                eyeFragTime = eyeModTimeNow;
+
+                std::cout << "[HOT RELOAD] Eye shader reloaded successfully." << std::endl;
+                logFile << "[HOT RELOAD] Eye shader reloaded successfully.\n";
+                TraceLog(LOG_INFO, "HOT RELOAD: Eye shader updated.");
+            } else {
+                std::cout << "[HOT RELOAD] Eye shader reload FAILED (compile error)." << std::endl;
+                logFile << "[HOT RELOAD] Eye shader reload FAILED (compile error).\n";
+                TraceLog(LOG_WARNING, "HOT RELOAD: Eye shader compile failed.");
+            }
+        }
+
+        // --- Tears Shader ---
+        if (tearModTimeNow > tearFragTime) {
+            std::cout << "[HOT RELOAD] Reloading Tears shader from: " << tearFragPath << std::endl;
+            logFile << "[HOT RELOAD] Reloading Tears shader from: " << tearFragPath << "\n";
+
+            Shader newTearShader = LoadShader(0, tearFragPath.c_str());
+            if (newTearShader.id != rlGetShaderIdDefault()) {
+                UnloadShader(shTears);
+                shTears = newTearShader;
+                GetTearLocations();
+                tearFragTime = tearModTimeNow;
+
+                std::cout << "[HOT RELOAD] Tears shader reloaded successfully." << std::endl;
+                logFile << "[HOT RELOAD] Tears shader reloaded successfully.\n";
+                TraceLog(LOG_INFO, "HOT RELOAD: Tears shader updated.");
+            } else {
+                std::cout << "[HOT RELOAD] Tears shader reload FAILED (compile error)." << std::endl;
+                logFile << "[HOT RELOAD] Tears shader reload FAILED (compile error).\n";
+                TraceLog(LOG_WARNING, "HOT RELOAD: Tears shader compile failed.");
+            }
+        }
+
+        // --- Brow Shader ---
+        if (browModTimeNow > browFragTime) {
+            std::cout << "[HOT RELOAD] Reloading Brow shader from: " << browFragPath << std::endl;
+            logFile << "[HOT RELOAD] Reloading Brow shader from: " << browFragPath << "\n";
+
+            Shader newBrowShader = LoadShader(0, browFragPath.c_str());
+            if (newBrowShader.id != rlGetShaderIdDefault()) {
+                UnloadShader(shBrow);
+                shBrow = newBrowShader;
+                GetBrowLocations();
+                browFragTime = browModTimeNow;
+
+                std::cout << "[HOT RELOAD] Brow shader reloaded successfully." << std::endl;
+                logFile << "[HOT RELOAD] Brow shader reloaded successfully.\n";
+                TraceLog(LOG_INFO, "HOT RELOAD: Brow shader updated.");
+            } else {
+                std::cout << "[HOT RELOAD] Brow shader reload FAILED (compile error)." << std::endl;
+                logFile << "[HOT RELOAD] Brow shader reload FAILED (compile error).\n";
+                TraceLog(LOG_WARNING, "HOT RELOAD: Brow shader compile failed.");
+            }
+        }
+
+        logFile << "[HOT RELOAD] Reload pass complete.\n";
+        std::cout << "[HOT RELOAD] Reload pass complete." << std::endl;
+        logFile.close();
     }
 };
