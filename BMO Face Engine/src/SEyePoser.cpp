@@ -134,7 +134,6 @@ struct EyeDatabase {
                             >> e.params.eyeShapeID 
                             >> e.params.bend 
                             >> e.params.eyeThickness 
-                            >> e.params.pupilSize 
                             >> e.params.eyeSide
 
                             // 2. SURFACE FX
@@ -208,7 +207,7 @@ struct EyeDatabase {
         newLine << "eyes[\"" << name << "\"] = { "
                 // 1. MAIN
                 << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, "
-                << p.pupilSize << "f, " << p.eyeSide << "f, "
+                << "f, " << p.eyeSide << "f, "
 
                 // 2. SURFACE FX
                 << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", "
@@ -432,7 +431,6 @@ int main() {
 
             GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);
             GUI_SLIDE(" Eye Thickness", currentParams.eyeThickness, 1.0f, 30.0f);
-            GUI_SLIDE("Pupil/Hole", currentParams.pupilSize, 0.0f, 1.0f);
 
             sy += 5; // Spacer
             GUI_SLIDE("Scale X", currentParams.scaleX, 0.1f, 10.0f);

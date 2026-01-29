@@ -36,7 +36,6 @@ struct EyeParams {
     float eyeShapeID = 0.0f;     // 0-8=Std, 9=Kawaii, 10=Shocked
     float bend = 0.0f;        
     float eyeThickness = 4.0f;   
-    float pupilSize = 0.0f;   
     float eyeSide = 0.0f;
     
     // --- NEW SURFACE FX (For Angry/Shocked Sprites) ---
@@ -107,7 +106,7 @@ struct ParametricEyes {
     // SHADER LOCATIONS (Cached for performance)
     // Eye Shader
     int locResEye, locTimeEye, locColorEye, locEyeSide;
-    int locShape, locBend, locEyeThick, locPupil, locSpiral, locDistort, locStress, locGloom;
+    int locShape, locBend, locEyeThick, locSpiral, locDistort, locStress, locGloom;
     
     // Brow Shader
     int locResBrow, locColorBrow;
@@ -275,7 +274,6 @@ struct ParametricEyes {
         BeginShaderMode(*targetShader);
 
         float scaledThick = GlobalScaler.S(p.eyeThickness);
-        float scaledPupil = p.pupilSize; // Ratios (0.0-1.0) generally DON'T need scaling
         float scaledBrowThick = GlobalScaler.S(p.eyebrowThickness);
         float scaledBrowY = GlobalScaler.S(p.eyebrowY * 20.0f); // Scale the offset
 
@@ -291,7 +289,6 @@ struct ParametricEyes {
             SetShaderValue(shEye, locShape, &finalShape, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locBend, &p.bend, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locEyeThick, &scaledThick, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locPupil, &p.pupilSize, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locSpiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locDistort, &p.distortMode, SHADER_UNIFORM_INT);
@@ -396,10 +393,10 @@ struct ParametricEyes {
                 // // Pass only the tearRect into the wrapper
                 // DrawTearRect(tearRect);
 
-                // if(debugBoxes){
-                //     DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
-                //     DrawRectangleRec(tearRect, { 255, 200, 0, 40 }); // Faint fill
-                // }
+                if(debugBoxes){
+                    DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
+                    DrawRectangleRec(tearRect, { 255, 200, 0, 40 }); // Faint fill
+                }
 
                 Vector2 tRes = { tearRect.width, tearRect.height };
                 DrawLayer(tearRect, tRes, tearParams, WHITE, 2);
@@ -455,11 +452,11 @@ struct ParametricEyes {
         
 
         // 2. LAYER 1: MAIN EYE
-        //DrawLayer(eyeRect, originalRes, p, c, 0);
+        // //DrawLayer(eyeRect, originalRes, p, c, 0);
          if(debugBoxes){
-                DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
-                DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
-            }
+            DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
+            DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
+        }
        
 
         // 3. LAYER 2: EYEBROW (If enabled)
@@ -608,7 +605,6 @@ struct ParametricEyes {
         locBend     = GetShaderLocation(shEye, "uBend");
         locEyeThick = GetShaderLocation(shEye, "uThickness");
         locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
-        locPupil    = GetShaderLocation(shEye, "uPupilSize");
         locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
         locDistort  = GetShaderLocation(shEye, "uDistortMode");
         locStress   = GetShaderLocation(shEye, "uStressLevel");

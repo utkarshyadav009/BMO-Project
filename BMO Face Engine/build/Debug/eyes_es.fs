@@ -11,7 +11,6 @@ uniform vec4 uColor;
 uniform float uShapeID;      // 0-8=Standard, 9=Kawaii, 10=Shocked
 uniform float uBend;         
 uniform float uThickness;    
-uniform float uPupilSize;    
 uniform float uTime; 
 uniform float uSpiralSpeed;
 uniform float uEyeSide;
@@ -331,6 +330,7 @@ float aaFill_Safe(float d) { return 1.0 - smoothstep(-0.75, 0.75, d); }
 // MAIN
 // ---------------------------
 void main() {
+
     vec2 p = (fragTexCoord - 0.5) * uResolution;
     float r = 0.13 * min(uResolution.x, uResolution.y);
     float th = max(uThickness, 1.0);
@@ -347,10 +347,6 @@ void main() {
     float d = 1e5;
     if (uShapeID < 0.5) { // DOT
         d = sdCircle(p, r);
-        if (uPupilSize > 0.001) {
-            vec2 hlPos = p - vec2(r * 0.28, -r * 0.28);
-            d = max(d, -sdCircle(hlPos, r * 0.28) * clamp(uPupilSize, 0.0, 1.0));
-        }
     }
     else if (uShapeID < 1.5) { d = sdBox(p, vec2(r, th)); }
     else if (uShapeID < 2.5) { // ARC
@@ -399,7 +395,7 @@ void main() {
         d = sdSpiral(rotate2D(p, spin), R, turns, th, 0, dir, 0.0);
     }
     else if (uShapeID < 7.5){ // CHEVRON
-        float dir = (uBend >= 0.0) ? 1.0 : -1.0; vec2 pc = vec2(p.x * dir, p.y);
+        float dir = uEyeSide; vec2 pc = vec2(p.x * dir, p.y);
         vec2 a = vec2(-r * 0.45, -r * 0.35); vec2 b = vec2( r * 0.35,  0.00); vec2 c = vec2(-r * 0.45,  r * 0.35);
         d = min(sdSegment(pc, a, b) - th, sdSegment(pc, c, b) - th);
     }
