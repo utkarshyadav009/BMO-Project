@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <filesystem>
+#include"utility.h"
 
 
 // Include the NEW Shader-based Eye Engine
@@ -161,7 +162,7 @@ struct EyeDatabase {
 
                             // 5. TEARS
                             >> e.params.tearsLevel 
-                            >> e.params.tearMode
+                            >> e.params.blushMode
 
                             // 6. EXTRAS
                             >> e.params.spiralSpeed
@@ -223,7 +224,7 @@ struct EyeDatabase {
                 << (int)p.useLowerBrow << ", "
 
                 // 5. TEARS
-                << p.tearsLevel << "f, " << p.tearMode << ", "
+                << p.tearsLevel << "f, " << p.blushMode << ", "
 
                 // 6. EXTRAS
                 << p.spiralSpeed << "f, "
@@ -261,10 +262,18 @@ int main() {
 
     std::cout << "BasePath: " << GetApplicationDirectory() << std::endl;
 
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    InitWindow(400, 200, "BMO Eye Poser (Shader Edition)");
-    SetTargetFPS(60);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE|FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    // Get the actual physical size of the primary monitor
+    int monitor = GetCurrentMonitor();
+    int screenW = GetMonitorWidth(monitor);
+    int screenH = GetMonitorHeight(monitor);
 
+    // Initialize window with native resolution (borderless experience)
+    InitWindow(1280, 800, "BMO Face Engine");
+    
+    // Immediately fullscreen it to cover taskbars etc.
+    //ToggleFullscreen();
+    SetTargetFPS(60);
 
     // Style Setup (Dark Theme)
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
@@ -298,7 +307,7 @@ int main() {
     int dropdownActive = 0;
     bool dropdownEditMode = false;
     
-    Vector2 centerScreen = { 800, 360 };
+    Vector2 centerScreen = { 0, 0 };
 
     // GUI Layout Vars
     float startX = 20.0f; 
@@ -307,7 +316,18 @@ int main() {
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
+
+        GlobalScaler.Update();
+
+        // Always lock face to the exact center of the current window
+        centerScreen.x = (float)GetScreenWidth() * 0.5f;
+        centerScreen.y = (float)GetScreenHeight() * 0.5f;
+
+        //For GUI 
+        float screenWidth = (float)GetScreenWidth();
+        float screenHeight = (float)GetScreenHeight();
         
+
         // --- LOGIC ---
         rig.usePhysics = usePhysics;
         rig.Update(dt, currentParams);
@@ -342,10 +362,29 @@ int main() {
         static bool enableGUI = true;
 
         // Bottom-right "Enable GUI" checkbox (positioned relative to window size)
-        float cbX = float(GetScreenWidth()) - 180;
-        float cbY = float(GetScreenHeight()) - 40;
-        GuiGroupBox({cbX - 10, cbY - 30, 170, 40}, "");
-        GuiCheckBox({cbX-5, cbY-15, 20, 20}, "Enable GUI", &enableGUI);
+        float cbX = screenWidth - 180;
+        float cbY = screenHeight - 40;
+        GuiGroupBox({cbX - 10, cbY - 30, 170, 50}, "");
+        GuiCheckBox({cbX-5, cbY-5, 20, 20}, "Enable GUI", &enableGUI);
+        GuiCheckBox({cbX-5, cbY-30, 20, 20}, "Enable debug", &rig.debugBoxes);
+
+
+
+        // Fullscreen toggle 
+        if (IsKeyPressed(KEY_F11)) {
+            ToggleFullscreen();
+
+            // Optional: Reset window size if leaving fullscreen
+            if (!IsWindowFullscreen()) {
+                SetWindowSize(1280, 720); // Go back to a manageable window
+                SetWindowPosition(100, 100);
+            } else {
+                // If entering fullscreen, Raylib usually handles the resize,
+                // but explicit sizing ensures it grabs the monitor res.
+                int display = GetCurrentMonitor();
+                SetWindowSize(GetMonitorWidth(display), GetMonitorHeight(display));
+            }
+        }
 
         // NOTE: Replace the later `if(true)` with `if(enableGUI)` so the main GUI block respects this checkbox.
 
@@ -431,9 +470,10 @@ int main() {
 
                 // Tear Mode Toggle
                 GuiLabel({startX+10, sy, labelW, 20}, "Tear Mode");
-                if (GuiButton({startX+10+labelW, sy, 80, 20}, currentParams.tearMode == 0 ? "DRIP" : "WAIL")) {
-                    currentParams.tearMode = !currentParams.tearMode;
+                if (GuiButton({startX+10+labelW, sy, 80, 20}, currentParams.blushMode == 0 ? "Pink" : "Green")) {
+                    currentParams.blushMode = !currentParams.blushMode;
                 }
+                printf("Blush Mode %i \n", currentParams.blushMode);
                 sy += 25;
             }
 
@@ -452,31 +492,46 @@ int main() {
 
 
             // --- 4. RIGHT SIDE CONTROLS (Database & Viewport) ---
-            float vx = 1000; float vy = 20;
+            // --- 4. RIGHT SIDE CONTROLS (Database & Viewport) ---
+            // Anchor to TOP-RIGHT with margins
+            const float panelW  = 250.0f;
+            const float marginR = 16.0f;
+            const float marginT = 16.0f;
 
-            GuiGroupBox({vx, vy, 250, 120}, "DATABASE LOAD");
+            float vx = screenWidth - panelW - marginR;
+            float vy = marginT;
 
-            vy += 55;
+            // ----- DATABASE LOAD -----
+            const float dbH = 120.0f;
+            GuiGroupBox({ vx, vy, panelW, dbH }, "DATABASE LOAD");
 
-            if (GuiButton({vx+10, vy, 160, 30}, "LOAD SELECTED")) {
-                if (!db.entries.empty() && dropdownActive < db.entries.size()) {
+            // Dropdown
+            Rectangle dd = { vx + 10, vy + 30, panelW - 20, 25 };
+            if (GuiDropdownBox(dd, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode))
+                dropdownEditMode = !dropdownEditMode;
+
+            // Buttons row
+            Rectangle loadBtn   = { vx + 10,           vy + 65, 160, 30 };
+            Rectangle reloadBtn = { vx + panelW - 60,  vy + 65,  50, 30 };
+
+            if (GuiButton(loadBtn, "LOAD SELECTED")) {
+                if (!db.entries.empty() && dropdownActive < (int)db.entries.size()) {
                     currentParams = db.entries[dropdownActive].params;
                 }
             }
-            if (GuiButton({vx+180, vy, 50, 30}, "RELOAD")) db.Load("eyes_database.txt");
+            if (GuiButton(reloadBtn, "RELOAD")) db.Load("eyes_database.txt");
 
-            vy -= 35;
+            // ----- VIEWPORT -----
+            const float gapH  = 12.0f;
+            const float viewH = 100.0f;
 
-            if (GuiDropdownBox({vx+10, vy, 230, 25}, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode)) {
-                dropdownEditMode = !dropdownEditMode;
-            }
+            float vyView = vy + dbH + gapH;
+            GuiGroupBox({ vx, vyView, panelW, viewH }, "VIEWPORT");
 
-            // VIEWPORT SETTINGS
-            vy = 680; // Bottom Right
-            GuiGroupBox({vx, vy, 250, 100}, "VIEWPORT");
-            GuiCheckBox({vx+10, vy+25, 20, 20}, "Show Ref", &showReference);
-            GuiSliderBar({vx+80, vy+55, 100, 20}, "Opac", NULL, &refOpacity, 0.0f, 1.0f);
-            GuiCheckBox({vx+10, vy+80, 20, 20}, "Test Physics", &usePhysics);
+            GuiCheckBox({ vx + 10, vyView + 25, 20, 20 }, "Show Ref", &showReference);
+            GuiSliderBar({ vx + 80, vyView + 55, 100, 20 }, "Opac", nullptr, &refOpacity, 0.0f, 1.0f);
+            GuiCheckBox({ vx + 10, vyView + 80, 20, 20 }, "Test Physics", &usePhysics);
+
         }
 
         // KEYBOARD

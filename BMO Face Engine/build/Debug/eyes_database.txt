@@ -1,7 +1,0 @@
-eyes["face_happy_closed_eyes_eyes"] = { 2.17647f, -0.0470588f, 2.36471f, 0.347059f, 0f, 0f, 1.67235f, 2.95353f, 612f };
-eyes["face_skeptical_eyes"] = { 0f, 0f, 4f, 0f, -143.529f, -11.7647f, 0.624118f, 0.624118f, 541.176f };
-eyes["face_angry_growl_eyes"] = { 0f, 0f, 4f, 0f, 0f, 127.059f, 1.14824f, 1.32294f, 612f };
-eyes["face_tired_droopy_eyes"] = { 0f, 0f, 4f, 0f, 0f, 131.765f, 1.14824f, 1.67235f, 658.824f };
-eyes["face_shocked_pale_eyes"] = { 10f, 0f, 9.7f, 0f, 0f, 51.7647f, 4.17647f, 4.35118f, 623.529f };
-eyes["face_kawaii_sparkle_eyes"] = { 8.76471f, 0f, 4f, 0f, 2.35294f, 35.2941f, 3.41941f, 3.47765f, 623.529f };
-eyes["face_crying_tears_eyes"] = { 1.94118f, -0.988235f, 2.87647f, 0f, -143.529f, 0f, 0f, 0, 1, 1, 0, 0f, 8.04118f, -0.352942f, 1.29412f, 1.41765f, 1f, 1f, -37.0588f, 0.423529f, 0.227118f, 0, 0.141176f, 0, -1.2f, 2.35294f, 60f, 3.76882f, 2.08f, 658.824f };

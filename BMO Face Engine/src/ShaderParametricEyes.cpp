@@ -9,7 +9,7 @@
 #include <vector>
 #include <fstream>
 #include <iostream>
-
+#include "utility.h" // Access to GlobalScaler
 // --------------------------------------------------------
 // PHYSICS STRUCTS
 // --------------------------------------------------------
@@ -63,7 +63,7 @@ struct EyeParams {
     bool useLowerBrow = false;   
 
     float tearsLevel = 0.0f;
-    int tearMode = 0;            // 0=Drip, 1=Wail
+    int blushMode = 0;        
 
     // --- EXTRAS ---
     float spiralSpeed = -1.2f;
@@ -115,8 +115,8 @@ struct ParametricEyes {
 
     // Tears Shader
     int locResTear, locTimeTear;
-    int locTearLevel, locTearMode, locShowBlush, locBlushCol, locTearCol;
-
+    int locTearLevel, locBlushMode, locShowBlush, locBlushCol, locTearCol;
+    int locScale;
 
     // HOT RELOAD DATA
     long eyeFragTime = 0;
@@ -127,6 +127,12 @@ struct ParametricEyes {
     std::string browFragPath = "brow_es.fs";
 
     float hotReloadTimer = 0.0f;
+
+    //Scaler for the tears
+    float scale;
+
+    //Debug boxes enable. 
+    bool debugBoxes;
 
     // ----------------------------------------------------
     // INIT
@@ -182,6 +188,10 @@ struct ParametricEyes {
     // UPDATE (Physics & Blink)
     // ----------------------------------------------------
     void Update(float dt, EyeParams& params) {
+
+       scale = GlobalScaler.scale;
+        
+        //printf("Tears Scale: %f \n", scale);
 
         hotReloadTimer += dt;
         if (hotReloadTimer > 1.0f) {
@@ -264,6 +274,11 @@ struct ParametricEyes {
         rlSetTexture(0);
         BeginShaderMode(*targetShader);
 
+        float scaledThick = GlobalScaler.S(p.eyeThickness);
+        float scaledPupil = p.pupilSize; // Ratios (0.0-1.0) generally DON'T need scaling
+        float scaledBrowThick = GlobalScaler.S(p.eyebrowThickness);
+        float scaledBrowY = GlobalScaler.S(p.eyebrowY * 20.0f); // Scale the offset
+
         // --- SEND UNIFORMS ---
         if (layerType == 0) { // EYE
             SetShaderValue(shEye, locResEye, res, SHADER_UNIFORM_VEC2);
@@ -275,7 +290,7 @@ struct ParametricEyes {
             
             SetShaderValue(shEye, locShape, &finalShape, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locBend, &p.bend, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locEyeThick, &p.eyeThickness, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shEye, locEyeThick, &scaledThick, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locPupil, &p.pupilSize, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shEye, locSpiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
@@ -289,7 +304,7 @@ struct ParametricEyes {
             
             SetShaderValue(shBrow, locBrowType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowBend, &p.browBend, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowThick, &p.eyebrowThickness, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow, locBrowThick, &scaledBrowThick, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowSide, &p.browSide, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shBrow, locBrowAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
@@ -297,10 +312,11 @@ struct ParametricEyes {
         }
         else if (layerType == 2) { // TEARS
             SetShaderValue(shTears, locResTear, res, SHADER_UNIFORM_VEC2);
+            SetShaderValue(shTears, locScale, &scale, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shTears, locTimeTear, &time, SHADER_UNIFORM_FLOAT);
             
             SetShaderValue(shTears, locTearLevel, &p.tearsLevel, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shTears, locTearMode, &p.tearMode, SHADER_UNIFORM_INT);
+            SetShaderValue(shTears, locBlushMode, &p.blushMode, SHADER_UNIFORM_INT);
             SetShaderValue(shTears, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
             
             int blushToggle = p.showBlush ? 1 : 0;
@@ -331,21 +347,120 @@ struct ParametricEyes {
 
         // 1. CALCULATE PHYSICS TRANSFORM
         Rectangle eyeRect = rect;
-        eyeRect.x += sLookX.val;
-        eyeRect.y += sLookY.val;
+       // sLookX.val is in "Reference Pixels" (0 to 120). Scale it!
+        eyeRect.x += GlobalScaler.S(sLookX.val);
+        eyeRect.y += GlobalScaler.S(sLookY.val);
         
+        // ScaleX/Y are ratios (1.0 = 100%), so no GlobalScaler needed here
         float oldW = eyeRect.width;
         float oldH = eyeRect.height;
         eyeRect.width  *= sScaleX.val;
         eyeRect.height *= sScaleY.val;
         eyeRect.x += (oldW - eyeRect.width) * 0.5f;
         eyeRect.y += (oldH - eyeRect.height) * 0.5f;
-        
+
+
+
+         //Drwaing the tears before the eyes 
+        // (Note: Color passed here is ignored by shader in favor of internal uniform colors)
+        if (p.showTears || p.showBlush) {
+
+            if(p.showTears)
+            {
+
+                EyeParams tearParams = p;
+                tearParams.showBlush = false;
+                
+                // Use the same width as the incoming rect (drawWidth from caller)
+                float tearWidth = rect.width + GlobalScaler.S(130.0f);
+
+                // Calculate how much space is left from the eye to the bottom of the screen
+                // + a buffer (e.g. 100px) to ensure tears fall completely off-screen
+                float startY = rect.y + (rect.height * 0.5f) - 5.0f;
+                float tearHeight = (float)GetScreenHeight() - startY + 50.0f;          
+
+                // 2. DEFINE RECT (Anchored at Eye Center)
+                Rectangle tearRect = {
+                    rect.x + (rect.width * 0.5f) - (tearWidth * 0.5f), // Center X
+                    startY,                                            // Start Y (Pupil Center)
+                    tearWidth,
+                    tearHeight
+                };
+
+                // Small wrapper that accepts a single Rectangle and forwards to DrawLayer
+                // auto DrawTearRect = [&](Rectangle r) {
+                // Vector2 rRes = { r.width, r.height };
+                // DrawLayer(r, rRes, p, WHITE, 2);
+                // };
+
+                // // Pass only the tearRect into the wrapper
+                // DrawTearRect(tearRect);
+
+                // if(debugBoxes){
+                //     DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
+                //     DrawRectangleRec(tearRect, { 255, 200, 0, 40 }); // Faint fill
+                // }
+
+                Vector2 tRes = { tearRect.width, tearRect.height };
+                DrawLayer(tearRect, tRes, tearParams, WHITE, 2);
+
+                if(debugBoxes){
+                    DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
+                }
+            }
+            if(p.showBlush)
+            {
+                // A. Create specific params for this draw call
+                // We disable tears here so the shader doesn't calculate drops inside the blush box
+                EyeParams blushParams = p;
+                blushParams.showTears = false; 
+
+                // B. Calculate Blush Geometry
+                // Size: Make it roughly 60% of the eye width (adjust as needed)
+                float blushSize = rect.width * 0.6f;
+
+                // Offsets:
+                // "Away" (Outwards): 
+                // Left Eye (Side 1.0) -> Move Left (-X)
+                // Right Eye (Side -1.0) -> Move Right (+X)
+                // We use -p.eyeSide to flip the direction correctly.
+                float xOffset = GlobalScaler.S(100.0f) * -p.eyeSide; 
+                
+                // "Under": Move down
+                float yOffset = GlobalScaler.S(200.0f);
+
+                // Center Point (Relative to the PHYSICS eye position 'rect')
+                float centerX = rect.x + (rect.width * 0.5f) + xOffset;
+                float centerY = rect.y + (rect.height * 0.5f) + yOffset;
+
+                Rectangle blushRect = {
+                    centerX - (blushSize * 0.5f),
+                    centerY - (blushSize * 0.5f),
+                    blushSize,
+                    blushSize
+                };
+
+                // C. Draw (Passing the CLEAN blushParams)
+                Vector2 bRes = { blushRect.width, blushRect.height };
+                DrawLayer(blushRect, bRes, blushParams, WHITE, 2);
+
+                if(debugBoxes){
+                    DrawRectangleLinesEx(blushRect, 2.0f, { 255, 105, 180, 150 }); // Pink Box
+                }
+            }
+        }
 
         // 2. LAYER 1: MAIN EYE
         DrawLayer(eyeRect, originalRes, p, c, 0);
-        //DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
-        //DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
+        
+
+        // 2. LAYER 1: MAIN EYE
+        //DrawLayer(eyeRect, originalRes, p, c, 0);
+         if(debugBoxes){
+                DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
+                DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
+            }
+       
 
         // 3. LAYER 2: EYEBROW (If enabled)
         //Offsetting the brow ret so that it doesn't share or use the same
@@ -357,16 +472,26 @@ struct ParametricEyes {
             browRect.width  = rect.width * 2.0f * p.browScale * p.eyebrowLength; 
             browRect.height = rect.height * 0.5f * p.browScale;
 
-            browRect.x = rect.x + sLookX.val; 
-            browRect.y = rect.y + sLookY.val - (rect.height * 0.5f); // Position above eye
+            // Positioning (Scale the Look offsets)
+            browRect.x = rect.x + GlobalScaler.S(sLookX.val); 
+            browRect.y = rect.y + GlobalScaler.S(sLookY.val) - (rect.height * 0.5f);
+            // browRect.x = rect.x + sLookX.val; 
+            // browRect.y = rect.y + sLookY.val - (rect.height * 0.5f); // Position above eye
 
             browRect.x += (rect.width - browRect.width) * 0.5f;
             browRect.y += (rect.height - browRect.height) * 0.5f;
-            browRect.x += p.eyebrowX*20.f* p.browSide; // Apply X offset
-            browRect.y += p.eyebrowY*20.f; // Apply Y offset
-            Vector2 browRes = { browRect.width, browRect.height };
 
+            // Manual Offsets (Scale these!)
+            browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) * p.browSide;
+            browRect.y += GlobalScaler.S(p.eyebrowY * 20.0f);
+
+            // browRect.x += p.eyebrowX*20.f* p.browSide; // Apply X offset
+            // browRect.y += p.eyebrowY*20.f; // Apply Y offset
+
+
+            Vector2 browRes = { browRect.width, browRect.height };
             DrawLayer(browRect, browRes, p, BLACK, 1);
+
             if (p.useLowerBrow) 
             {
                 EyeParams lowerP = p;
@@ -402,79 +527,55 @@ struct ParametricEyes {
                 // subtract a tiny bit more to push it UP into the eye.
                 lowerRect.y -= eyeRect.height * 0.3f;
 
-                float myFixedOffset = 48.6235f;
+                float myFixedOffset = GlobalScaler.S(48.6235f);
                 lowerRect.x += myFixedOffset;
-                std::cout<<"Lower Brow X Offset Applied: "<< myFixedOffset <<std::endl; 
+                //std::cout<<"Lower Brow X Offset Applied: "<< myFixedOffset <<std::endl; 
 
                 
                 //lowerRect.x += p.eyebrowX*20.f; // Apply X offset
                 //std::cout<<"Lower Brow X: "<< lowerRect.x <<std::endl;
 
                 Vector2 lowerRes = { lowerRect.width, lowerRect.height };
-                DrawLayer(lowerRect, lowerRes, lowerP, BLACK, 1);
+                DrawLayer(lowerRect, lowerRes, lowerP, BLACK, 1); 
 
                 // Debug visuals
                 //DrawRectangleLinesEx(lowerRect, 2.0f, { 0, 255, 0, 150 });
             }
             
-
-            // DrawRectangleLinesEx(browRect, 2.0f, { 255, 255, 0, 150 });
-            // DrawRectangleRec(browRect, { 255, 255, 0, 40 }); // Faint fill
-        }
-
-        // 4. LAYER 3: TEARS / BLUSH (If enabled)
-        // (Note: Color passed here is ignored by shader in favor of internal uniform colors)
-        if (p.showTears || p.showBlush) {
-
-            // Use the same width as the incoming rect (drawWidth from caller)
-            float tearWidth = rect.width+130.0f;
-
-            // Calculate how much space is left from the eye to the bottom of the screen
-            // + a buffer (e.g. 100px) to ensure tears fall completely off-screen
-            float startY = rect.y + (rect.height * 0.5f);
-            float tearHeight = (float)GetScreenHeight() - startY + 100.0f;          
-
-            // 2. DEFINE RECT (Anchored at Eye Center)
-            Rectangle tearRect = {
-                rect.x + (rect.width * 0.5f) - (tearWidth * 0.5f), // Center X
-                startY,                                            // Start Y (Pupil Center)
-                tearWidth,
-                tearHeight
-            };
-
-            // Small wrapper that accepts a single Rectangle and forwards to DrawLayer
-            auto DrawTearRect = [&](Rectangle r) {
-            Vector2 rRes = { r.width, r.height };
-            DrawLayer(r, rRes, p, WHITE, 2);
-            };
-
-            // Pass only the tearRect into the wrapper
-            DrawTearRect(tearRect);
-
-            //DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
-            //DrawRectangleRec(tearRect, { 255, 200, 0, 40 }); // Faint fill
+            if(debugBoxes){
+                DrawRectangleLinesEx(browRect, 2.0f, { 255, 255, 0, 150 });
+                DrawRectangleRec(browRect, { 255, 255, 0, 40 }); // Faint fill
+            }
         }
     }
        
     // Main Draw Call - Draws BOTH eyes
     void Draw(Vector2 centerPos, EyeParams p, Color c) {
-        float eyeSize = 100.0f; 
-        float eyeHeight  = 150.0f;  
+        // float eyeSize = 100.0f; 
+        // float eyeHeight  = 150.0f;  
+        // 1. DEFINE BASE SIZE (Reference)
+        float refEyeSize = 100.0f; 
+        
+        // 2. SCALE DIMENSIONS
+        float scaledSize = GlobalScaler.S(refEyeSize);
+        float scaledW = scaledSize * 2.7f;
+        float scaledH = scaledSize * 2.7f;
+        float scaledHeightOffset = GlobalScaler.S(150.0f); // The 150.0f offset
+        float scaledSpacing = GlobalScaler.S(p.spacing);
 
-        // [FIX] TALLER RECTANGLES (Kept from your original code)
-        float drawWidth  = eyeSize*2.7f;
-        float drawHeight = eyeSize*2.7f;
-
+        // 3. CALCULATE RECTANGLES (Centered on centerPos)
         Rectangle leftRect = { 
-            centerPos.x - (p.spacing/2) - (drawWidth/2), 
-            centerPos.y - eyeHeight - (drawHeight/2), 
-            drawWidth, drawHeight 
+            centerPos.x - (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
+            centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
+            scaledW, 
+            scaledH 
         };
 
         Rectangle rightRect = { 
-            centerPos.x + (p.spacing/2) - (drawWidth/2), 
-            centerPos.y - eyeHeight - (drawHeight/2), 
-            drawWidth, drawHeight 
+            centerPos.x + (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
+            centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
+            scaledW, 
+            scaledH 
         };
 
         // --- COLOR OVERRIDES ---
@@ -528,9 +629,10 @@ struct ParametricEyes {
 
     void GetTearLocations() {
         locResTear   = GetShaderLocation(shTears, "uResolution");
+        locScale     = GetShaderLocation(shTears, "uScale");
         locTimeTear  = GetShaderLocation(shTears, "uTime");
         locTearLevel = GetShaderLocation(shTears, "uTearsLevel");
-        locTearMode  = GetShaderLocation(shTears, "uTearMode");
+        locBlushMode  = GetShaderLocation(shTears, "uBlushMode");
         locShowBlush = GetShaderLocation(shTears, "uShowBlush");
         locBlushCol  = GetShaderLocation(shTears, "uBlushColor");
         locTearCol   = GetShaderLocation(shTears, "uTearColor");
