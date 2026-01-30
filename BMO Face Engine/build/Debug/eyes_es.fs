@@ -297,7 +297,7 @@ float sdGloomLines(vec2 p, float r, float side) {
         // Line 1 (Left, Short)
         float d1 = sdCapsule(q, 
             vec2(-r * 1.07, -r*0.1), 
-            vec2(-r * 1.07, r * 2.0), 
+            vec2(-r * 1.07, r * 1.5), 
             th);
 
         // Line 2 (Middle, Long)

@@ -137,12 +137,51 @@ struct ParametricEyes {
     // INIT
     // ----------------------------------------------------
     void Init() {
-        // Load the 3 separate shaders
+         // Load the 3 separate shaders
         // Assuming they are in the same directory as the executable or src/
-        //shEye   = LoadShaderOrFallback("eyes_es.fs");
-        //shBrow  = LoadShaderOrFallback("brow_es.fs");
-        //shTears = LoadShaderOrFallback("tears_es.fs");
+        
+        //This is for production cause there is a stale file issue with the build folder
+        //which causes issues with hot-reloading shaders.
+        // shEye   = LoadShaderOrFallback("eyes_es.fs");
+        // shBrow  = LoadShaderOrFallback("brow_es.fs");
+        // shTears = LoadShaderOrFallback("tears_es.fs");
 
+        // // --- GET LOCATIONS (EYE) ---
+        // locResEye   = GetShaderLocation(shEye, "uResolution");
+        // locTimeEye  = GetShaderLocation(shEye, "uTime");
+        // locColorEye = GetShaderLocation(shEye, "uColor");
+        // locShape    = GetShaderLocation(shEye, "uShapeID");
+        // locBend     = GetShaderLocation(shEye, "uBend");
+        // locEyeThick = GetShaderLocation(shEye, "uThickness");
+        // locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
+        // locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
+        // locDistort  = GetShaderLocation(shEye, "uDistortMode");
+        // locStress   = GetShaderLocation(shEye, "uStressLevel");
+        // locGloom    = GetShaderLocation(shEye, "uGloomLevel");
+
+        // // --- GET LOCATIONS (BROW) ---
+        // locResBrow   = GetShaderLocation(shBrow, "uResolution");
+        // locColorBrow = GetShaderLocation(shBrow, "uColor");
+        // locBrowType  = GetShaderLocation(shBrow, "uEyebrowType");
+        // locBrowBend  = GetShaderLocation(shBrow, "uBend");
+        // locBrowThick = GetShaderLocation(shBrow, "uThickness");
+        // locBrowLen   = GetShaderLocation(shBrow, "uEyeBrowLength");
+        // locBrowY     = GetShaderLocation(shBrow, "uEyeBrowY");
+        // locBrowSide  = GetShaderLocation(shBrow, "uBrowSide");
+        // locBrowAngle = GetShaderLocation(shBrow, "uAngle");
+        // locBrowBendOffset = GetShaderLocation(shBrow, "uBendOffset");
+
+        // // --- GET LOCATIONS (TEARS) ---
+        // locResTear   = GetShaderLocation(shTears, "uResolution");
+        // locTimeTear  = GetShaderLocation(shTears, "uTime");
+        // locTearLevel = GetShaderLocation(shTears, "uTearsLevel");
+        // locBlushMode  = GetShaderLocation(shTears, "uTearMode");
+        // locShowBlush = GetShaderLocation(shTears, "uShowBlush");
+        // locBlushCol  = GetShaderLocation(shTears, "uBlushColor");
+        // locTearCol   = GetShaderLocation(shTears, "uTearColor");
+        
+        
+        //For testing purposes, I will load the shaders directly from the above paths.
         //Loading Eye Shader (Hot Reload Enabled)
         if (FileExists("eyes_es.fs")) eyeFragPath = "eyes_es.fs";
         else if (FileExists("src/eyes_es.fs")) eyeFragPath = "src/eyes_es.fs";
@@ -192,6 +231,7 @@ struct ParametricEyes {
         
         //printf("Tears Scale: %f \n", scale);
 
+        //For Testing and Debugging only ----------
         hotReloadTimer += dt;
         if (hotReloadTimer > 1.0f) {
             CheckHotReload();

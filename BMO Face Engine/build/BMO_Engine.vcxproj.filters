@@ -9,6 +9,10 @@
     <CustomBuild Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\eyes_es.fs" />
+    <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\brow_es.fs" />
+  </ItemGroup>
+  <ItemGroup>
     <Filter Include="Source Files">
       <UniqueIdentifier>{BFF051E0-84CF-326B-8FF9-4FAEAD764F4B}</UniqueIdentifier>
     </Filter>
