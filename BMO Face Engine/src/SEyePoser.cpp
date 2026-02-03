@@ -17,17 +17,50 @@
 #include <algorithm>
 #include <unordered_map>
 #include <filesystem>
-#include"utility.h"
+#include "utility.h"
 
-
-// Include the NEW Shader-based Eye Engine
-// Ensure ShaderParametricEyes.cpp is in the same folder or src/
+// Include the Refactored Shader Engine
 #include "ShaderParametricEyes.cpp" 
 
 using json = nlohmann::json;
 
 // ---------------------------------------------------------
-// 1. ATLAS LOADER (Filters for "Eye" sprites)
+// UI CONSTANTS
+// ---------------------------------------------------------
+namespace UI {
+    const float START_X = 20.0f;
+    const float START_Y = 20.0f;
+    const float PANEL_WIDTH = 340.0f;
+    const float LABEL_WIDTH = 90.0f;
+    const float VAL_WIDTH = 40.0f;
+    const float ROW_HEIGHT = 25.0f;
+    
+    // Helper to calculate slider width dynamically
+    float GetSliderWidth() {
+        return PANEL_WIDTH - LABEL_WIDTH - VAL_WIDTH - 30.0f;
+    }
+}
+
+// ---------------------------------------------------------
+// GUI HELPERS
+// ---------------------------------------------------------
+namespace GuiHelper {
+    // Standard Slider with Label and Value Display
+    void Slider(const char* text, float* var, float min, float max, float& yPos) {
+        GuiLabel({UI::START_X + 10, yPos, UI::LABEL_WIDTH, 20}, text);
+        GuiSliderBar({UI::START_X + 10 + UI::LABEL_WIDTH, yPos, UI::GetSliderWidth(), 20}, NULL, NULL, var, min, max);
+        GuiLabel({UI::START_X + 10 + UI::LABEL_WIDTH + UI::GetSliderWidth() + 5, yPos, UI::VAL_WIDTH, 20}, TextFormat("%.2f", *var));
+        yPos += UI::ROW_HEIGHT;
+    }
+
+    // Checkbox wrapper
+    bool Checkbox(const char* text, bool* var, float xOffset, float yPos) {
+        return GuiCheckBox({UI::START_X + xOffset, yPos, 20, 20}, text, var);
+    }
+}
+
+// ---------------------------------------------------------
+// 1. ATLAS LOADER
 // ---------------------------------------------------------
 struct ReferenceAtlas {
     Texture2D texture;
@@ -37,42 +70,40 @@ struct ReferenceAtlas {
     void Load(const char* img, const char* data) {
         texture = LoadTexture(img);
         if (texture.id == 0) {
-            std::cout << "[Atlas] Error loading texture: " << img << std::endl;
+            std::cerr << "[Atlas] Error loading texture: " << img << std::endl;
             return;
         }
 
         std::ifstream f(data);
         if (!f.good()) {
-            std::cout << "[Atlas] Error loading JSON: " << data << std::endl;
+            std::cerr << "[Atlas] Error loading JSON: " << data << std::endl;
             return;
         }
 
-        json j = json::parse(f, nullptr, false);
-        if (j.is_discarded()) return;
-
-        if (j.contains("textures")) {
-            for (auto& t : j["textures"]) {
-                for (auto& fr : t["frames"]) {
-                    std::string name = fr["filename"];
-                    
-                    // FILTER: Look for "eye" in filename (case insensitive)
-                    std::string lowerName = name;
-                    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-                    
-                    bool isEye = (lowerName.find("eye") != std::string::npos);
-                    
-                    if (isEye) {
-                        frames[name] = {
-                            (float)fr["frame"]["x"], (float)fr["frame"]["y"],
-                            (float)fr["frame"]["w"], (float)fr["frame"]["h"]
-                        };
-                        eyeNames.push_back(name);
+        try {
+            json j = json::parse(f);
+            if (j.contains("textures")) {
+                for (auto& t : j["textures"]) {
+                    for (auto& fr : t["frames"]) {
+                        std::string name = fr["filename"];
+                        std::string lowerName = name;
+                        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+                        
+                        if (lowerName.find("eye") != std::string::npos) {
+                            frames[name] = {
+                                (float)fr["frame"]["x"], (float)fr["frame"]["y"],
+                                (float)fr["frame"]["w"], (float)fr["frame"]["h"]
+                            };
+                            eyeNames.push_back(name);
+                        }
                     }
                 }
             }
+            std::sort(eyeNames.begin(), eyeNames.end());
+            std::cout << "[Atlas] Loaded " << eyeNames.size() << " eye sprites." << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "[Atlas] JSON Parse Error: " << e.what() << std::endl;
         }
-        std::sort(eyeNames.begin(), eyeNames.end());
-        std::cout << "[Atlas] Loaded " << eyeNames.size() << " eye sprites." << std::endl;
     }
 
     void Draw(std::string name, Vector2 pos, float scale, float alpha) {
@@ -85,7 +116,7 @@ struct ReferenceAtlas {
 };
 
 // ---------------------------------------------------------
-// 2. DATABASE MANAGER (eyes_database.txt)
+// 2. DATABASE MANAGER
 // ---------------------------------------------------------
 struct EyeDatabase {
     struct Entry {
@@ -105,81 +136,83 @@ struct EyeDatabase {
 
         std::string line;
         while (std::getline(in, line)) {
+            // Very basic Lua-style table parser
             size_t namePos = line.find("eyes[\"");
             if (namePos != std::string::npos) {
                 size_t endPos = line.find("\"]");
                 if (endPos != std::string::npos) {
                     Entry e;
-                    // Initialize defaults to be safe in case line is short
-                    e.params = EyeParams(); 
+                    e.params = EyeParams(); // Reset to defaults
 
                     e.name = line.substr(namePos + 6, endPos - (namePos + 6));
-
                     size_t bracePos = line.find("{");
+                    
                     if (bracePos != std::string::npos) {
                         std::string valStr = line.substr(bracePos + 1);
-
-                        // Clean up syntax characters
+                        
+                        // Clean syntax: remove }, comma, f suffix
                         std::replace(valStr.begin(), valStr.end(), '}', ' '); 
                         std::replace(valStr.begin(), valStr.end(), ',', ' ');
                         std::replace(valStr.begin(), valStr.end(), 'f', ' ');
 
                         std::stringstream ss(valStr);
+                        
+                        // Temporary ints for boolean fields
+                        int tShowBrow, tUseLowerBrow, tShowTears, tShowBlush, tDistortMode, tBlushMode;
 
-                        // Temp ints for bool conversion
-                        int tShowBrow, tShowTears, tShowBlush, tUseLowerBrow;
+                        // --- LOAD SEQUENCE (Matches Struct Order) ---
+                        ss >> e.params.eyeShapeID 
+                           >> e.params.bend 
+                           >> e.params.eyeThickness 
+                           >> e.params.eyeSide 
+                           >> e.params.scaleX 
+                           >> e.params.scaleY 
+                           >> e.params.spacing
 
-                        // --- READ VARIABLES (MUST MATCH SAVE ORDER) ---
-                        ss  // 1. MAIN
-                            >> e.params.eyeShapeID 
-                            >> e.params.bend 
-                            >> e.params.eyeThickness 
-                            >> e.params.eyeSide
+                           // Surface FX
+                           >> e.params.stressLevel 
+                           >> e.params.gloomLevel 
+                           >> tDistortMode
+                           >> e.params.spiralSpeed
 
-                            // 2. SURFACE FX
-                            >> e.params.stressLevel 
-                            >> e.params.gloomLevel 
-                            >> e.params.distortMode
+                           // Look Targets
+                           >> e.params.lookX 
+                           >> e.params.lookY
 
-                            // 3. TOGGLES (Read as Ints)
-                            >> tShowBrow 
-                            >> tShowTears 
-                            >> tShowBlush
+                           // Eyebrow
+                           >> tShowBrow 
+                           >> tUseLowerBrow 
+                           >> e.params.eyebrowType 
+                           >> e.params.eyebrowThickness 
+                           >> e.params.eyebrowLength 
+                           >> e.params.eyebrowSpacing
+                           >> e.params.eyebrowX 
+                           >> e.params.eyebrowY 
+                           >> e.params.browScale 
+                           >> e.params.browSide 
+                           >> e.params.browAngle 
+                           >> e.params.browBend 
+                           >> e.params.browBendOffset
 
-                            // 4. BROW DETAILS
-                            >> e.params.eyebrowType 
-                            >> e.params.eyebrowThickness 
-                            >> e.params.eyebrowY 
-                            >> e.params.eyebrowX 
-                            >> e.params.eyebrowLength 
-                            >> e.params.browScale 
-                            >> e.params.browSide 
-                            >> e.params.browAngle 
-                            >> e.params.browBend 
-                            >> e.params.browBendOffset 
-                            >> tUseLowerBrow // (Int)
+                           // Tears & Blush
+                           >> tShowTears 
+                           >> tShowBlush 
+                           >> e.params.tearsLevel 
+                           >> tBlushMode
+                           >> e.params.blushScale 
+                           >> e.params.blushX 
+                           >> e.params.blushY 
+                           >> e.params.blushSpacing;
 
-                            // 5. TEARS
-                            >> e.params.tearsLevel 
-                            >> e.params.blushMode
-
-                            // 6. EXTRAS
-                            >> e.params.spiralSpeed
-
-                            // 7. PHYSICS/LAYOUT
-                            >> e.params.lookX 
-                            >> e.params.lookY 
-                            >> e.params.scaleX 
-                            >> e.params.scaleY 
-                            >> e.params.spacing;
-
-                        // Convert Ints back to Bools
-                        e.params.showBrow     = (bool)tShowBrow;
-                        e.params.showTears    = (bool)tShowTears;
-                        e.params.showBlush    = (bool)tShowBlush;
+                        // Cast ints back to types
+                        e.params.distortMode = tDistortMode;
+                        e.params.showBrow = (bool)tShowBrow;
                         e.params.useLowerBrow = (bool)tUseLowerBrow;
+                        e.params.showTears = (bool)tShowTears;
+                        e.params.showBlush = (bool)tShowBlush;
+                        e.params.blushMode = tBlushMode;
 
-                        // Legacy/Safety Checks
+                        // Safety Defaults
                         if (e.params.scaleX == 0) e.params.scaleX = 1.0f;
                         if (e.params.scaleY == 0) e.params.scaleY = 1.0f;
                         if (e.params.spacing == 0) e.params.spacing = 200.0f;
@@ -190,11 +223,12 @@ struct EyeDatabase {
             }
         }
 
-        // Build Dropdown String
+        // Rebuild Dropdown
         for (size_t i = 0; i < entries.size(); i++) {
             dropdownStr += entries[i].name;
             if (i < entries.size() - 1) dropdownStr += ";";
         }
+        std::cout << "[Database] Loaded " << entries.size() << " presets." << std::endl;
     }
 
     void Save(const char* filename, std::string name, EyeParams p) {
@@ -205,32 +239,27 @@ struct EyeDatabase {
 
         std::stringstream newLine;
         newLine << "eyes[\"" << name << "\"] = { "
-                // 1. MAIN
-                << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, "
-                << "f, " << p.eyeSide << "f, "
+                // Main Eye
+                << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, " << p.eyeSide << "f, "
+                << p.scaleX << "f, " << p.scaleY << "f, " << p.spacing << "f, "
 
-                // 2. SURFACE FX
-                << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", "
+                // Surface FX
+                << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", " << p.spiralSpeed << "f, "
 
-                // 3. TOGGLES (Cast bool to int for safety)
-                << (int)p.showBrow << ", " << (int)p.showTears << ", " << (int)p.showBlush << ", "
-
-                // 4. BROW DETAILS
-                << p.eyebrowType << "f, " << p.eyebrowThickness << "f, " 
-                << p.eyebrowY << "f, " << p.eyebrowX << "f, " << p.eyebrowLength << "f, "
-                << p.browScale << "f, " << p.browSide << "f, " << p.browAngle << "f, "
-                << p.browBend << "f, " << p.browBendOffset << "f, " 
-                << (int)p.useLowerBrow << ", "
-
-                // 5. TEARS
-                << p.tearsLevel << "f, " << p.blushMode << ", "
-
-                // 6. EXTRAS
-                << p.spiralSpeed << "f, "
-
-                // 7. PHYSICS/LAYOUT
+                // Look Targets
                 << p.lookX << "f, " << p.lookY << "f, "
-                << p.scaleX << "f, " << p.scaleY << "f, " << p.spacing << "f };";
+
+                // Eyebrow
+                << (int)p.showBrow << ", " << (int)p.useLowerBrow << ", "
+                << p.eyebrowType << "f, " << p.eyebrowThickness << "f, " << p.eyebrowLength << "f, "
+                << p.eyebrowSpacing << "f, " << p.eyebrowX << "f, " << p.eyebrowY << "f, "
+                << p.browScale << "f, " << p.browSide << "f, " 
+                << p.browAngle << "f, " << p.browBend << "f, " << p.browBendOffset << "f, "
+
+                // Tears & Blush
+                << (int)p.showTears << ", " << (int)p.showBlush << ", "
+                << p.tearsLevel << "f, " << p.blushMode << ", "
+                << p.blushScale << "f, " << p.blushX << "f, " << p.blushY << "f, " << p.blushSpacing << "f };";
 
         if (infile.is_open()) {
             while (std::getline(infile, line)) {
@@ -249,295 +278,267 @@ struct EyeDatabase {
         std::ofstream outfile(filename);
         for (const auto& l : lines) outfile << l << "\n";
 
-        std::cout << "Saved Eye Preset: " << name << std::endl;
+        std::cout << "[Database] Saved Preset: " << name << std::endl;
         Load(filename);
     }
 };
 
 // ---------------------------------------------------------
-// MAIN EDITOR
+// EDITOR STATE WRAPPER
+// ---------------------------------------------------------
+struct EditorState {
+    EyeParams currentParams;
+    int currentIdx = 0;
+    bool showReference = true;
+    float refOpacity = 0.5f;
+    bool usePhysics = false;
+    bool enableGUI = true;
+    bool debugBoxes = false;
+    
+    // Dropdown UI state
+    int dropdownActive = 0;
+    bool dropdownEditMode = false;
+    
+    // Helper to cycle reference sprites
+    void CycleReference(ReferenceAtlas& atlas, int dir) {
+        if (atlas.eyeNames.empty()) return;
+        currentIdx += dir;
+        if (currentIdx < 0) currentIdx = (int)atlas.eyeNames.size() - 1;
+        if (currentIdx >= (int)atlas.eyeNames.size()) currentIdx = 0;
+    }
+};
+
+// ---------------------------------------------------------
+// GUI PANELS
+// ---------------------------------------------------------
+void DrawReferencePanel(float& y, EditorState& state, ReferenceAtlas& atlas, EyeDatabase& db) {
+    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 110}, "SPRITE REFERENCE");
+    
+    if (GuiButton({UI::START_X + 10, y + 30, 40, 30}, "<")) state.CycleReference(atlas, -1);
+    if (GuiButton({UI::START_X + 270, y + 30, 40, 30}, ">")) state.CycleReference(atlas, 1);
+    
+    std::string lbl = atlas.eyeNames.empty() ? "NONE" : atlas.eyeNames[state.currentIdx];
+    GuiLabel({UI::START_X + 60, y + 30, 200, 30}, lbl.c_str());
+
+    if (GuiButton({UI::START_X + 10, y + 70, UI::PANEL_WIDTH - 20, 30}, "SAVE PRESET (Enter)")) {
+        std::string name = atlas.eyeNames.empty() ? "custom" : atlas.eyeNames[state.currentIdx];
+        db.Save("eyes_database.txt", name, state.currentParams);
+    }
+    y += 120.0f;
+}
+
+void DrawMainSettings(float& y, EyeParams& p) {
+    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 350}, "MAIN EYE SETTINGS");
+    y += 20.0f;
+
+    // Shape Selector
+    int shapeInt = (int)p.eyeShapeID;
+    GuiHelper::Slider("Shape ID", &p.eyeShapeID, 0.0f, 11.0f, y);
+    
+    const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked" };
+    if(shapeInt >= 0 && shapeInt <= 10) {
+        GuiLabel({UI::START_X + 10 + UI::LABEL_WIDTH, y - 25, UI::GetSliderWidth(), 20}, shapeNames[shapeInt]);
+    }
+
+    if(p.eyeShapeID > 5.5f && p.eyeShapeID < 6.5f) {
+        GuiHelper::Slider("Spiral Spd", &p.spiralSpeed, -10.0f, 10.0f, y);
+    }
+
+    GuiHelper::Slider("Bend", &p.bend, -2.0f, 2.0f, y);
+    GuiHelper::Slider("Thickness", &p.eyeThickness, 1.0f, 30.0f, y);
+    
+    y += 5; // Spacer
+    GuiHelper::Slider("Scale X", &p.scaleX, 0.1f, 10.0f, y);
+    GuiHelper::Slider("Scale Y", &p.scaleY, 0.1f, 10.0f, y);
+    GuiHelper::Slider("Spacing", &p.spacing, 0.0f, 1000.0f, y);
+    GuiHelper::Slider("Look X", &p.lookX, -300.0f, 300.0f, y);
+    GuiHelper::Slider("Look Y", &p.lookY, -300.0f, 300.0f, y);
+    
+    y += 20.0f; // Padding bottom
+}
+
+void DrawElementsPanel(float& y, EyeParams& p) {
+    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "ELEMENTS & FX");
+    y += 20.0f;
+
+    // Toggles
+    GuiHelper::Checkbox("Brows", &p.showBrow, 10, y);
+    GuiHelper::Checkbox("Tears", &p.showTears, 90, y);
+    GuiHelper::Checkbox("Blush", &p.showBlush, 170, y);
+    y += 30.0f;
+
+    if (p.showBrow) {
+        GuiLabel({UI::START_X+10, y, 200, 20}, "- BROW SETTINGS -"); y+= 20;
+        GuiHelper::Slider("Type", &p.eyebrowType, 0, 4, y);
+        GuiHelper::Slider("Thick", &p.eyebrowThickness, 1, 20, y);
+        GuiHelper::Slider("Len", &p.eyebrowLength, 0.5f, 2.0f, y);
+        GuiHelper::Slider("Spacing", &p.eyebrowSpacing, -100.0f, 100.0f, y);
+        GuiHelper::Slider("Pos X", &p.eyebrowX, -10, 10, y);
+        GuiHelper::Slider("Pos Y", &p.eyebrowY, -10, 10, y);
+        GuiHelper::Slider("Scale", &p.browScale, 0.5f, 2.0f, y);
+        GuiHelper::Slider("Angle", &p.browAngle, -45.0f, 45.0f, y);
+        GuiHelper::Slider("Bend", &p.browBend, -2.0f, 2.0f, y);
+        GuiHelper::Slider("Bend Off", &p.browBendOffset, 0.0f, 0.99f, y);
+        GuiHelper::Checkbox("Use Lower Brow", &p.useLowerBrow, 10, y); y += 25;
+        y += 10;
+    }
+
+    if (p.showTears) {
+        GuiLabel({UI::START_X+10, y, 200, 20}, "- TEAR SETTINGS -"); y+= 20;
+        GuiHelper::Slider("Level", &p.tearsLevel, 0, 1, y);
+        y += 10;
+    }
+
+    if(p.showBlush) {
+        GuiLabel({UI::START_X+10, y, 200, 20}, "- BLUSH SETTINGS -"); y+= 20;
+        GuiHelper::Slider("Scale", &p.blushScale, 0.5f, 3.0f, y);
+        GuiHelper::Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
+        GuiHelper::Slider("Pos Y", &p.blushY, -10.0f, 10.0f, y);
+        GuiHelper::Slider("Space", &p.blushSpacing, -100.0f, 100.0f, y);
+
+        GuiLabel({UI::START_X+10, y, UI::LABEL_WIDTH, 20}, "Color");
+        if (GuiButton({UI::START_X+10+UI::LABEL_WIDTH, y, 80, 20}, p.blushMode == 0 ? "Pink" : "Green")) {
+            p.blushMode = !p.blushMode;
+        }
+        y += 25;
+        y += 10;
+    }
+
+    GuiLabel({UI::START_X+10, y, UI::PANEL_WIDTH, 20}, "--- SURFACE FX ---"); y += 20;
+    GuiHelper::Slider("Stress", &p.stressLevel, 0.0f, 1.0f, y);
+    GuiHelper::Slider("Gloom", &p.gloomLevel, 0.0f, 1.0f, y);
+    
+    bool distMode = (p.distortMode == 1);
+    if (GuiHelper::Checkbox("Squash/Stretch Distortion", &distMode, 10, y)) {
+        p.distortMode = distMode ? 1 : 0;
+    }
+}
+
+void DrawDatabasePanel(float screenW, EditorState& state, EyeDatabase& db) {
+    const float panelW = 250.0f;
+    const float marginR = 16.0f;
+    const float marginT = 16.0f;
+    float vx = screenW - panelW - marginR;
+    float vy = marginT;
+
+    // DB Load Box
+    GuiGroupBox({ vx, vy, panelW, 120 }, "DATABASE LOAD");
+    
+    if (GuiDropdownBox({ vx + 10, vy + 30, panelW - 20, 25 }, db.dropdownStr.c_str(), &state.dropdownActive, state.dropdownEditMode))
+        state.dropdownEditMode = !state.dropdownEditMode;
+
+    if (GuiButton({ vx + 10, vy + 65, 160, 30 }, "LOAD SELECTED")) {
+        if (!db.entries.empty() && state.dropdownActive < (int)db.entries.size()) {
+            state.currentParams = db.entries[state.dropdownActive].params;
+        }
+    }
+    if (GuiButton({ vx + panelW - 60, vy + 65, 50, 30 }, "RELOAD")) db.Load("eyes_database.txt");
+
+    // Viewport Box
+    float vyView = vy + 120 + 12.0f;
+    GuiGroupBox({ vx, vyView, panelW, 110 }, "VIEWPORT");
+    GuiCheckBox({ vx + 10, vyView + 25, 20, 20 }, "Show Ref", &state.showReference);
+    GuiSliderBar({ vx + 80, vyView + 55, 100, 20 }, "Opac", nullptr, &state.refOpacity, 0.0f, 1.0f);
+    GuiCheckBox({ vx + 10, vyView + 80, 20, 20 }, "Test Physics", &state.usePhysics);
+}
+
+// ---------------------------------------------------------
+// MAIN
 // ---------------------------------------------------------
 int main() {
-
     std::cout << "BasePath: " << GetApplicationDirectory() << std::endl;
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE|FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    // Get the actual physical size of the primary monitor
-    int monitor = GetCurrentMonitor();
-    int screenW = GetMonitorWidth(monitor);
-    int screenH = GetMonitorHeight(monitor);
-
-    // Initialize window with native resolution (borderless experience)
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(1280, 800, "BMO Face Engine");
-    
-    // Immediately fullscreen it to cover taskbars etc.
-    //ToggleFullscreen();
     SetTargetFPS(60);
 
-    // Style Setup (Dark Theme)
+    // Style
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(WHITE));
     GuiSetStyle(SLIDER, BASE_COLOR_NORMAL, ColorToInt({ 60, 60, 60, 255 }));
     GuiSetStyle(SLIDER, BASE_COLOR_FOCUSED, ColorToInt({ 120, 180, 255, 255 }));
     
-    // Rig & DB
+    // Components
     ParametricEyes rig;
     rig.Init();
     
     EyeDatabase db;
     db.Load("eyes_database.txt");
 
-    // Atlas
     ReferenceAtlas atlas;
-    // Assuming same atlas file, change filenames if different
-    atlas.Load("assets/BMO_Animation_LipSyncSprite.png",
-               "assets/BMO_Animation_Lipsync.json");
+    atlas.Load("assets/BMO_Animation_LipSyncSprite.png", "assets/BMO_Animation_Lipsync.json");
 
-    // State
-    EyeParams currentParams;
-    currentParams.scaleX = 1.0f; 
-    currentParams.scaleY = 1.0f;
-
-    int currentIdx = 0;
-    bool showReference = true;
-    float refOpacity = 0.5f;
-    bool usePhysics = false; 
-    
-    int dropdownActive = 0;
-    bool dropdownEditMode = false;
-    
-    Vector2 centerScreen = { 0, 0 };
-
-    // GUI Layout Vars
-    float startX = 20.0f; 
-    float startY = 20.0f; 
-    float w = 320.0f;
+    EditorState state;
+    // Set default defaults
+    state.currentParams.scaleX = 1.0f;
+    state.currentParams.scaleY = 1.0f;
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
-
         GlobalScaler.Update();
-
-        // Always lock face to the exact center of the current window
-        centerScreen.x = (float)GetScreenWidth() * 0.5f;
-        centerScreen.y = (float)GetScreenHeight() * 0.5f;
-
-        //For GUI 
-        float screenWidth = (float)GetScreenWidth();
-        float screenHeight = (float)GetScreenHeight();
         
+        Vector2 centerScreen = { (float)GetScreenWidth() * 0.5f, (float)GetScreenHeight() * 0.5f };
 
-        // --- LOGIC ---
-        rig.usePhysics = usePhysics;
-        rig.Update(dt, currentParams);
+        // Logic
+        rig.usePhysics = state.usePhysics;
+        rig.debugBoxes = state.debugBoxes;
+        rig.Update(dt, state.currentParams);
 
-        // --- DRAWING ---
+        // Drawing
         BeginDrawing();
-        //ClearBackground({131, 220, 169, 255}); // BMO Body Color
         ClearBackground({201, 228, 195, 255}); // BMO Face Color
 
-        // 1. Draw Reference (Behind)
-        if (showReference && !atlas.eyeNames.empty()) {
-            atlas.Draw(atlas.eyeNames[currentIdx], centerScreen, 1.0f, refOpacity);
+        // 1. Reference
+        if (state.showReference && !atlas.eyeNames.empty()) {
+            atlas.Draw(atlas.eyeNames[state.currentIdx], centerScreen, 1.0f, state.refOpacity);
         }
 
-        // 2. Draw Shader Eyes
-        EyeParams renderP = currentParams;
-        if (usePhysics) {
+        // 2. Parametric Eyes
+        EyeParams renderP = state.currentParams;
+        if (state.usePhysics) {
             renderP.scaleX = rig.sScaleX.val;
             renderP.scaleY = rig.sScaleY.val;
-            renderP.lookX = rig.sLookX.val;
-            renderP.lookY = rig.sLookY.val;
+            renderP.lookX  = rig.sLookX.val;
+            renderP.lookY  = rig.sLookY.val;
         }
+        rig.Draw(centerScreen, renderP, BLACK);
 
-        rig.Draw(centerScreen, renderP, BLACK); // Color overridden internally for specific IDs
+        // 3. GUI
+        float screenW = (float)GetScreenWidth();
+        float screenH = (float)GetScreenHeight();
 
-        // --------------------------------------------------------
-        // GUI PANELS
-        // --------------------------------------------------------
-        float sy = startY;
-
-        // Toggle to control whether the large GUI block should be drawn
-        static bool enableGUI = true;
-
-        // Bottom-right "Enable GUI" checkbox (positioned relative to window size)
-        float cbX = screenWidth - 180;
-        float cbY = screenHeight - 40;
+        // Bottom Right Toggles
+        float cbX = screenW - 180;
+        float cbY = screenH - 40;
         GuiGroupBox({cbX - 10, cbY - 30, 170, 50}, "");
-        GuiCheckBox({cbX-5, cbY-5, 20, 20}, "Enable GUI", &enableGUI);
-        GuiCheckBox({cbX-5, cbY-30, 20, 20}, "Enable debug", &rig.debugBoxes);
+        GuiCheckBox({cbX-5, cbY-5, 20, 20}, "Enable GUI", &state.enableGUI);
+        GuiCheckBox({cbX-5, cbY-30, 20, 20}, "Debug Boxes", &state.debugBoxes);
 
-
-
-        // Fullscreen toggle 
+        // Fullscreen Toggle
         if (IsKeyPressed(KEY_F11)) {
             ToggleFullscreen();
-
-            // Optional: Reset window size if leaving fullscreen
-            if (!IsWindowFullscreen()) {
-                SetWindowSize(1280, 720); // Go back to a manageable window
-                SetWindowPosition(100, 100);
+            if (IsWindowFullscreen()) {
+                 int display = GetCurrentMonitor();
+                 SetWindowSize(GetMonitorWidth(display), GetMonitorHeight(display));
             } else {
-                // If entering fullscreen, Raylib usually handles the resize,
-                // but explicit sizing ensures it grabs the monitor res.
-                int display = GetCurrentMonitor();
-                SetWindowSize(GetMonitorWidth(display), GetMonitorHeight(display));
+                 SetWindowSize(1280, 720);
             }
         }
 
-        // NOTE: Replace the later `if(true)` with `if(enableGUI)` so the main GUI block respects this checkbox.
-
-        // --- 1. SPRITE REFERENCE (Top Left) ---
-        if(enableGUI)
-        {
-            GuiGroupBox({startX, sy, w, 110}, "SPRITE REFERENCE");
-            if (GuiButton({startX + 10, sy + 30, 40, 30}, "<")) {
-                currentIdx--; if (currentIdx < 0) currentIdx = (int)atlas.eyeNames.size() - 1;
-            }
-            if (GuiButton({startX + 270, sy + 30, 40, 30}, ">")) {
-                currentIdx = (int)((currentIdx + 1) % (int)atlas.eyeNames.size());
-            }
-            std::string lbl = atlas.eyeNames.empty() ? "NONE" : atlas.eyeNames[currentIdx];
-            GuiLabel({startX + 60, sy + 30, 200, 30}, lbl.c_str());
-
-            if (GuiButton({startX + 10, sy + 70, w - 20, 30}, "SAVE PRESET (Enter)")) {
-                std::string name = atlas.eyeNames.empty() ? "custom" : atlas.eyeNames[currentIdx];
-                db.Save("eyes_database.txt", name, currentParams);
-            }
-            sy += 120.0f;
-
-            // --- 2. MAIN EYE SETTINGS (Left Column) ---
-            GuiGroupBox({startX, sy, w, 320}, "MAIN EYE SETTINGS");
-            sy += 20.0f;
-
-            float labelW = 80; float valW = 40; float sliderW = w - labelW - valW - 30;
-
-            #define GUI_SLIDE(txt, var, min, max) \
-                GuiLabel({startX+10, sy, labelW, 20}, txt); \
-                GuiSliderBar({startX+10+labelW, sy, sliderW, 20}, NULL, NULL, &var, min, max); \
-                GuiLabel({startX+10+labelW+sliderW+5, sy, valW, 20}, TextFormat("%.2f", var)); \
-                sy += 25;
-
-            int shapeInt = (int)currentParams.eyeShapeID;
-            GUI_SLIDE("Shape ID", currentParams.eyeShapeID, 0.0f, 10.0f); // Range 0-10
-
-            // Contextual Label for Shape
-            const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked" };
-            if(shapeInt >= 0 && shapeInt <= 10) GuiLabel({startX+10+labelW, sy-25, sliderW, 20}, shapeNames[shapeInt]);
-
-            if(currentParams.eyeShapeID > 5.5f && currentParams.eyeShapeID < 6.5f) {
-                GUI_SLIDE("Spiral Spd", currentParams.spiralSpeed, -10.0f, 10.0f);
-            }
-
-            GUI_SLIDE("Bend", currentParams.bend, -2.0f, 2.0f);
-            GUI_SLIDE(" Eye Thickness", currentParams.eyeThickness, 1.0f, 30.0f);
-
-            sy += 5; // Spacer
-            GUI_SLIDE("Scale X", currentParams.scaleX, 0.1f, 10.0f);
-            GUI_SLIDE("Scale Y", currentParams.scaleY, 0.1f, 10.0f);
-            GUI_SLIDE("Spacing", currentParams.spacing, 0.0f, 1000.0f);
-            GUI_SLIDE("Look X", currentParams.lookX, -300.0f, 300.0f);
-            GUI_SLIDE("Look Y", currentParams.lookY, -300.0f, 300.0f);
-
-            // --- 3. ELEMENTS & FX (Left Column, Below Main) ---
-            sy += 25.0f;
-            GuiGroupBox({startX, sy, w, 280}, "ELEMENTS & FX");
-            sy += 20.0f;
-
-            // Toggles Row
-            GuiCheckBox({startX+10, sy, 20, 20}, "Brows", &currentParams.showBrow);
-            GuiCheckBox({startX+90, sy, 20, 20}, "Tears", &currentParams.showTears);
-            GuiCheckBox({startX+170, sy, 20, 20}, "Blush", &currentParams.showBlush);
-            sy += 30.0f;
-
-            if (currentParams.showBrow) {
-                GUI_SLIDE("Brow Type", currentParams.eyebrowType, 0, 4);
-                GUI_SLIDE("Brow Thick", currentParams.eyebrowThickness, 1, 20);
-                GUI_SLIDE("Brow Y", currentParams.eyebrowY, -10, 10);
-                GUI_SLIDE("Brow X", currentParams.eyebrowX, -10, 10); // [NEW]
-                GUI_SLIDE("Brow Len", currentParams.eyebrowLength, 0.5f, 2.0f); // [NEW]
-                GUI_SLIDE("Brow Scale", currentParams.browScale, 0.5f, 2.0f);   // [NEW]
-                GUI_SLIDE("Brow Angle", currentParams.browAngle, -45.0f, 45.0f); // [NEW]
-                GUI_SLIDE("Brow Bend", currentParams.browBend, -2.0f, 2.0f);   // Re-use bend
-                GUI_SLIDE("Brow Bend Off", currentParams.browBendOffset, 0.0f, 0.99f); // [NEW]
-                GuiCheckBox({startX+10, sy, 20, 20}, "Lower Brow", &currentParams.useLowerBrow); // [NEW]
-            }
-
-            if (currentParams.showTears) {
-                GUI_SLIDE("Tear Lvl", currentParams.tearsLevel, 0, 1);
-
-                // Tear Mode Toggle
-                GuiLabel({startX+10, sy, labelW, 20}, "Tear Mode");
-                if (GuiButton({startX+10+labelW, sy, 80, 20}, currentParams.blushMode == 0 ? "Pink" : "Green")) {
-                    currentParams.blushMode = !currentParams.blushMode;
-                }
-                printf("Blush Mode %i \n", currentParams.blushMode);
-                sy += 25;
-            }
-
-            sy += 10; // Spacer for FX
-            GuiLabel({startX+10, sy, w, 20}, "--- SURFACE FX ---");
-            sy += 20;
-
-            GUI_SLIDE("Stress (Angry)", currentParams.stressLevel, 0.0f, 1.0f); // [NEW]
-            GUI_SLIDE("Gloom (Shock)", currentParams.gloomLevel, 0.0f, 1.0f);  // [NEW]
-
-            // Distortion Toggle
-            bool distMode = (currentParams.distortMode == 1);
-            if (GuiCheckBox({startX+10, sy, 20, 20}, "Squash/Stretch Distortion", &distMode)) {
-                currentParams.distortMode = distMode ? 1 : 0;
-            }
-
-
-            // --- 4. RIGHT SIDE CONTROLS (Database & Viewport) ---
-            // --- 4. RIGHT SIDE CONTROLS (Database & Viewport) ---
-            // Anchor to TOP-RIGHT with margins
-            const float panelW  = 250.0f;
-            const float marginR = 16.0f;
-            const float marginT = 16.0f;
-
-            float vx = screenWidth - panelW - marginR;
-            float vy = marginT;
-
-            // ----- DATABASE LOAD -----
-            const float dbH = 120.0f;
-            GuiGroupBox({ vx, vy, panelW, dbH }, "DATABASE LOAD");
-
-            // Dropdown
-            Rectangle dd = { vx + 10, vy + 30, panelW - 20, 25 };
-            if (GuiDropdownBox(dd, db.dropdownStr.c_str(), &dropdownActive, dropdownEditMode))
-                dropdownEditMode = !dropdownEditMode;
-
-            // Buttons row
-            Rectangle loadBtn   = { vx + 10,           vy + 65, 160, 30 };
-            Rectangle reloadBtn = { vx + panelW - 60,  vy + 65,  50, 30 };
-
-            if (GuiButton(loadBtn, "LOAD SELECTED")) {
-                if (!db.entries.empty() && dropdownActive < (int)db.entries.size()) {
-                    currentParams = db.entries[dropdownActive].params;
-                }
-            }
-            if (GuiButton(reloadBtn, "RELOAD")) db.Load("eyes_database.txt");
-
-            // ----- VIEWPORT -----
-            const float gapH  = 12.0f;
-            const float viewH = 100.0f;
-
-            float vyView = vy + dbH + gapH;
-            GuiGroupBox({ vx, vyView, panelW, viewH }, "VIEWPORT");
-
-            GuiCheckBox({ vx + 10, vyView + 25, 20, 20 }, "Show Ref", &showReference);
-            GuiSliderBar({ vx + 80, vyView + 55, 100, 20 }, "Opac", nullptr, &refOpacity, 0.0f, 1.0f);
-            GuiCheckBox({ vx + 10, vyView + 80, 20, 20 }, "Test Physics", &usePhysics);
-
+        // Main Editor Panels
+        if(state.enableGUI) {
+            float y = UI::START_Y;
+            DrawReferencePanel(y, state, atlas, db);
+            DrawMainSettings(y, state.currentParams);
+            DrawElementsPanel(y, state.currentParams);
+            DrawDatabasePanel(screenW, state, db);
         }
 
-        // KEYBOARD
-        if (IsKeyPressed(KEY_LEFT)) currentIdx--;
-        if (IsKeyPressed(KEY_RIGHT)) currentIdx++;
-        if (currentIdx < 0) currentIdx = (int)atlas.eyeNames.size() - 1;
-        if (currentIdx >= (int)atlas.eyeNames.size()) currentIdx = 0;
-        
+        // Keyboard Shortcuts
+        if (IsKeyPressed(KEY_LEFT)) state.CycleReference(atlas, -1);
+        if (IsKeyPressed(KEY_RIGHT)) state.CycleReference(atlas, 1);
+        if (IsKeyPressed(KEY_ENTER)) db.Save("eyes_database.txt", atlas.eyeNames.empty() ? "custom" : atlas.eyeNames[state.currentIdx], state.currentParams);
+
         EndDrawing();
     }
 

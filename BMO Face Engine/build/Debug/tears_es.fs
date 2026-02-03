@@ -5,22 +5,27 @@ out vec4 finalColor;
 
 uniform vec2 uResolution;
 uniform float uScale;        // [CRITICAL] 0.66 on small screens, 2.0 on 4K
+uniform float uTime;
+uniform float uSide;         // 1.0 = Left, -1.0 = Right
 
 // --- TEAR PARAMS ---
-uniform float uTearsLevel;   // 0.0-0.4: Triangle, 0.4-0.75: Drip, 0.75+: Wail
-uniform int uBlushmode;       
-uniform float uTime; 
-uniform float uSide;         // 1.0 = Left, -1.0 = Right
+uniform float uTearsLevel;   // 0.0-0.4: Pool, 0.4-0.75: Drip, 0.75+: Wail
+uniform vec4 uTearColor;     // Base color from C++
 
 // --- BLUSH PARAMS ---
 uniform int uShowBlush;
-uniform vec4 uBlushColor;    
-uniform vec4 uTearColor;     
+uniform int uBlushMode;      // 0 = Pink (Solid), 1 = Green (Soft)
+uniform vec4 uBlushColor;
 
-// UTILS
-float hash(float n) { return fract(sin(n) * 43758.5453123); }
 
-// Triangle SDF
+//Helper functoin to rotate a 2D point around the origin
+vec2 rotate2D(vec2 p, float a) { float s = sin(a), c = cos(a); return vec2(c*p.x - s*p.y, s*p.x + c*p.y); }
+
+// --------------------------------------------------------
+// SDF SHAPE FUNCTIONS
+// --------------------------------------------------------
+
+// Standard Triangle (used for Drips)
 float sdTriangle(vec2 p, float r) {
     const float k = sqrt(3.0);
     p.x = abs(p.x) - r;
@@ -30,45 +35,43 @@ float sdTriangle(vec2 p, float r) {
     return -length(p) * sign(p.y);
 }
 
-float sdTears(vec2 p, float level, float t) {
-    float d = 1e5;
-    
-    // --- MODE 1: TRIANGLE TEARS ---
-    if (level < 0.4) {
+// --------------------------------------------------------
+// SHAPE LOGIC
+// --------------------------------------------------------
 
-        //Need to add the teary eye effect here 
+// Calculates the Distance Field for the Tear Shape
+float getTearShapeDist(vec2 p, float level, float t) {
+    float d = 1e5;
+
+    // --- MODE 1: POOL OF TEARS (Static Oval) ---
+    if (level < 0.4) {
+        float yOffset = 130.0 * uScale;
+        vec2 poolPos = p - vec2(0.0, yOffset);
+
+        // Flattened Oval
+        float squashFactor = 1.6;
+        float radius = 55.0 * uScale;
+        d = length(vec2(poolPos.x, poolPos.y * squashFactor)) - radius;
     }
     
     // --- MODE 2: CLASSIC DRIP ---
     else if (level < 0.75) {
-
-         // [FIX] SCALE SIZE (35.0 -> Scaled)
-        float size = 35.0 * uScale; 
-        
+        float size = 35.0 * uScale;
         float speed = 0.2 + (level * 0.5);
-        
-        // [FIX] Buffer fall distance so they don't pop out
-        float fallDist = uResolution.y + uScale; 
-        
+        float fallDist = uResolution.y + uScale;
+
         for(float i = 0.0; i < 5.0; i++) {
-            // [FIX] Spread them out (0.2 offset per drop)
-            float offset = i / 5.0; 
-            
+            float offset = i / 5.0;
             float cycle = fract((t * speed) + offset);
             
-            // Position
             float yPos = (170.0 * uScale) + (cycle * fallDist);
-
-            // [FIX] ADD X-JITTER (Scaled)
-            // This prevents them from falling in a perfect single-file line
-            float xPos = -(120.0 * uScale)*uSide ;
+            float xPos = -(120.0 * uScale) * uSide; // Jitter X
 
             vec2 dropPos = p - vec2(xPos, yPos);
-            dropPos.y = -dropPos.y; 
+            dropPos.y = -dropPos.y; // Flip for Triangle orientation
             
             float dTri = sdTriangle(dropPos, size);
             d = min(d, dTri);
-        
         }
     } 
     
@@ -76,113 +79,180 @@ float sdTears(vec2 p, float level, float t) {
     else { 
         float width = (60.0 + (level * 20.0)) * uScale;
         
-        // 1. THE WAVE (Sine Distortion)
-        float wave = sin(p.y * 0.04 - t * 6.0) * (12.0 * uScale); 
-        
-        // 2. THE SHAPE (Vertical Box + Wave)
+        // Sine Wave + Box
+        float wave = sin(p.y * 0.04 - t * 6.0) * (12.0 * uScale);
         float distToStream = abs(p.x + wave) - width;
         
-        // 3. [FIX] CURVED TOP CUT
-        // The eye is a frown shape (^).
-        // That means the center (x=0) is higher than the sides.
-        // In our Y+ Down system, that means Y is lower (more negative) at X=0.
-        // Formula: y = Curvature * x^2
-        float curvature = 0.004 / uScale; // Adjust curvature tightness
+        // Curved Top Cut (Frown Shape)
+        float curvature = 0.004 / uScale;
         float curveY = (p.x * p.x) * curvature;
-        
-        // The "Cut Plane" follows this curve.
-        // We subtract the curve from p.y.
-        // We also add an offset (-10.0) to tuck it slightly up behind the eye.
         float topEdge = -(p.y - curveY) - (10.0 * uScale);
         
-        // Clip: Only draw where we are BELOW the curve
         d = max(distToStream, topEdge);
     }
 
     return d;
 }
 
-void main() {
-    // 1. NORMALIZE
-    vec2 p = (fragTexCoord - 0.5) * uResolution;
+// --------------------------------------------------------
+// COMPONENT RENDERERS
+// --------------------------------------------------------
+
+// Returns: vec4(r, g, b, alpha)
+vec4 getBlush(vec2 p) {
+    if (uShowBlush == 0) return vec4(0.0);
+
+    // 1. Setup Colors & Mode
+    bool isPink = (uBlushMode < 1); // 0 = Pink
+    vec4 color = isPink 
+        ? vec4(1.0, 0.784, 0.847, 1.0)  // Pink
+        : vec4(0.470, 0.654, 0.454, 1.0); // Green
+
+    // 2. Shape (Ellipse)
+    float r = 0.4 * min(uResolution.x, uResolution.y);
+    float blushY = 1.2 * r;
+    vec2 pos = p - vec2(0.0, blushY);
     
-    // [CRITICAL FIX] SHIFT ORIGIN TO TOP
-    // Since our C++ rect starts at the Eye Center, we move (0,0) to the Top Edge.
-    // Now p.y = 0.0 IS the Eye Center. Positive Y is falling down.
+    // Squash Y to make ellipse
+    float d = length(pos / vec2(1.0, 0.6)) - (r * 0.85);
+
+    // 3. Render
+    float alpha = 0.0;
+    if (isPink) {
+        // Solid, crisp edges
+        float delta = fwidth(d);
+        alpha = 1.0 - smoothstep(-delta, delta, d);
+    } else {
+        // Soft, bleeding edges
+        alpha = 1.0 - smoothstep(-0.5 * r, 0.5 * r, d);
+        alpha *= 0.9; // Slightly transparent
+    }
+
+    return vec4(color.rgb, alpha);
+}
+
+vec4 getTears(vec2 p) {
+    if (uTearsLevel <= 0.01) return vec4(0.0);
+
+    // 1. Get Base Shape Distance
+    float d = getTearShapeDist(p, uTearsLevel, uTime);
+    
+    // 2. Determine Base Color
+    vec3 baseColor;
+    if (uTearsLevel <= 0.4) {
+        baseColor = vec3(0.325, 0.721, 0.411); // Pool Green
+    } else if (uTearsLevel < 0.75) {
+        baseColor = vec3(0.180, 0.713, 0.384); // Drip Green
+    } else {
+        baseColor = vec3(0.403, 0.839, 0.639); // Wail Green
+    }
+
+    // --- BRANCH: POOL MODE (Highlight, No Outline) ---
+    if (uTearsLevel <= 0.4) {
+        // 1. SETUP GEOMETRY (Your hardcoded values)
+        float yOffset = 140.0 * uScale;
+        float xOffset = -5.0 * uScale;
+        vec2 center = p - vec2(xOffset, yOffset);
+
+        // 2. BASE ALPHA (Your 70% opacity logic)
+        float alpha = (1.0 - smoothstep(-0.5, 0.5, d)) * 0.7;
+        
+        // --- NEW: GRADIENT & CAUSTIC LOGIC ---
+        // We use 'center.y' to create the vertical gradient.
+        // Since radius was 55.0 and squash was 1.6, the height is approx 34.0.
+        // We normalize Y from -1 (top) to 1 (bottom).
+        float verticalRadius = (55.0 * uScale) / 1.6;
+        float normY = center.y / verticalRadius;
+
+        // A. Colors: Deep Teal (Top) -> Bright Mint (Bottom)
+        vec3 colTop = vec3(0.1, 0.6, 0.4); 
+        vec3 colBot = vec3(0.5, 0.95, 0.7);
+        
+        // B. Gradient Mix
+        float grad = smoothstep(-0.8, 0.8, normY);
+        vec3 finalRGB = mix(colTop, colBot, grad);
+
+        // C. Caustic Rim (Bottom Glow)
+        // Adds a bright rim at the very bottom edge
+        float rim = smoothstep(verticalRadius - (8.0 * uScale), verticalRadius, center.y);
+        finalRGB += vec3(0.3, 0.5, 0.4) * rim * 0.8;
+
+        // --- HIGHLIGHT LOGIC (Your exact transforms) ---
+        vec2 hPos = center - vec2(-20.0 * uScale, -25.0 * uScale);
+        
+        // Rotation (Yours)
+        hPos = rotate2D(hPos, radians(25.0));
+
+        // Highlight Shape (Yours: 1.5 squash, 16.0 size)
+        float hDist = length(vec2(hPos.x, hPos.y * 1.5)) - (16.0 * uScale);
+        
+        // Render Highlight (Soft edge)
+        float hAlpha = 1.0 - smoothstep(0.0, 2.0 * uScale, hDist);
+        
+        // --- COMPOSITE ---
+        // Mix White Highlight on top of Gradient
+        finalRGB = mix(finalRGB, vec3(1.0), hAlpha);
+        
+        // Boost alpha for the highlight so it pops
+        alpha = max(alpha, hAlpha); 
+
+        return vec4(finalRGB, alpha);
+    }
+    
+    // --- BRANCH: DRIP/WAIL MODE (Outline, No Highlight) ---
+    else {
+        vec3 outlineColor = vec3(0.584, 0.952, 0.772);
+        float outlineWidth = 4.0 * uScale;
+
+        // Fill Alpha
+        float fillAlpha = 1.0 - smoothstep(-0.5, 0.5, d);
+        
+        // Outline Alpha
+        float borderAlpha = 1.0 - smoothstep(outlineWidth - 0.5, outlineWidth + 0.5, d);
+
+        // Composite: Start with Outline, mix in Base Fill
+        // This ensures the fill covers the inner part of the outline
+        vec3 finalRGB = outlineColor;
+        finalRGB = mix(finalRGB, baseColor, fillAlpha);
+
+        return vec4(finalRGB, borderAlpha);
+    }
+}
+
+// --------------------------------------------------------
+// MAIN
+// --------------------------------------------------------
+void main() {
+    // 1. Normalize Coordinates (Top-Center Origin)
+    vec2 p = (fragTexCoord - 0.5) * uResolution;
     p.y += uResolution.y * 0.5;
 
-    // (We removed the manual 'pTear' offset because the C++ rect handles position now)
-
+    // 2. Accumulators
     vec3 colorAccum = vec3(0.0);
     float alphaAccum = 0.0;
 
-    // 2. BLUSH PASS
-    if (uShowBlush == 1) {
-        // Blush scales automatically because it uses 'r' (based on Rect size)
-        float r = 0.4 * min(uResolution.x, uResolution.y);
+    // 3. Render Layers
+    vec4 blush = getBlush(p);
+    vec4 tear  = getTears(p);
 
-        vec4 activeBlushColor = uBlushColor; 
-        if(uBlushmode == 1)
-        {
-            activeBlushColor = vec4(0.47058, 0.65490, 0.45490,0.58823);
-        }
-        if(uBlushmode == 0)
-        {
-            activeBlushColor = vec4(1, 0.78431, 0.84705,1);
-        }
-        
-        // Position blush slightly below eye (using the new coordinate system)
-        float blushY = 70.0 * uScale; 
-        float dBlush = length(p - vec2(0.0, blushY)) - r*0.6;
-        
-        float a = 1.0 - smoothstep(0.0, r, dBlush + r*0.2);
-        a *= 0.5; 
-        
-        colorAccum = activeBlushColor.rgb;
-        alphaAccum = a;
+    // 4. Mix Layers (Painter's Algorithm: Blush -> Tears)
+    
+    // Layer 1: Blush
+    if (blush.a > 0.0) {
+        colorAccum = blush.rgb;
+        alphaAccum = blush.a;
     }
 
-    // 3. TEAR PASS
-    if (uTearsLevel > 0.01) {
-        float dTear = sdTears(p, uTearsLevel, uTime);
+    // Layer 2: Tears (On Top)
+    if (tear.a > 0.0) {
+        // Standard Alpha Blending: Result = Foreground * SrcAlpha + Background * (1 - SrcAlpha)
+        colorAccum = mix(colorAccum, tear.rgb, tear.a);
         
-        // Color Selection
-        vec3 activeTearColor = uTearColor.rgb; 
-        if (uTearsLevel < 0.75 && uTearsLevel > 0.4 ) {
-            activeTearColor = vec3(0.18039, 0.71373, 0.38431); // Green
-        }
-        if(uTearsLevel>0.75)
-        {
-            activeTearColor = vec3(0.40392, 0.83921, 0.63921);
-        }
-
-        // [FIX] OUTLINE COLOR
-        // Make it 50% darker than the base color (matches reference style)
-        vec3 outlineColor = vec3(0.58431, 0.95294, 0.77254);
-        
-        // --- 2. RENDER SHAPES ---
-        float outlineWidth = 4.0 * uScale; // Scalable outline thickness
-
-        // Alpha for the FILL (Inner)
-        float fillAlpha = 1.0 - smoothstep(-0.5, 0.5, dTear);
-        
-        // Alpha for the OUTLINE (Outer Edge)
-        // We check 'outlineWidth' pixels away from the edge
-        float borderAlpha = 1.0 - smoothstep(outlineWidth - 0.5, outlineWidth + 0.5, dTear);
-        
-        // --- 3. COMPOSITE ---
-        // Start with Outline Color
-        vec3 finalRGB = outlineColor;
-        
-        // Blend Fill Color on top of Outline Color
-        // (This creates the effect of a dark stroke around a light core)
-        finalRGB = mix(finalRGB, activeTearColor, fillAlpha);
-        
-        // Add to accumulator
-        colorAccum = mix(colorAccum, finalRGB, borderAlpha);
-        alphaAccum = max(alphaAccum, borderAlpha);
+        // Accumulate Alpha (Simple max usually works for UI/Decals)
+        alphaAccum = max(alphaAccum, tear.a);
     }
 
+    // 5. Output
     if (alphaAccum < 0.01) discard;
     finalColor = vec4(colorAccum, alphaAccum);
 }

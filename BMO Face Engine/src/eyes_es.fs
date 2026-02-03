@@ -302,14 +302,14 @@ float sdGloomLines(vec2 p, float r, float side) {
 
         // Line 2 (Middle, Long)
         float d2 = sdCapsule(q, 
-            vec2(-21, -r * 0.1), 
-            vec2(-21, r * 1.5), 
+            vec2(-r * 0.6, -r * 0.1), 
+            vec2(-r * 0.6, r * 1.5), 
             th);
 
         // Line 3 (Right, Short)
         float d3 = sdCapsule(q, 
-            vec2(-r * 0.15, -r * 0.1), 
-            vec2(-r * 0.15, r * 1.5), 
+            vec2(-r * 0.13, -r * 0.1), 
+            vec2(-r * 0.13, r * 1.5), 
             th);
 
         // Return the combined shape
@@ -447,6 +447,48 @@ void main() {
         
         // Mix: 0.0 = White (Center), 1.0 = Ring Color (Edge)
         col.rgb = mix(vec3(1.0), uColor.rgb, blend);
+    }
+    else if (uShapeID < 11.5) { // TEARY / GLOSSY
+        // ------------------------------------------------
+        // MAIN SHAPE: VERTICAL OVAL (Simulated Ellipse)
+        // ------------------------------------------------
+        // Multiply X by 1.35 to "squash" the circle horizontally, making it tall.
+        // Use 'r * 1.1' to make it slightly larger overall to compensate for the squash.
+        d = length(vec2(p.x * 1.35, p.y)) - (r * 1.1);
+
+        // ------------------------------------------------
+        // 1. LARGE HIGHLIGHT (Top-Left, Tilted)
+        // ------------------------------------------------
+        // Position: Top-Left
+        vec2 pos1 = p - vec2(-r * 0.30, -r * 0.65); 
+        
+        // Rotation: Tilt the oval
+        pos1 = rotate2D(pos1, radians(40.0)); 
+        
+        // Shape: Squash X (multiply by 0.6) to make it an oval
+        float dH1 = length(vec2(pos1.x * 0.8, pos1.y)) - (r * 0.24);
+
+        // ------------------------------------------------
+        // 2. SMALL HIGHLIGHT (Below the big one)
+        // ------------------------------------------------
+        // Position: Slightly below and right of the first one
+        vec2 pos2 = p - vec2(r * 0.07, -r * 0.35);
+        
+        pos2 = rotate2D(pos2, radians(40.0)); 
+
+        // Shape: Simple Circle
+        float dH2 = length(vec2(pos2.x * 0.8, pos2.y)) - (r * 0.10);
+
+        // ------------------------------------------------
+        // 3. COMBINE & COLOR
+        // ------------------------------------------------
+        float highlights = min(dH1, dH2);
+        
+        // Soft edge for glossy look
+        float softAA = r * 0.04; 
+        float highlightMask = smoothstep(softAA, -softAA, highlights);
+
+        col.rgb = mix(col.rgb, vec3(1.0), highlightMask);
     }
 
     // 3. ANGRY STRESS LINES

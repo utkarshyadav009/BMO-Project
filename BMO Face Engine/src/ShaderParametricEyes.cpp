@@ -10,17 +10,41 @@
 #include <fstream>
 #include <iostream>
 #include "utility.h" // Access to GlobalScaler
+
+// --------------------------------------------------------
+// CONSTANTS & CONFIG
+// --------------------------------------------------------
+namespace Config {
+    // Shader Filenames
+    const char* SHADER_EYE   = "eyes_es.fs";
+    const char* SHADER_BROW  = "brow_es.fs";
+    const char* SHADER_TEAR  = "tears_es.fs";
+    const char* SHADER_DIR   = "src/";
+
+    // Animation & Physics
+    const float BLINK_MIN_DELAY = 2.0f;
+    const float BLINK_MAX_DELAY = 5.0f;
+    const float BLINK_HOLD_DURATION = 0.10f;
+    const float BLINK_CLOSE_THRESHOLD = 0.2f;
+    const float BLINK_OPEN_THRESHOLD = 0.9f;
+
+    // Drawing
+    const float REF_EYE_SIZE = 100.0f;
+    const float EYE_SCALE_FACTOR = 2.7f;
+    const float EYE_HEIGHT_OFFSET = 150.0f;
+}
+
 // --------------------------------------------------------
 // PHYSICS STRUCTS
 // --------------------------------------------------------
 struct Spring {
     float val, vel, target;
     float stiffness, damping;
-    
+
     void Reset(float initial) {
-        val = initial; target = initial; vel = 0;
+        val = initial; target = initial; vel = 0.0f;
     }
-    
+
     void Update(float dt) {
         float f = stiffness * (target - val);
         vel = (vel + f * dt) * damping;
@@ -32,206 +56,164 @@ struct Spring {
 // EYE PARAMETERS
 // --------------------------------------------------------
 struct EyeParams {
-    // --- MAIN EYE PARAMS ---
+    // --- Main Eye ---
     float eyeShapeID = 0.0f;     // 0-8=Std, 9=Kawaii, 10=Shocked
-    float bend = 0.0f;        
-    float eyeThickness = 4.0f;   
+    float bend = 0.0f;
+    float eyeThickness = 4.0f;
     float eyeSide = 0.0f;
-    
-    // --- NEW SURFACE FX (For Angry/Shocked Sprites) ---
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float spacing = 612.0f;
+
+    // --- Eye Surface FX ---
     float stressLevel = 0.0f;    // 0-1: Angry lines
     float gloomLevel = 0.0f;     // 0-1: Shocked vertical lines
     int distortMode = 0;         // 1 = Squash/Stretch distortion
-
-    // --- ELEMENT TOGGLES ---
-    bool showBrow = false;
-    bool showTears = false;
-    bool showBlush = false;
-
-    // --- ELEMENT DETAILS ---
-    float eyebrowType = 0.0f; 
-    float eyebrowThickness = 4.0f;
-    float eyebrowY = 0.0f;
-    float eyebrowX = 0.0f;
-    float eyebrowLength = 1.0f;
-    float browScale = 1.0f;      
-    float browSide = 1.0f;        // New: 1.0 for left, -1.0 for right (mirrors the brow)
-    float browAngle = 0.0f;       // New: Angle to rotate the brow
-    float browBend = 0.0f;        // Re-use bend for brow arching
-    float browBendOffset = 0.85f;  // New: Offset for brow bend
-    bool useLowerBrow = false;   
-
-    float tearsLevel = 0.0f;
-    int blushMode = 0;        
-
-    // --- EXTRAS ---
     float spiralSpeed = -1.2f;
 
-    // --- LAYOUT & PHYSICS TARGETS ---
+    // --- Look Targets ---
     float lookX = 0.0f;
     float lookY = 62.50f;
-    float scaleX = 1.0f;      
-    float scaleY = 1.0f;      
-    float spacing = 612.0f;   
+
+    // --- Eyebrow ---
+    bool showBrow = false;
+    bool useLowerBrow = false;
+    float eyebrowType = 0.0f;
+    float eyebrowThickness = 4.0f;
+    float eyebrowLength = 1.0f;
+    float eyebrowSpacing = 0.0f;    
+    float eyebrowX = 0.0f;
+    float eyebrowY = 0.0f;
+    float browScale = 1.0f;
+    float browSide = 1.0f;       // 1.0 = left, -1.0 = right
+    float browAngle = 0.0f;
+    float browBend = 0.0f;
+    float browBendOffset = 0.85f;
+
+    // --- Tears & Blush ---
+    bool showTears = false;
+    bool showBlush = false;
+    float tearsLevel = 0.0f;
+    int blushMode = 0;
+    float blushScale = 1.0f;
+    float blushX = 0.0f;
+    float blushY = 0.0f;
+    float blushSpacing = 0.0f;
+};
+
+// --------------------------------------------------------
+// SHADER WRAPPER (Hot Reload Support)
+// --------------------------------------------------------
+struct ShaderAsset {
+    Shader shader;
+    std::string filePath;
+    long lastModTime;
+    
+    // Cached Uniform Locations
+    struct Locations {
+        int resolution, time, color;
+        // Layer-specific uniforms stored in a generic way or specific map could be used,
+        // but keeping it flat for simplicity in C++ struct mirroring.
+        // Eye
+        int shape, bend, thickness, side, spiral, distort, stress, gloom;
+        // Brow
+        int browType, browLen, browY, browAngle, browBendOffset;
+        // Tears
+        int scale, tearLevel, blushMode, showBlush, blushCol, tearCol;
+    } locs;
+
+    void Load(const char* filename, const char* dir) {
+        // Resolve path
+        if (FileExists(filename)) filePath = filename;
+        else if (FileExists((std::string(dir) + filename).c_str())) filePath = std::string(dir) + filename;
+        else filePath = filename; // Fallback
+
+        shader = LoadShader(0, filePath.c_str());
+        lastModTime = GetFileModTime(filePath.c_str());
+    }
+
+    void ReloadIfChanged() {
+        long currentModTime = GetFileModTime(filePath.c_str());
+        if (currentModTime > lastModTime) {
+            std::cout << "[HOT RELOAD] Reloading shader: " << filePath << std::endl;
+            Shader newShader = LoadShader(0, filePath.c_str());
+            
+            if (newShader.id != rlGetShaderIdDefault()) {
+                UnloadShader(shader);
+                shader = newShader;
+                lastModTime = currentModTime;
+                TraceLog(LOG_INFO, "HOT RELOAD: Success (%s)", filePath.c_str());
+            } else {
+                TraceLog(LOG_WARNING, "HOT RELOAD: Compile failed (%s)", filePath.c_str());
+            }
+        }
+    }
+    
+    void Unload() {
+        UnloadShader(shader);
+    }
 };
 
 // --------------------------------------------------------
 // MAIN CLASS
 // --------------------------------------------------------
 struct ParametricEyes {
-    // SHADERS (Split Architecture)
-    Shader shEye;
-    Shader shBrow;
-    Shader shTears;
+    // Shaders
+    ShaderAsset shEye;
+    ShaderAsset shBrow;
+    ShaderAsset shTears;
 
-    // COLORS
-    Color starEyesColour = { 255, 184, 0, 255 };
-    Color heartEyesColour = { 220, 1, 1, 255};
-    Color blushColour = { 255, 105, 180, 150 }; // Soft Pink
-    Color tearColour = { 100, 180, 255, 220 };  // Soft Blue
+    // Colors
+    const Color COL_STAR   = { 255, 184, 0, 255 };
+    const Color COL_HEART  = { 220, 1, 1, 255 };
+    const Color COL_BLUSH  = { 255, 105, 180, 150 };
+    const Color COL_TEAR   = { 100, 180, 255, 220 };
 
-    // PHYSICS SPRINGS
-    Spring sScaleX = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f}; 
+    // Physics Springs
+    Spring sScaleX = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f};
     Spring sScaleY = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f};
-    Spring sLookX  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f}; 
+    Spring sLookX  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f};
     Spring sLookY  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f};
-    
-    // BLINK STATE
+
+    // Blink State
     float blinkTimer = 0.0f;
     float nextBlinkTime = 3.0f;
-    bool isBlinking = false;
-    int blinkPhase = 0; 
-    bool usePhysics = true; 
+    int blinkPhase = 0; // 0=Open, 1=Closing, 2=Closed, 3=Opening
+    bool usePhysics = true;
 
-    // SHADER LOCATIONS (Cached for performance)
-    // Eye Shader
-    int locResEye, locTimeEye, locColorEye, locEyeSide;
-    int locShape, locBend, locEyeThick, locSpiral, locDistort, locStress, locGloom;
-    
-    // Brow Shader
-    int locResBrow, locColorBrow;
-    int locBrowType, locBrowBend, locBrowThick, locBrowLen, locBrowY, locBrowSide, locBrowAngle, locBrowBendOffset;
-
-    // Tears Shader
-    int locResTear, locTimeTear;
-    int locTearLevel, locBlushMode, locShowBlush, locBlushCol, locTearCol;
-    int locScale;
-
-    // HOT RELOAD DATA
-    long eyeFragTime = 0;
-    long tearFragTime = 0;
-    long browFragTime = 0;
-    std::string eyeFragPath = "eyes_es.fs"; // Store the path
-    std::string tearFragPath = "tears_es.fs";
-    std::string browFragPath = "brow_es.fs";
-
+    // Debug & Util
     float hotReloadTimer = 0.0f;
-
-    //Scaler for the tears
-    float scale;
-
-    //Debug boxes enable. 
-    bool debugBoxes;
+    float currentGlobalScale = 1.0f;
+    bool debugBoxes = false;
 
     // ----------------------------------------------------
     // INIT
     // ----------------------------------------------------
     void Init() {
-         // Load the 3 separate shaders
-        // Assuming they are in the same directory as the executable or src/
-        
-        //This is for production cause there is a stale file issue with the build folder
-        //which causes issues with hot-reloading shaders.
-        // shEye   = LoadShaderOrFallback("eyes_es.fs");
-        // shBrow  = LoadShaderOrFallback("brow_es.fs");
-        // shTears = LoadShaderOrFallback("tears_es.fs");
+        // Load Shaders
+        shEye.Load(Config::SHADER_EYE, Config::SHADER_DIR);
+        RefreshLocationsEye();
 
-        // // --- GET LOCATIONS (EYE) ---
-        // locResEye   = GetShaderLocation(shEye, "uResolution");
-        // locTimeEye  = GetShaderLocation(shEye, "uTime");
-        // locColorEye = GetShaderLocation(shEye, "uColor");
-        // locShape    = GetShaderLocation(shEye, "uShapeID");
-        // locBend     = GetShaderLocation(shEye, "uBend");
-        // locEyeThick = GetShaderLocation(shEye, "uThickness");
-        // locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
-        // locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
-        // locDistort  = GetShaderLocation(shEye, "uDistortMode");
-        // locStress   = GetShaderLocation(shEye, "uStressLevel");
-        // locGloom    = GetShaderLocation(shEye, "uGloomLevel");
+        shBrow.Load(Config::SHADER_BROW, Config::SHADER_DIR);
+        RefreshLocationsBrow();
 
-        // // --- GET LOCATIONS (BROW) ---
-        // locResBrow   = GetShaderLocation(shBrow, "uResolution");
-        // locColorBrow = GetShaderLocation(shBrow, "uColor");
-        // locBrowType  = GetShaderLocation(shBrow, "uEyebrowType");
-        // locBrowBend  = GetShaderLocation(shBrow, "uBend");
-        // locBrowThick = GetShaderLocation(shBrow, "uThickness");
-        // locBrowLen   = GetShaderLocation(shBrow, "uEyeBrowLength");
-        // locBrowY     = GetShaderLocation(shBrow, "uEyeBrowY");
-        // locBrowSide  = GetShaderLocation(shBrow, "uBrowSide");
-        // locBrowAngle = GetShaderLocation(shBrow, "uAngle");
-        // locBrowBendOffset = GetShaderLocation(shBrow, "uBendOffset");
-
-        // // --- GET LOCATIONS (TEARS) ---
-        // locResTear   = GetShaderLocation(shTears, "uResolution");
-        // locTimeTear  = GetShaderLocation(shTears, "uTime");
-        // locTearLevel = GetShaderLocation(shTears, "uTearsLevel");
-        // locBlushMode  = GetShaderLocation(shTears, "uTearMode");
-        // locShowBlush = GetShaderLocation(shTears, "uShowBlush");
-        // locBlushCol  = GetShaderLocation(shTears, "uBlushColor");
-        // locTearCol   = GetShaderLocation(shTears, "uTearColor");
-        
-        
-        //For testing purposes, I will load the shaders directly from the above paths.
-        //Loading Eye Shader (Hot Reload Enabled)
-        if (FileExists("eyes_es.fs")) eyeFragPath = "eyes_es.fs";
-        else if (FileExists("src/eyes_es.fs")) eyeFragPath = "src/eyes_es.fs";
-        else eyeFragPath = "eyes_es.fs"; // Default fallback
-        shEye = LoadShader(0, eyeFragPath.c_str());
-        eyeFragTime = GetFileModTime(eyeFragPath.c_str());
-        GetEyeLocations();
-
-        //Loading Brow Shader (Hot Reload Enabled)
-        if (FileExists("brow_es.fs")) browFragPath = "brow_es.fs";
-        else if (FileExists("src/brow_es.fs")) browFragPath = "src/brow_es.fs";
-        else browFragPath = "brow_es.fs"; // Default fallback
-        shBrow = LoadShader(0, browFragPath.c_str());
-        browFragTime = GetFileModTime(browFragPath.c_str());
-        GetBrowLocations();
-
-        //Loading Tears Shader (Hot Reload Enabled)
-        if (FileExists("tears_es.fs")) tearFragPath = "tears_es.fs";
-        else if (FileExists("src/tears_es.fs")) tearFragPath = "src/tears_es.fs";
-        else tearFragPath = "tears_es.fs"; // Default fallback
-        shTears = LoadShader(0, tearFragPath.c_str());
-        tearFragTime = GetFileModTime(tearFragPath.c_str());
-        GetTearLocations();
-
+        shTears.Load(Config::SHADER_TEAR, Config::SHADER_DIR);
+        RefreshLocationsTear();
     }
 
-    // Helper to find shader path (kept from your code)
-    Shader LoadShaderOrFallback(const char* filename) {
-        std::string path = std::string(GetApplicationDirectory()) + filename;
-        if (!FileExists(path.c_str())) path = filename;
-        if (!FileExists(path.c_str())) path = std::string("src/") + filename;
-        return LoadShader(0, path.c_str());
-    }
-    
     void Unload() {
-        UnloadShader(shEye);
-        UnloadShader(shBrow);
-        UnloadShader(shTears);
+        shEye.Unload();
+        shBrow.Unload();
+        shTears.Unload();
     }
 
     // ----------------------------------------------------
-    // UPDATE (Physics & Blink)
+    // UPDATE
     // ----------------------------------------------------
     void Update(float dt, EyeParams& params) {
+        currentGlobalScale = GlobalScaler.scale;
 
-       scale = GlobalScaler.scale;
-        
-        //printf("Tears Scale: %f \n", scale);
-
-        //For Testing and Debugging only ----------
+        // Hot Reload Check
         hotReloadTimer += dt;
         if (hotReloadTimer > 1.0f) {
             CheckHotReload();
@@ -239,51 +221,23 @@ struct ParametricEyes {
         }
 
         if (!usePhysics) {
-            // DIRECT MAPPING (For Editor)
             sScaleX.val = params.scaleX;
             sScaleY.val = params.scaleY;
             sLookX.val = params.lookX;
             sLookY.val = params.lookY;
-            blinkPhase = 0; 
+            blinkPhase = 0;
             return;
         }
 
-        // --- AUTO BLINK LOGIC ---
-        // Only blink if shape is Dot (0), Star (4), Heart (5), etc.
-        bool canBlink = (params.eyeShapeID < 0.5f || params.eyeShapeID > 3.5f);
+        UpdateBlinkLogic(dt, params);
         
-        if (canBlink) {
-            blinkTimer += dt;
-            if (blinkTimer > nextBlinkTime && blinkPhase == 0) {
-                blinkPhase = 1;
-                blinkTimer = 0.0f;
-                nextBlinkTime = (float)GetRandomValue(20, 50) / 10.0f;
-            }
-        } else {
-            blinkPhase = 0; 
-        }
-
-        // Blink Animation State Machine
-        if (blinkPhase == 1) { // Closing
-            sScaleY.target = 0.0f; 
-            if (sScaleY.val < 0.2f) { blinkPhase = 2; blinkTimer = 0.0f; }
-        } 
-        else if (blinkPhase == 2) { // Closed (HOLD)
-            sScaleY.val = 1.0f; sScaleY.target = 1.0f; 
-            if (blinkTimer > 0.10f) { blinkPhase = 3; sScaleY.val = 0.0f; }
-        }
-        else if (blinkPhase == 3) { // Opening
-            sScaleY.target = params.scaleY; 
-            if (sScaleY.val > params.scaleY * 0.9f) blinkPhase = 0;
-        }
-
-        // Apply Targets
+        // Physics breathing
         if (blinkPhase == 0) {
              float breath = (params.scaleY > 0.8f) ? sinf((float)GetTime() * 2.0f) * 0.02f : 0.0f;
              sScaleY.target = params.scaleY + breath;
              sScaleX.target = params.scaleX - breath;
         }
-
+        
         sLookX.target = params.lookX;
         sLookY.target = params.lookY;
 
@@ -291,82 +245,60 @@ struct ParametricEyes {
         sLookX.Update(dt);  sLookY.Update(dt);
     }
 
-    // ----------------------------------------------------
-    // DRAW
-    // ----------------------------------------------------
+    void UpdateBlinkLogic(float dt, const EyeParams& params) {
+        // Auto Blink only for standard shapes
+        bool canBlink = (params.eyeShapeID < 0.5f || params.eyeShapeID > 3.5f);
 
-    // Helper to draw a specific layer into a rect
-    // layerType: 0=Eye, 1=Brow, 2=Tears
-    void DrawLayer(Rectangle rect, Vector2 sourceRes,EyeParams p, Color color, int layerType) {
-        Shader* targetShader = nullptr;
+        if (canBlink) {
+            blinkTimer += dt;
+            if (blinkTimer > nextBlinkTime && blinkPhase == 0) {
+                blinkPhase = 1;
+                blinkTimer = 0.0f;
+                nextBlinkTime = (float)GetRandomValue((int)(Config::BLINK_MIN_DELAY * 10), (int)(Config::BLINK_MAX_DELAY * 10)) / 10.0f;
+            }
+        } else {
+            blinkPhase = 0;
+        }
+
+        // Blink State Machine
+        switch (blinkPhase) {
+            case 1: // Closing
+                sScaleY.target = 0.0f;
+                if (sScaleY.val < Config::BLINK_CLOSE_THRESHOLD) { 
+                    blinkPhase = 2; 
+                    blinkTimer = 0.0f; 
+                }
+                break;
+            case 2: // Closed (Hold)
+                sScaleY.val = 1.0f; sScaleY.target = 1.0f; // Force line thickness
+                if (blinkTimer > Config::BLINK_HOLD_DURATION) { 
+                    blinkPhase = 3; 
+                    sScaleY.val = 0.0f; 
+                }
+                break;
+            case 3: // Opening
+                sScaleY.target = params.scaleY;
+                if (sScaleY.val > params.scaleY * Config::BLINK_OPEN_THRESHOLD) {
+                    blinkPhase = 0; 
+                }
+                break;
+        }
+    }
+
+    // ----------------------------------------------------
+    // DRAWING HELPERS
+    // ----------------------------------------------------
+    void SetCommonUniforms(Shader shader, int locRes, int locTime, int locCol, Rectangle rect, Color color) {
+        float res[2] = { rect.width, rect.height };
         float time = (float)GetTime();
-        float res[2] = { sourceRes.x, sourceRes.y };
         float colVec[4] = { color.r/255.0f, color.g/255.0f, color.b/255.0f, color.a/255.0f };
-
-        // Select Shader
-        if (layerType == 0) targetShader = &shEye;
-        else if (layerType == 1) targetShader = &shBrow;
-        else if (layerType == 2) targetShader = &shTears;
         
-        if (!targetShader) return;
+        if (locRes != -1) SetShaderValue(shader, locRes, res, SHADER_UNIFORM_VEC2);
+        if (locTime != -1) SetShaderValue(shader, locTime, &time, SHADER_UNIFORM_FLOAT);
+        if (locCol != -1) SetShaderValue(shader, locCol, colVec, SHADER_UNIFORM_VEC4);
+    }
 
-        rlSetTexture(0);
-        BeginShaderMode(*targetShader);
-
-        float scaledThick = GlobalScaler.S(p.eyeThickness);
-        float scaledBrowThick = GlobalScaler.S(p.eyebrowThickness);
-        float scaledBrowY = GlobalScaler.S(p.eyebrowY * 20.0f); // Scale the offset
-
-        // --- SEND UNIFORMS ---
-        if (layerType == 0) { // EYE
-            SetShaderValue(shEye, locResEye, res, SHADER_UNIFORM_VEC2);
-            SetShaderValue(shEye, locTimeEye, &time, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locColorEye, colVec, SHADER_UNIFORM_VEC4);
-            
-            // Handle Blink Override (Phase 2 -> Shape 1.0 Line)
-            float finalShape = (blinkPhase == 2) ? 1.0f : p.eyeShapeID;
-            
-            SetShaderValue(shEye, locShape, &finalShape, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locBend, &p.bend, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locEyeThick, &scaledThick, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locSpiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locDistort, &p.distortMode, SHADER_UNIFORM_INT);
-            SetShaderValue(shEye, locStress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shEye, locGloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
-        }
-        else if (layerType == 1) { // BROW
-            SetShaderValue(shBrow, locResBrow, res, SHADER_UNIFORM_VEC2);
-            SetShaderValue(shBrow, locColorBrow, colVec, SHADER_UNIFORM_VEC4);
-            
-            SetShaderValue(shBrow, locBrowType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowBend, &p.browBend, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowThick, &scaledBrowThick, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowSide, &p.browSide, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shBrow, locBrowBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
-        }
-        else if (layerType == 2) { // TEARS
-            SetShaderValue(shTears, locResTear, res, SHADER_UNIFORM_VEC2);
-            SetShaderValue(shTears, locScale, &scale, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shTears, locTimeTear, &time, SHADER_UNIFORM_FLOAT);
-            
-            SetShaderValue(shTears, locTearLevel, &p.tearsLevel, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shTears, locBlushMode, &p.blushMode, SHADER_UNIFORM_INT);
-            SetShaderValue(shTears, locEyeSide, &p.eyeSide, SHADER_UNIFORM_FLOAT);
-            
-            int blushToggle = p.showBlush ? 1 : 0;
-            SetShaderValue(shTears, locShowBlush, &blushToggle, SHADER_UNIFORM_INT);
-            
-            // Upload specific accessory colors
-            float pink[4] = { blushColour.r/255.0f, blushColour.g/255.0f, blushColour.b/255.0f, blushColour.a/255.0f };
-            float blue[4] = { tearColour.r/255.0f, tearColour.g/255.0f, tearColour.b/255.0f, tearColour.a/255.0f };
-            SetShaderValue(shTears, locBlushCol, pink, SHADER_UNIFORM_VEC4);
-            SetShaderValue(shTears, locTearCol, blue, SHADER_UNIFORM_VEC4);
-        }
-
-        // --- DRAW QUAD ---
+    void DrawQuad(Rectangle rect, Color color) {
         rlBegin(RL_QUADS);
             rlColor4ub(color.r, color.g, color.b, color.a);
             rlTexCoord2f(0.0f, 0.0f); rlVertex2f(rect.x, rect.y);
@@ -374,21 +306,204 @@ struct ParametricEyes {
             rlTexCoord2f(1.0f, 1.0f); rlVertex2f(rect.x + rect.width, rect.y + rect.height);
             rlTexCoord2f(1.0f, 0.0f); rlVertex2f(rect.x + rect.width, rect.y);
         rlEnd();
-        EndShaderMode();
     }
 
-    // Draws all 3 layers for a single eye stack
+    void DrawDebugRect(Rectangle rect, Color col) {
+        if (!debugBoxes) return;
+        DrawRectangleLinesEx(rect, 2.0f, col);
+        Color fill = col; fill.a = 40;
+        DrawRectangleRec(rect, fill);
+    }
+
+    // ----------------------------------------------------
+    // LAYER DRAWING
+    // ----------------------------------------------------
+    void DrawEyeLayer(Rectangle rect, Vector2 originalRes, EyeParams p, Color color) {
+        rlSetTexture(0);
+        BeginShaderMode(shEye.shader);
+        
+        // Uniforms
+        SetCommonUniforms(shEye.shader, shEye.locs.resolution, shEye.locs.time, shEye.locs.color, {0,0,originalRes.x, originalRes.y}, color);
+
+        float scaledThick = GlobalScaler.S(p.eyeThickness);
+        float finalShape = (blinkPhase == 2) ? 1.0f : p.eyeShapeID;
+
+        SetShaderValue(shEye.shader, shEye.locs.shape, &finalShape, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.bend, &p.bend, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.spiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.distort, &p.distortMode, SHADER_UNIFORM_INT);
+        SetShaderValue(shEye.shader, shEye.locs.stress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.gloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
+
+        DrawQuad(rect, color);
+        EndShaderMode();
+        DrawDebugRect(rect, RED);
+    }
+
+    void DrawBrowLayer(Rectangle rect, EyeParams p, Color color) {
+        rlSetTexture(0);
+        BeginShaderMode(shBrow.shader);
+
+        SetCommonUniforms(shBrow.shader, shBrow.locs.resolution, -1, shBrow.locs.color, rect, color);
+
+        float scaledThick = GlobalScaler.S(p.eyebrowThickness);
+        
+        SetShaderValue(shBrow.shader, shBrow.locs.browType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.bend, &p.browBend, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.browLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.side, &p.browSide, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.browAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.browBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
+
+        DrawQuad(rect, color);
+        EndShaderMode();
+        DrawDebugRect(rect, YELLOW);
+    }
+
+    void DrawTearsLayer(Rectangle rect, EyeParams p) {
+        rlSetTexture(0);
+        BeginShaderMode(shTears.shader);
+
+        SetCommonUniforms(shTears.shader, shTears.locs.resolution, shTears.locs.time, -1, rect, WHITE);
+
+        int blushToggle = p.showBlush ? 1 : 0;
+        float pink[4] = { COL_BLUSH.r/255.0f, COL_BLUSH.g/255.0f, COL_BLUSH.b/255.0f, COL_BLUSH.a/255.0f };
+        float blue[4] = { COL_TEAR.r/255.0f, COL_TEAR.g/255.0f, COL_TEAR.b/255.0f, COL_TEAR.a/255.0f };
+
+        SetShaderValue(shTears.shader, shTears.locs.scale, &currentGlobalScale, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shTears.shader, shTears.locs.tearLevel, &p.tearsLevel, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shTears.shader, shTears.locs.blushMode, &p.blushMode, SHADER_UNIFORM_INT);
+        SetShaderValue(shTears.shader, shTears.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shTears.shader, shTears.locs.showBlush, &blushToggle, SHADER_UNIFORM_INT);
+        SetShaderValue(shTears.shader, shTears.locs.blushCol, pink, SHADER_UNIFORM_VEC4);
+        SetShaderValue(shTears.shader, shTears.locs.tearCol, blue, SHADER_UNIFORM_VEC4);
+
+        DrawQuad(rect, WHITE);
+        EndShaderMode();
+        
+        if (p.showBlush && !p.showTears) DrawDebugRect(rect, { 255, 105, 180, 150 });
+        else DrawDebugRect(rect, { 255, 200, 0, 150 });
+    }
+
+    // ----------------------------------------------------
+    // COMPONENT CALCULATIONS
+    // ----------------------------------------------------
+    void DrawTearsAndBlush(Rectangle eyeRect, EyeParams p) {
+        if (!p.showTears && !p.showBlush) return;
+
+        // 1. Tears
+        if (p.showTears) {
+            EyeParams tearParams = p;
+            tearParams.showBlush = false;
+
+            float tearWidth = eyeRect.width + GlobalScaler.S(130.0f);
+            float startY = eyeRect.y + (eyeRect.height * 0.5f) - 5.0f;
+            float tearHeight = (float)GetScreenHeight() - startY + 50.0f;
+
+            Rectangle tearRect = {
+                eyeRect.x + (eyeRect.width * 0.5f) - (tearWidth * 0.5f),
+                startY,
+                tearWidth,
+                tearHeight
+            };
+
+            DrawTearsLayer(tearRect, tearParams);
+        }
+
+        // 2. Blush
+        if (p.showBlush) {
+            EyeParams blushParams = p;
+            blushParams.showTears = false;
+
+            float blushSize = eyeRect.width * 0.6f * p.blushScale;
+            float xOffset = GlobalScaler.S(150.0f) * -p.eyeSide;
+            float yOffset = GlobalScaler.S(200.0f);
+
+            float centerX = eyeRect.x + (eyeRect.width * 0.5f) + xOffset;
+            float centerY = eyeRect.y + (eyeRect.height * 0.5f) + yOffset;
+
+            // Extra parameter adjustments
+            centerX += GlobalScaler.S(p.blushX * 20.0f);
+            centerY += GlobalScaler.S(p.blushY * 20.0f);
+            centerX += GlobalScaler.S(p.blushSpacing * 10.0f) * -p.eyeSide;
+
+            Rectangle blushRect = {
+                centerX - (blushSize * 0.5f),
+                centerY - (blushSize * 0.5f),
+                blushSize,
+                blushSize
+            };
+
+            DrawTearsLayer(blushRect, blushParams);
+        }
+    }
+
+    void DrawBrows(Rectangle eyeRect, Rectangle originalRect, EyeParams p) {
+        if (!p.showBrow) return;
+
+        // Main Brow
+        Rectangle browRect = originalRect;
+        browRect.width  = originalRect.width * 2.0f * p.browScale * p.eyebrowLength; 
+        browRect.height = originalRect.height * 0.5f * p.browScale;
+
+        // Position via physics targets (Reference pixels -> Scaled)
+        browRect.x = originalRect.x + GlobalScaler.S(sLookX.val);
+        browRect.y = originalRect.y + GlobalScaler.S(sLookY.val) - (originalRect.height * 0.5f);
+
+        // Center on previous rect
+        browRect.x += (originalRect.width - browRect.width) * 0.5f;
+        browRect.y += (originalRect.height - browRect.height) * 0.5f;
+
+
+        // Manual Offsets
+        browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f);
+        browRect.y += GlobalScaler.S(p.eyebrowY * 20.0f);
+        browRect.x += GlobalScaler.S(p.eyebrowSpacing * 20.0f) * p.browSide;
+
+        DrawBrowLayer(browRect, p, BLACK);
+
+        // Lower Brow (Under-eye line)
+        if (p.useLowerBrow) {
+            EyeParams lowerP = p;
+            lowerP.eyebrowY = 0.0f;
+            lowerP.bend = -p.bend;
+            lowerP.eyebrowLength = 1.37f;
+            lowerP.eyebrowThickness = 7.15f;
+
+            Vector2 eyeCenter = { 
+                eyeRect.x + eyeRect.width * 0.5f,
+                eyeRect.y + eyeRect.height * 0.5f 
+            };
+            float eyeBottomY = eyeCenter.y + (eyeRect.height * 0.5f);
+
+            Rectangle lowerRect = eyeRect;
+            lowerRect.width  = eyeRect.width * 2.5f * p.browScale * lowerP.eyebrowLength;
+            lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
+            lowerRect.x = eyeRect.x + (eyeRect.width - lowerRect.width) * 0.5f;
+            
+            // Critical alignment fix
+            lowerRect.y = eyeBottomY - (lowerRect.height * 0.53f);
+            lowerRect.y -= eyeRect.height * 0.3f;
+            lowerRect.x += GlobalScaler.S(48.6235f);
+
+            DrawBrowLayer(lowerRect, lowerP, BLACK);
+        }
+    }
+
+    // ----------------------------------------------------
+    // MAIN DRAW CALL
+    // ----------------------------------------------------
     void DrawSingleEyeStack(Rectangle rect, EyeParams p, Color c) {
+        Vector2 originalRes = { rect.width, rect.height };
 
-        Vector2 originalRes = { rect.width, rect.height }; // Save this!
-
-        // 1. CALCULATE PHYSICS TRANSFORM
+        // 1. Physics Transform for Eye Ball
         Rectangle eyeRect = rect;
-       // sLookX.val is in "Reference Pixels" (0 to 120). Scale it!
         eyeRect.x += GlobalScaler.S(sLookX.val);
         eyeRect.y += GlobalScaler.S(sLookY.val);
         
-        // ScaleX/Y are ratios (1.0 = 100%), so no GlobalScaler needed here
         float oldW = eyeRect.width;
         float oldH = eyeRect.height;
         eyeRect.width  *= sScaleX.val;
@@ -396,378 +511,115 @@ struct ParametricEyes {
         eyeRect.x += (oldW - eyeRect.width) * 0.5f;
         eyeRect.y += (oldH - eyeRect.height) * 0.5f;
 
-
-
-         //Drwaing the tears before the eyes 
-        // (Note: Color passed here is ignored by shader in favor of internal uniform colors)
-        if (p.showTears || p.showBlush) {
-
-            if(p.showTears)
-            {
-
-                EyeParams tearParams = p;
-                tearParams.showBlush = false;
-                
-                // Use the same width as the incoming rect (drawWidth from caller)
-                float tearWidth = rect.width + GlobalScaler.S(130.0f);
-
-                // Calculate how much space is left from the eye to the bottom of the screen
-                // + a buffer (e.g. 100px) to ensure tears fall completely off-screen
-                float startY = rect.y + (rect.height * 0.5f) - 5.0f;
-                float tearHeight = (float)GetScreenHeight() - startY + 50.0f;          
-
-                // 2. DEFINE RECT (Anchored at Eye Center)
-                Rectangle tearRect = {
-                    rect.x + (rect.width * 0.5f) - (tearWidth * 0.5f), // Center X
-                    startY,                                            // Start Y (Pupil Center)
-                    tearWidth,
-                    tearHeight
-                };
-
-                // Small wrapper that accepts a single Rectangle and forwards to DrawLayer
-                // auto DrawTearRect = [&](Rectangle r) {
-                // Vector2 rRes = { r.width, r.height };
-                // DrawLayer(r, rRes, p, WHITE, 2);
-                // };
-
-                // // Pass only the tearRect into the wrapper
-                // DrawTearRect(tearRect);
-
-                if(debugBoxes){
-                    DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
-                    DrawRectangleRec(tearRect, { 255, 200, 0, 40 }); // Faint fill
-                }
-
-                Vector2 tRes = { tearRect.width, tearRect.height };
-                DrawLayer(tearRect, tRes, tearParams, WHITE, 2);
-
-                if(debugBoxes){
-                    DrawRectangleLinesEx(tearRect, 2.0f, { 255, 200, 0, 150 }); 
-                }
-            }
-            if(p.showBlush)
-            {
-                // A. Create specific params for this draw call
-                // We disable tears here so the shader doesn't calculate drops inside the blush box
-                EyeParams blushParams = p;
-                blushParams.showTears = false; 
-
-                // B. Calculate Blush Geometry
-                // Size: Make it roughly 60% of the eye width (adjust as needed)
-                float blushSize = rect.width * 0.6f;
-
-                // Offsets:
-                // "Away" (Outwards): 
-                // Left Eye (Side 1.0) -> Move Left (-X)
-                // Right Eye (Side -1.0) -> Move Right (+X)
-                // We use -p.eyeSide to flip the direction correctly.
-                float xOffset = GlobalScaler.S(100.0f) * -p.eyeSide; 
-                
-                // "Under": Move down
-                float yOffset = GlobalScaler.S(200.0f);
-
-                // Center Point (Relative to the PHYSICS eye position 'rect')
-                float centerX = rect.x + (rect.width * 0.5f) + xOffset;
-                float centerY = rect.y + (rect.height * 0.5f) + yOffset;
-
-                Rectangle blushRect = {
-                    centerX - (blushSize * 0.5f),
-                    centerY - (blushSize * 0.5f),
-                    blushSize,
-                    blushSize
-                };
-
-                // C. Draw (Passing the CLEAN blushParams)
-                Vector2 bRes = { blushRect.width, blushRect.height };
-                DrawLayer(blushRect, bRes, blushParams, WHITE, 2);
-
-                if(debugBoxes){
-                    DrawRectangleLinesEx(blushRect, 2.0f, { 255, 105, 180, 150 }); // Pink Box
-                }
-            }
+        // 2. Render Order
+        if(p.tearsLevel<0.4f)
+        {
+        DrawEyeLayer(eyeRect, originalRes, p, c);
+        DrawTearsAndBlush(eyeRect, p);
+        DrawBrows(eyeRect, rect, p);
         }
-
-        // 2. LAYER 1: MAIN EYE
-        DrawLayer(eyeRect, originalRes, p, c, 0);
+        else
+        {
+            DrawTearsAndBlush(eyeRect, p);
+            DrawEyeLayer(eyeRect, originalRes, p, c);
+            DrawBrows(eyeRect, rect, p);
+        }
         
-
-        // 2. LAYER 1: MAIN EYE
-        // //DrawLayer(eyeRect, originalRes, p, c, 0);
-         if(debugBoxes){
-            DrawRectangleLinesEx(eyeRect, 2.0f, { 255, 0, 0, 150 }); 
-            DrawRectangleRec(eyeRect, { 255, 0, 0, 40 }); // Faint fill
-        }
-       
-
-        // 3. LAYER 2: EYEBROW (If enabled)
-        //Offsetting the brow ret so that it doesn't share or use the same
-        // resolution as the eye (makes it less squashed)
-        if (p.showBrow) {
-
-            Rectangle browRect = rect;
-
-            browRect.width  = rect.width * 2.0f * p.browScale * p.eyebrowLength; 
-            browRect.height = rect.height * 0.5f * p.browScale;
-
-            // Positioning (Scale the Look offsets)
-            browRect.x = rect.x + GlobalScaler.S(sLookX.val); 
-            browRect.y = rect.y + GlobalScaler.S(sLookY.val) - (rect.height * 0.5f);
-            // browRect.x = rect.x + sLookX.val; 
-            // browRect.y = rect.y + sLookY.val - (rect.height * 0.5f); // Position above eye
-
-            browRect.x += (rect.width - browRect.width) * 0.5f;
-            browRect.y += (rect.height - browRect.height) * 0.5f;
-
-            // Manual Offsets (Scale these!)
-            browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) * p.browSide;
-            browRect.y += GlobalScaler.S(p.eyebrowY * 20.0f);
-
-            // browRect.x += p.eyebrowX*20.f* p.browSide; // Apply X offset
-            // browRect.y += p.eyebrowY*20.f; // Apply Y offset
-
-
-            Vector2 browRes = { browRect.width, browRect.height };
-            DrawLayer(browRect, browRes, p, BLACK, 1);
-
-            if (p.useLowerBrow) 
-            {
-                EyeParams lowerP = p;
-                lowerP.eyebrowY = 0.0f;
-                lowerP.bend = -p.bend;
-                lowerP.eyebrowLength = 1.37f;
-                lowerP.eyebrowThickness = 7.15f;
-            
-                // 1. Calculate the exact bottom pixel of the eye
-                Vector2 eyeCenter = { 
-                    eyeRect.x + eyeRect.width * 0.5f,
-                    eyeRect.y + eyeRect.height * 0.5f 
-                };
-
-                // Use 0.5f to get the radius (distance from center to bottom)
-                float ryEye = eyeRect.height * 0.5f; 
-                float eyeBottomY = eyeCenter.y + ryEye;
-            
-                Rectangle lowerRect = eyeRect;
-                lowerRect.width  = eyeRect.width  * 2.5f * p.browScale * lowerP.eyebrowLength;
-                lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
-
-                // Center X
-                lowerRect.x = eyeRect.x + (eyeRect.width - lowerRect.width) * 0.5f;
-            
-                // --- THE CRITICAL FIX ---
-                // Currently you are doing: lowerRect.y = eyeBottomY;
-                // You need to Move it UP by half its height so the 'Line' sits on the edge
-                lowerRect.y = eyeBottomY - (lowerRect.height * 0.53f);
-
-                // 2. Optional Nudge
-                // If the line feels too thick and sits "outside" the eye, 
-                // subtract a tiny bit more to push it UP into the eye.
-                lowerRect.y -= eyeRect.height * 0.3f;
-
-                float myFixedOffset = GlobalScaler.S(48.6235f);
-                lowerRect.x += myFixedOffset;
-                //std::cout<<"Lower Brow X Offset Applied: "<< myFixedOffset <<std::endl; 
-
-                
-                //lowerRect.x += p.eyebrowX*20.f; // Apply X offset
-                //std::cout<<"Lower Brow X: "<< lowerRect.x <<std::endl;
-
-                Vector2 lowerRes = { lowerRect.width, lowerRect.height };
-                DrawLayer(lowerRect, lowerRes, lowerP, BLACK, 1); 
-
-                // Debug visuals
-                //DrawRectangleLinesEx(lowerRect, 2.0f, { 0, 255, 0, 150 });
-            }
-            
-            if(debugBoxes){
-                DrawRectangleLinesEx(browRect, 2.0f, { 255, 255, 0, 150 });
-                DrawRectangleRec(browRect, { 255, 255, 0, 40 }); // Faint fill
-            }
-        }
     }
-       
-    // Main Draw Call - Draws BOTH eyes
+
     void Draw(Vector2 centerPos, EyeParams p, Color c) {
-        // float eyeSize = 100.0f; 
-        // float eyeHeight  = 150.0f;  
-        // 1. DEFINE BASE SIZE (Reference)
-        float refEyeSize = 100.0f; 
-        
-        // 2. SCALE DIMENSIONS
-        float scaledSize = GlobalScaler.S(refEyeSize);
-        float scaledW = scaledSize * 2.7f;
-        float scaledH = scaledSize * 2.7f;
-        float scaledHeightOffset = GlobalScaler.S(150.0f); // The 150.0f offset
+        float scaledSize = GlobalScaler.S(Config::REF_EYE_SIZE);
+        float scaledW = scaledSize * Config::EYE_SCALE_FACTOR;
+        float scaledH = scaledSize * Config::EYE_SCALE_FACTOR;
+        float scaledHeightOffset = GlobalScaler.S(Config::EYE_HEIGHT_OFFSET);
         float scaledSpacing = GlobalScaler.S(p.spacing);
 
-        // 3. CALCULATE RECTANGLES (Centered on centerPos)
         Rectangle leftRect = { 
             centerPos.x - (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
             centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
-            scaledW, 
-            scaledH 
+            scaledW, scaledH 
         };
 
         Rectangle rightRect = { 
             centerPos.x + (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
             centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
-            scaledW, 
-            scaledH 
+            scaledW, scaledH 
         };
 
-        // --- COLOR OVERRIDES ---
-        // Star Eyes -> Gold
-        if((p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5))
-            c = starEyesColour;
+        // Color Overrides
+        // Star Eyes (Gold) or Heart Eyes (Red)
+        bool isStar = (p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5);
+        bool isHeart = (p.eyeShapeID > 4.5 && p.eyeShapeID < 5.5);
         
-        // Heart Eyes -> Red
-        if(p.eyeShapeID > 4.5 && p.eyeShapeID < 5.5)
-            c = heartEyesColour;    
+        if (isStar) c = COL_STAR;
+        else if (isHeart) c = COL_HEART;
 
-        // Draw Stack
+        // Draw Left
         EyeParams leftParams = p;
-        leftParams.browSide = -1.0f;  // Left brow: no flip
-        leftParams.eyeSide = 1.0f; // Left eye: flipped
+        leftParams.browSide = -1.0f;
+        leftParams.eyeSide = 1.0f;
         DrawSingleEyeStack(leftRect, leftParams, c);
         
+        // Draw Right
         EyeParams rightParams = p;
-        rightParams.browSide = 1.0f;  // Right brow: flipped
-        rightParams.eyeSide = -1.0f;   // Right eye: normal
+        rightParams.browSide = 1.0f;
+        rightParams.eyeSide = -1.0f;
         DrawSingleEyeStack(rightRect, rightParams, c);
     }
 
-    // MOVED: Extract this from Init() so we can reuse it
-    void GetEyeLocations() {
-        locResEye   = GetShaderLocation(shEye, "uResolution");
-        locTimeEye  = GetShaderLocation(shEye, "uTime");
-        locColorEye = GetShaderLocation(shEye, "uColor");
-        locShape    = GetShaderLocation(shEye, "uShapeID");
-        locBend     = GetShaderLocation(shEye, "uBend");
-        locEyeThick = GetShaderLocation(shEye, "uThickness");
-        locEyeSide  = GetShaderLocation(shEye, "uEyeSide");
-        locSpiral   = GetShaderLocation(shEye, "uSpiralSpeed");
-        locDistort  = GetShaderLocation(shEye, "uDistortMode");
-        locStress   = GetShaderLocation(shEye, "uStressLevel");
-        locGloom    = GetShaderLocation(shEye, "uGloomLevel");
+    // ----------------------------------------------------
+    // UNIFORM CACHING (Boilerplate)
+    // ----------------------------------------------------
+    void RefreshLocationsEye() {
+        shEye.locs.resolution = GetShaderLocation(shEye.shader, "uResolution");
+        shEye.locs.time       = GetShaderLocation(shEye.shader, "uTime");
+        shEye.locs.color      = GetShaderLocation(shEye.shader, "uColor");
+        shEye.locs.shape      = GetShaderLocation(shEye.shader, "uShapeID");
+        shEye.locs.bend       = GetShaderLocation(shEye.shader, "uBend");
+        shEye.locs.thickness  = GetShaderLocation(shEye.shader, "uThickness");
+        shEye.locs.side       = GetShaderLocation(shEye.shader, "uEyeSide");
+        shEye.locs.spiral     = GetShaderLocation(shEye.shader, "uSpiralSpeed");
+        shEye.locs.distort    = GetShaderLocation(shEye.shader, "uDistortMode");
+        shEye.locs.stress     = GetShaderLocation(shEye.shader, "uStressLevel");
+        shEye.locs.gloom      = GetShaderLocation(shEye.shader, "uGloomLevel");
     }
 
-    void GetBrowLocations() {
-        locResBrow   = GetShaderLocation(shBrow, "uResolution");
-        locColorBrow = GetShaderLocation(shBrow, "uColor");
-        locBrowType  = GetShaderLocation(shBrow, "uEyebrowType");
-        locBrowBend  = GetShaderLocation(shBrow, "uBend");
-        locBrowThick = GetShaderLocation(shBrow, "uThickness");
-        locBrowLen   = GetShaderLocation(shBrow, "uEyeBrowLength");
-        locBrowSide  = GetShaderLocation(shBrow, "uBrowSide");
-        locBrowAngle = GetShaderLocation(shBrow, "uAngle");
-        locBrowBendOffset = GetShaderLocation(shBrow, "uBendOffset");
+    void RefreshLocationsBrow() {
+        shBrow.locs.resolution     = GetShaderLocation(shBrow.shader, "uResolution");
+        shBrow.locs.color          = GetShaderLocation(shBrow.shader, "uColor");
+        shBrow.locs.browType       = GetShaderLocation(shBrow.shader, "uEyebrowType");
+        shBrow.locs.bend           = GetShaderLocation(shBrow.shader, "uBend");
+        shBrow.locs.thickness      = GetShaderLocation(shBrow.shader, "uThickness");
+        shBrow.locs.browLen        = GetShaderLocation(shBrow.shader, "uEyeBrowLength");
+        shBrow.locs.side           = GetShaderLocation(shBrow.shader, "uBrowSide");
+        shBrow.locs.browAngle      = GetShaderLocation(shBrow.shader, "uAngle");
+        shBrow.locs.browBendOffset = GetShaderLocation(shBrow.shader, "uBendOffset");
     }
 
-    void GetTearLocations() {
-        locResTear   = GetShaderLocation(shTears, "uResolution");
-        locScale     = GetShaderLocation(shTears, "uScale");
-        locTimeTear  = GetShaderLocation(shTears, "uTime");
-        locTearLevel = GetShaderLocation(shTears, "uTearsLevel");
-        locBlushMode  = GetShaderLocation(shTears, "uBlushMode");
-        locShowBlush = GetShaderLocation(shTears, "uShowBlush");
-        locBlushCol  = GetShaderLocation(shTears, "uBlushColor");
-        locTearCol   = GetShaderLocation(shTears, "uTearColor");
-        locEyeSide   = GetShaderLocation(shTears, "uSide");
+    void RefreshLocationsTear() {
+        shTears.locs.resolution = GetShaderLocation(shTears.shader, "uResolution");
+        shTears.locs.scale      = GetShaderLocation(shTears.shader, "uScale");
+        shTears.locs.time       = GetShaderLocation(shTears.shader, "uTime");
+        shTears.locs.tearLevel  = GetShaderLocation(shTears.shader, "uTearsLevel");
+        shTears.locs.blushMode  = GetShaderLocation(shTears.shader, "uBlushMode");
+        shTears.locs.showBlush  = GetShaderLocation(shTears.shader, "uShowBlush");
+        shTears.locs.blushCol   = GetShaderLocation(shTears.shader, "uBlushColor");
+        shTears.locs.tearCol    = GetShaderLocation(shTears.shader, "uTearColor");
+        shTears.locs.side       = GetShaderLocation(shTears.shader, "uSide");
     }
 
     void CheckHotReload() {
-        long eyeModTimeNow  = GetFileModTime(eyeFragPath.c_str());
-        long tearModTimeNow = GetFileModTime(tearFragPath.c_str());
-        long browModTimeNow = GetFileModTime(browFragPath.c_str());
+        long oldEye = shEye.lastModTime;
+        long oldBrow = shBrow.lastModTime;
+        long oldTear = shTears.lastModTime;
 
-        std::cout << "[HOT RELOAD] Checking shaders... Eye: " << eyeModTimeNow << " (last " << eyeFragTime << ")"
-                  << " | Tears: " << tearModTimeNow << " (last " << tearFragTime << ")"
-                  << " | Brow: " << browModTimeNow << " (last " << browFragTime << ")" << std::endl;
+        shEye.ReloadIfChanged();
+        if (shEye.lastModTime > oldEye) RefreshLocationsEye();
 
-        std::ofstream logFile("hotreload_debug.log", std::ios::app);
-        logFile << "[HOT RELOAD] Check called. Eye: " << eyeModTimeNow << " (last " << eyeFragTime << "), "
-                << "Tears: " << tearModTimeNow << " (last " << tearFragTime << "), "
-                << "Brow: " << browModTimeNow << " (last " << browFragTime << ")\n";
+        shBrow.ReloadIfChanged();
+        if (shBrow.lastModTime > oldBrow) RefreshLocationsBrow();
 
-        bool anyChanged = (eyeModTimeNow > eyeFragTime) || (tearModTimeNow > tearFragTime) || (browModTimeNow > browFragTime);
-        if (!anyChanged) {
-            std::cout << "[HOT RELOAD] No changes detected." << std::endl;
-            logFile << "[HOT RELOAD] No changes detected.\n";
-            logFile.close();
-            return;
-        }
-
-        std::cout << "[HOT RELOAD] Change detected. Attempting per-shader reload..." << std::endl;
-        logFile << "[HOT RELOAD] Change detected. Attempting per-shader reload...\n";
-
-        // --- Eye Shader ---
-        if (eyeModTimeNow > eyeFragTime) {
-            std::cout << "[HOT RELOAD] Reloading Eye shader from: " << eyeFragPath << std::endl;
-            logFile << "[HOT RELOAD] Reloading Eye shader from: " << eyeFragPath << "\n";
-
-            Shader newEyeShader = LoadShader(0, eyeFragPath.c_str());
-            if (newEyeShader.id != rlGetShaderIdDefault()) {
-                UnloadShader(shEye);
-                shEye = newEyeShader;
-                GetEyeLocations();
-                eyeFragTime = eyeModTimeNow;
-
-                std::cout << "[HOT RELOAD] Eye shader reloaded successfully." << std::endl;
-                logFile << "[HOT RELOAD] Eye shader reloaded successfully.\n";
-                TraceLog(LOG_INFO, "HOT RELOAD: Eye shader updated.");
-            } else {
-                std::cout << "[HOT RELOAD] Eye shader reload FAILED (compile error)." << std::endl;
-                logFile << "[HOT RELOAD] Eye shader reload FAILED (compile error).\n";
-                TraceLog(LOG_WARNING, "HOT RELOAD: Eye shader compile failed.");
-            }
-        }
-
-        // --- Tears Shader ---
-        if (tearModTimeNow > tearFragTime) {
-            std::cout << "[HOT RELOAD] Reloading Tears shader from: " << tearFragPath << std::endl;
-            logFile << "[HOT RELOAD] Reloading Tears shader from: " << tearFragPath << "\n";
-
-            Shader newTearShader = LoadShader(0, tearFragPath.c_str());
-            if (newTearShader.id != rlGetShaderIdDefault()) {
-                UnloadShader(shTears);
-                shTears = newTearShader;
-                GetTearLocations();
-                tearFragTime = tearModTimeNow;
-
-                std::cout << "[HOT RELOAD] Tears shader reloaded successfully." << std::endl;
-                logFile << "[HOT RELOAD] Tears shader reloaded successfully.\n";
-                TraceLog(LOG_INFO, "HOT RELOAD: Tears shader updated.");
-            } else {
-                std::cout << "[HOT RELOAD] Tears shader reload FAILED (compile error)." << std::endl;
-                logFile << "[HOT RELOAD] Tears shader reload FAILED (compile error).\n";
-                TraceLog(LOG_WARNING, "HOT RELOAD: Tears shader compile failed.");
-            }
-        }
-
-        // --- Brow Shader ---
-        if (browModTimeNow > browFragTime) {
-            std::cout << "[HOT RELOAD] Reloading Brow shader from: " << browFragPath << std::endl;
-            logFile << "[HOT RELOAD] Reloading Brow shader from: " << browFragPath << "\n";
-
-            Shader newBrowShader = LoadShader(0, browFragPath.c_str());
-            if (newBrowShader.id != rlGetShaderIdDefault()) {
-                UnloadShader(shBrow);
-                shBrow = newBrowShader;
-                GetBrowLocations();
-                browFragTime = browModTimeNow;
-
-                std::cout << "[HOT RELOAD] Brow shader reloaded successfully." << std::endl;
-                logFile << "[HOT RELOAD] Brow shader reloaded successfully.\n";
-                TraceLog(LOG_INFO, "HOT RELOAD: Brow shader updated.");
-            } else {
-                std::cout << "[HOT RELOAD] Brow shader reload FAILED (compile error)." << std::endl;
-                logFile << "[HOT RELOAD] Brow shader reload FAILED (compile error).\n";
-                TraceLog(LOG_WARNING, "HOT RELOAD: Brow shader compile failed.");
-            }
-        }
-
-        logFile << "[HOT RELOAD] Reload pass complete.\n";
-        std::cout << "[HOT RELOAD] Reload pass complete." << std::endl;
-        logFile.close();
+        shTears.ReloadIfChanged();
+        if (shTears.lastModTime > oldTear) RefreshLocationsTear();
     }
 };
