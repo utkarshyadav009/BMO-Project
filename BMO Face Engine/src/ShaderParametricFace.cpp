@@ -1,43 +1,24 @@
-// ShaderParametricFace.cpp
-// UNIFIED ENGINE: Handles Logic, Physics, and Rendering for Eyes and Mouths
-// MERGED FROM: ShaderParametricEyes.cpp and ShaderParametricMouth.cpp
+// FinalFaceShader.cpp
+// UNIFIED: Multi-Shader Architecture (Eyes + Mouth)
+// Features: Hot-Reload, Physics, Pixelation, Global Scaling, SDF Geometry
 
 #include "raylib.h"
 #include "rlgl.h"
 #include "raymath.h"
-
 #include <cmath>
 #include <string>
 #include <vector>
-#include <algorithm>
+#include <fstream>
 #include <iostream>
-#include <functional>
-
-// Check for utility.h availability, otherwise provide fallback for GlobalScaler
-#if __has_include("utility.h")
-    #include "utility.h"
-#else
-    // Fallback if utility.h is missing from compile context
-    struct MockScaler {
-        float scale = 1.0f;
-        void Update() { 
-            // Basic screen scale logic if needed, or static 1.0
-            scale = (float)GetScreenHeight() / 1000.0f; 
-        }
-        float S(float v) { return v * scale; }
-    };
-    static MockScaler GlobalScaler; 
-#endif
+#include <algorithm>
+#include "utility.h"
 
 // --------------------------------------------------------
-// SHARED UTILITIES
+// MATH UTILS (From Mouth Implementation)
 // --------------------------------------------------------
-namespace FaceMath {
-    static inline Vector2 V2Add(Vector2 a, Vector2 b) { return {a.x + b.x, a.y + b.y}; }
-    static inline Vector2 V2Sub(Vector2 a, Vector2 b) { return {a.x - b.x, a.y - b.y}; }
-    static inline Vector2 V2Scale(Vector2 a, float s) { return {a.x * s, a.y * s}; }
+namespace MathUtils {
     static inline float V2Dist(Vector2 a, Vector2 b) { return hypotf(b.x - a.x, b.y - a.y); }
-
+    
     static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t) {
         float t2 = t * t; float t3 = t2 * t;
         float v0 = ((-t3) + (2 * t2) - t) * 0.5f;
@@ -48,697 +29,876 @@ namespace FaceMath {
                  (p0.y * v0) + (p1.y * v1) + (p2.y * v2) + (p3.y * v3) };
     }
 
-    // Shader Hot-Reload Wrapper
-    struct ShaderAsset {
-        Shader shader;
-        std::string filePath;
-        long lastModTime;
-        
-        void Load(const char* filename, const char* dir) {
-            if (FileExists(filename)) filePath = filename;
-            else if (FileExists((std::string(dir) + filename).c_str())) filePath = std::string(dir) + filename;
-            else filePath = filename; 
-
-            shader = LoadShader(0, filePath.c_str());
-            lastModTime = GetFileModTime(filePath.c_str());
+    static float GetPolyPerimeter(const std::vector<Vector2>& poly, bool closed) {
+        float len = 0.0f;
+        for (size_t i = 0; i < poly.size(); i++) {
+            if (!closed && i == poly.size() - 1) break;
+            len += V2Dist(poly[i], poly[(i + 1) % poly.size()]);
         }
-
-        void ReloadIfChanged() {
-            long currentModTime = GetFileModTime(filePath.c_str());
-            if (currentModTime > lastModTime) {
-                std::cout << "[HOT RELOAD] Reloading shader: " << filePath << std::endl;
-                Shader newShader = LoadShader(0, filePath.c_str());
-                if (newShader.id != rlGetShaderIdDefault()) {
-                    UnloadShader(shader);
-                    shader = newShader;
-                    lastModTime = currentModTime;
-                }
-            }
-        }
-        
-        void Unload() { UnloadShader(shader); }
-    };
-
-    // Physics Spring
-    struct Spring {
-        float val, vel, target;
-        float stiffness, damping;
-
-        void Reset(float initial) { val = initial; target = initial; vel = 0.0f; }
-        void Update(float dt) {
-            float f = stiffness * (target - val);
-            vel = (vel + f * dt) * damping;
-            val += vel * dt;
-        }
-    };
-}
-
-// --------------------------------------------------------
-// PART A: EYE ENGINE
-// --------------------------------------------------------
-namespace Eyes {
-    namespace Config {
-        const char* SHADER_EYE   = "eyes_es.fs";
-        const char* SHADER_BROW  = "brow_es.fs";
-        const char* SHADER_TEAR  = "tears_es.fs";
-        const char* SHADER_PIXELIZER = "pixelizer_es.fs";
-        const char* SHADER_DIR   = "src/";
-
-        const float BLINK_MIN_DELAY = 2.0f;
-        const float BLINK_MAX_DELAY = 5.0f;
-        const float BLINK_HOLD_DURATION = 0.10f;
-        const float BLINK_CLOSE_THRESHOLD = 0.2f;
-        const float BLINK_OPEN_THRESHOLD = 0.9f;
-        const float REF_EYE_SIZE = 100.0f;
-        const float EYE_SCALE_FACTOR = 2.7f;
-        const float EYE_HEIGHT_OFFSET = 150.0f;
+        return len;
     }
 
-    struct EyeParams {
-        float eyeShapeID = 0.0f; float bend = 0.0f; float eyeThickness = 4.0f; float eyeSide = 0.0f;
-        float scaleX = 1.0f; float scaleY = 1.0f; float angle = 0.0f; float spacing = 612.0f; float squareness = 0.0f;
-        float stressLevel = 0.0f; float gloomLevel = 0.0f; int distortMode = 0; float spiralSpeed = -1.2f;
-        float lookX = 0.0f; float lookY = 62.50f;
-        bool showBrow = false; bool useLowerBrow = false;
-        float eyebrowThickness = 4.0f; float eyebrowLength = 1.0f; float eyebrowSpacing = 0.0f;    
-        float eyebrowX = 0.0f; float eyebrowY = 0.0f; float browScale = 1.0f; float browSide = 1.0f; 
-        float browAngle = 0.0f; float browBend = 0.0f; float browBendOffset = 0.85f;
-        bool showTears = false; bool showBlush = false; float tearsLevel = 0.0f; int blushMode = 0;
-        float blushScale = 1.0f; float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
-        float pixelation = 1.0f;
-    };
-
-    struct ParametricEyes {
-        FaceMath::ShaderAsset shEye, shBrow, shTears, shPixel;
-        RenderTexture2D canvas;
-        
-        struct Locs { 
-            int resolution, time, color; 
-            int shape, bend, thickness, side, spiral, distort, stress, gloom, squareness; // Eye
-            int browLen, browY, browAngle, browBendOffset; // Brow
-            int scale, tearLevel, blushMode, showBlush, blushCol, tearCol; // Tears
-            int locPixelSize, locRenderSize; // Pixel
-        };
-        Locs lEye, lBrow, lTear, lPix;
-
-        const Color COL_STAR   = { 255, 184, 0, 255 };
-        const Color COL_HEART  = { 220, 1, 1, 255 };
-        const Color COL_BLUSH  = { 255, 105, 180, 150 };
-        const Color COL_TEAR   = { 100, 180, 255, 220 };
-
-        FaceMath::Spring sScaleX = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f};
-        FaceMath::Spring sScaleY = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f};
-        FaceMath::Spring sLookX  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f};
-        FaceMath::Spring sLookY  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f};
-
-        float blinkTimer = 0.0f;
-        float nextBlinkTime = 3.0f;
-        int blinkPhase = 0; 
-        bool usePhysics = true;
-        float hotReloadTimer = 0.0f;
-        float currentGlobalScale = 1.0f;
-        bool debugBoxes = false;
-
-        void RefreshLocations() {
-            // Eye
-            lEye.resolution = GetShaderLocation(shEye.shader, "uResolution");
-            lEye.time = GetShaderLocation(shEye.shader, "uTime");
-            lEye.color = GetShaderLocation(shEye.shader, "uColor");
-            lEye.shape = GetShaderLocation(shEye.shader, "uShapeID");
-            lEye.bend = GetShaderLocation(shEye.shader, "uBend");
-            lEye.thickness = GetShaderLocation(shEye.shader, "uThickness");
-            lEye.side = GetShaderLocation(shEye.shader, "uEyeSide");
-            lEye.spiral = GetShaderLocation(shEye.shader, "uSpiralSpeed");
-            lEye.distort = GetShaderLocation(shEye.shader, "uDistortMode");
-            lEye.stress = GetShaderLocation(shEye.shader, "uStressLevel");
-            lEye.gloom = GetShaderLocation(shEye.shader, "uGloomLevel");
-            lEye.squareness = GetShaderLocation(shEye.shader, "uSquareness");
-            // Brow
-            lBrow.resolution = GetShaderLocation(shBrow.shader, "uResolution");
-            lBrow.color = GetShaderLocation(shBrow.shader, "uColor");
-            lBrow.bend = GetShaderLocation(shBrow.shader, "uBend");
-            lBrow.thickness = GetShaderLocation(shBrow.shader, "uThickness");
-            lBrow.browLen = GetShaderLocation(shBrow.shader, "uEyeBrowLength");
-            lBrow.side = GetShaderLocation(shBrow.shader, "uBrowSide");
-            lBrow.browAngle = GetShaderLocation(shBrow.shader, "uAngle");
-            lBrow.browBendOffset = GetShaderLocation(shBrow.shader, "uBendOffset");
-            // Tears
-            lTear.resolution = GetShaderLocation(shTears.shader, "uResolution");
-            lTear.scale = GetShaderLocation(shTears.shader, "uScale");
-            lTear.time = GetShaderLocation(shTears.shader, "uTime");
-            lTear.tearLevel = GetShaderLocation(shTears.shader, "uTearsLevel");
-            lTear.blushMode = GetShaderLocation(shTears.shader, "uBlushMode");
-            lTear.showBlush = GetShaderLocation(shTears.shader, "uShowBlush");
-            lTear.blushCol = GetShaderLocation(shTears.shader, "uBlushColor");
-            lTear.tearCol = GetShaderLocation(shTears.shader, "uTearColor");
-            lTear.side = GetShaderLocation(shTears.shader, "uSide");
-            // Pixel
-            lPix.locPixelSize = GetShaderLocation(shPixel.shader, "pixelSize");
-            lPix.locRenderSize = GetShaderLocation(shPixel.shader, "renderSize");
-        }
-
-        void Init() {
-            shEye.Load(Config::SHADER_EYE, Config::SHADER_DIR);
-            shBrow.Load(Config::SHADER_BROW, Config::SHADER_DIR);
-            shTears.Load(Config::SHADER_TEAR, Config::SHADER_DIR);
-            shPixel.Load(Config::SHADER_PIXELIZER, Config::SHADER_DIR);
-            RefreshLocations();
-            canvas = LoadRenderTexture(GetScreenHeight(), GetScreenHeight());
-        }
-
-        void Unload() {
-            shEye.Unload(); shBrow.Unload(); shTears.Unload(); shPixel.Unload();
-            UnloadRenderTexture(canvas);
-        }
-
-        void Update(float dt, EyeParams& params) {
-            currentGlobalScale = GlobalScaler.scale;
-            hotReloadTimer += dt;
-            if (hotReloadTimer > 1.0f) {
-                shEye.ReloadIfChanged(); shBrow.ReloadIfChanged(); 
-                shTears.ReloadIfChanged(); shPixel.ReloadIfChanged();
-                RefreshLocations();
-                hotReloadTimer = 0.0f;
-            }
-
-            if (!usePhysics) {
-                sScaleX.val = params.scaleX; sScaleY.val = params.scaleY;
-                sLookX.val = params.lookX; sLookY.val = params.lookY;
-                blinkPhase = 0;
-                return;
-            }
-
-            // Blink Logic
-            bool canBlink = (params.eyeShapeID < 0.5f || params.eyeShapeID > 3.5f);
-            if (canBlink) {
-                blinkTimer += dt;
-                if (blinkTimer > nextBlinkTime && blinkPhase == 0) {
-                    blinkPhase = 1; blinkTimer = 0.0f;
-                    nextBlinkTime = (float)GetRandomValue((int)(Config::BLINK_MIN_DELAY*10), (int)(Config::BLINK_MAX_DELAY*10))/10.0f;
-                }
-            } else blinkPhase = 0;
-
-            if (blinkPhase == 1) { // Closing
-                sScaleY.target = 0.0f;
-                if (sScaleY.val < Config::BLINK_CLOSE_THRESHOLD) { blinkPhase = 2; blinkTimer = 0.0f; }
-            } else if (blinkPhase == 2) { // Closed
-                sScaleY.val = 1.0f; sScaleY.target = 1.0f; 
-                if (blinkTimer > Config::BLINK_HOLD_DURATION) { blinkPhase = 3; sScaleY.val = 0.0f; }
-            } else if (blinkPhase == 3) { // Opening
-                sScaleY.target = params.scaleY;
-                if (sScaleY.val > params.scaleY * Config::BLINK_OPEN_THRESHOLD) blinkPhase = 0;
-            } else { // Open / Breathing
-                float breath = (params.scaleY > 0.8f) ? sinf((float)GetTime() * 2.0f) * 0.02f : 0.0f;
-                sScaleY.target = params.scaleY + breath;
-                sScaleX.target = params.scaleX - breath;
-            }
-            sLookX.target = params.lookX; sLookY.target = params.lookY;
-            sScaleX.Update(dt); sScaleY.Update(dt); sLookX.Update(dt); sLookY.Update(dt);
-        }
-
-        void DrawQuad(Rectangle rect, Color color) {
-            rlBegin(RL_QUADS);
-                rlColor4ub(color.r, color.g, color.b, color.a);
-                rlTexCoord2f(0.0f, 0.0f); rlVertex2f(rect.x, rect.y);
-                rlTexCoord2f(0.0f, 1.0f); rlVertex2f(rect.x, rect.y + rect.height);
-                rlTexCoord2f(1.0f, 1.0f); rlVertex2f(rect.x + rect.width, rect.y + rect.height);
-                rlTexCoord2f(1.0f, 0.0f); rlVertex2f(rect.x + rect.width, rect.y);
-            rlEnd();
-        }
-        
-        void DrawDebug(Rectangle r, Color c) {
-             if(debugBoxes) { DrawRectangleLinesEx(r, 2.0f, c); DrawRectangleRec(r, Fade(c, 0.2f)); }
-        }
-
-        void DrawLayer(Shader s, Locs& locs, Rectangle r, Color c, int uRes, int uTime, int uCol, std::function<void()> setUniforms) {
-            rlSetTexture(0);
-            BeginShaderMode(s);
-            float res[2] = { r.width, r.height }; float time = (float)GetTime();
-            float col[4] = { c.r/255.f, c.g/255.f, c.b/255.f, c.a/255.f };
-            if (uRes != -1) SetShaderValue(s, uRes, res, SHADER_UNIFORM_VEC2);
-            if (uTime != -1) SetShaderValue(s, uTime, &time, SHADER_UNIFORM_FLOAT);
-            if (uCol != -1) SetShaderValue(s, uCol, col, SHADER_UNIFORM_VEC4);
-            if (setUniforms) setUniforms();
-            DrawQuad(r, c);
-            EndShaderMode();
-        }
-
-        void DrawStack(Rectangle rect, EyeParams p, Color c) {
-            Vector2 origRes = { rect.width, rect.height };
-            Rectangle eyeRect = rect;
-            eyeRect.x += GlobalScaler.S(sLookX.val); eyeRect.y += GlobalScaler.S(sLookY.val);
-            float oldW = eyeRect.width, oldH = eyeRect.height;
-            eyeRect.width *= sScaleX.val; eyeRect.height *= sScaleY.val;
-            eyeRect.x += (oldW - eyeRect.width)*0.5f; eyeRect.y += (oldH - eyeRect.height)*0.5f;
-            if (p.eyeShapeID >= 12.0f) eyeRect.height *= 2.0f;
-
-            auto RenderEye = [&]() {
-                DrawLayer(shEye.shader, lEye, eyeRect, c, lEye.resolution, lEye.time, lEye.color, [&](){
-                    float scaledThick = GlobalScaler.S(p.eyeThickness);
-                    float finalShape = (blinkPhase == 2) ? 1.0f : p.eyeShapeID;
-                    SetShaderValue(shEye.shader, lEye.shape, &finalShape, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.bend, &p.bend, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.spiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.distort, &p.distortMode, SHADER_UNIFORM_INT);
-                    SetShaderValue(shEye.shader, lEye.stress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.gloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shEye.shader, lEye.squareness, &p.squareness, SHADER_UNIFORM_FLOAT);
-                });
-                DrawDebug(eyeRect, RED);
-            };
-
-            auto RenderTearsBlush = [&]() {
-                if (p.showTears) {
-                    float tw = eyeRect.width + GlobalScaler.S(130.f);
-                    Rectangle tr = { eyeRect.x + eyeRect.width*0.5f - tw*0.5f, eyeRect.y + eyeRect.height*0.5f - 5.f, tw, (float)GetScreenHeight() - (eyeRect.y) };
-                    EyeParams tp = p; tp.showBlush = false;
-                    DrawLayer(shTears.shader, lTear, tr, WHITE, lTear.resolution, lTear.time, -1, [&](){
-                        float pink[4] = { COL_BLUSH.r/255.f, COL_BLUSH.g/255.f, COL_BLUSH.b/255.f, COL_BLUSH.a/255.f };
-                        float blue[4] = { COL_TEAR.r/255.f, COL_TEAR.g/255.f, COL_TEAR.b/255.f, COL_TEAR.a/255.f };
-                        int bt = 0;
-                        SetShaderValue(shTears.shader, lTear.scale, &currentGlobalScale, SHADER_UNIFORM_FLOAT);
-                        SetShaderValue(shTears.shader, lTear.tearLevel, &tp.tearsLevel, SHADER_UNIFORM_FLOAT);
-                        SetShaderValue(shTears.shader, lTear.showBlush, &bt, SHADER_UNIFORM_INT);
-                        SetShaderValue(shTears.shader, lTear.blushCol, pink, SHADER_UNIFORM_VEC4);
-                        SetShaderValue(shTears.shader, lTear.tearCol, blue, SHADER_UNIFORM_VEC4);
-                        SetShaderValue(shTears.shader, lTear.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
-                    });
-                    DrawDebug(tr, BLUE);
-                }
-                if (p.showBlush) {
-                    float bs = eyeRect.width * 0.6f * p.blushScale;
-                    float cx = eyeRect.x + eyeRect.width*0.5f + GlobalScaler.S(150.f * -p.eyeSide + p.blushX * 20.f + p.blushSpacing * 10.f * -p.eyeSide);
-                    float cy = eyeRect.y + eyeRect.height*0.5f + GlobalScaler.S(200.f + p.blushY * 20.f);
-                    Rectangle br = { cx - bs*0.5f, cy - bs*0.5f, bs, bs };
-                    DrawLayer(shTears.shader, lTear, br, WHITE, lTear.resolution, lTear.time, -1, [&](){
-                         float pink[4] = { COL_BLUSH.r/255.f, COL_BLUSH.g/255.f, COL_BLUSH.b/255.f, COL_BLUSH.a/255.f };
-                         int bt = 1;
-                         SetShaderValue(shTears.shader, lTear.scale, &currentGlobalScale, SHADER_UNIFORM_FLOAT);
-                         SetShaderValue(shTears.shader, lTear.blushMode, &p.blushMode, SHADER_UNIFORM_INT);
-                         SetShaderValue(shTears.shader, lTear.showBlush, &bt, SHADER_UNIFORM_INT);
-                         SetShaderValue(shTears.shader, lTear.blushCol, pink, SHADER_UNIFORM_VEC4);
-                    });
-                    DrawDebug(br, MAGENTA);
-                }
-            };
-
-            auto RenderBrows = [&]() {
-                if (!p.showBrow) return;
-                // Main Brow
-                Rectangle br = rect;
-                br.width = rect.width * 2.0f * p.browScale * p.eyebrowLength;
-                br.height = rect.height * 0.5f * p.browScale;
-                br.x = rect.x + GlobalScaler.S(sLookX.val) + (rect.width - br.width)*0.5f + GlobalScaler.S(p.eyebrowX * 20.f + p.eyebrowSpacing*20.f*p.browSide);
-                br.y = rect.y + GlobalScaler.S(sLookY.val) - (rect.height*0.5f) + (rect.height - br.height)*0.5f + GlobalScaler.S(p.eyebrowY * 20.f);
-                
-                DrawLayer(shBrow.shader, lBrow, br, BLACK, lBrow.resolution, -1, lBrow.color, [&](){
-                    float st = GlobalScaler.S(p.eyebrowThickness);
-                    SetShaderValue(shBrow.shader, lBrow.bend, &p.browBend, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shBrow.shader, lBrow.thickness, &st, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shBrow.shader, lBrow.browLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shBrow.shader, lBrow.side, &p.browSide, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shBrow.shader, lBrow.browAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
-                    SetShaderValue(shBrow.shader, lBrow.browBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
-                });
-                DrawDebug(br, YELLOW);
-
-                if (p.useLowerBrow) {
-                    EyeParams lp = p; lp.eyebrowY = 0.f; lp.bend = -p.bend; lp.eyebrowLength = 1.37f; lp.eyebrowThickness = 7.15f;
-                    Rectangle lbr = eyeRect;
-                    lbr.width = eyeRect.width * 2.5f * p.browScale * lp.eyebrowLength;
-                    lbr.height = eyeRect.height * (1.0f + fabsf(p.bend));
-                    lbr.x = eyeRect.x + (eyeRect.width - lbr.width)*0.5f + GlobalScaler.S(48.6235f);
-                    lbr.y = eyeRect.y + eyeRect.height*0.5f + eyeRect.height*0.5f - (lbr.height*0.53f) - eyeRect.height*0.3f;
-                    
-                    DrawLayer(shBrow.shader, lBrow, lbr, BLACK, lBrow.resolution, -1, lBrow.color, [&](){
-                        float st = GlobalScaler.S(lp.eyebrowThickness);
-                        SetShaderValue(shBrow.shader, lBrow.bend, &lp.browBend, SHADER_UNIFORM_FLOAT);
-                        SetShaderValue(shBrow.shader, lBrow.thickness, &st, SHADER_UNIFORM_FLOAT);
-                        SetShaderValue(shBrow.shader, lBrow.browLen, &lp.eyebrowLength, SHADER_UNIFORM_FLOAT);
-                        SetShaderValue(shBrow.shader, lBrow.side, &lp.browSide, SHADER_UNIFORM_FLOAT);
-                        SetShaderValue(shBrow.shader, lBrow.browAngle, &lp.browAngle, SHADER_UNIFORM_FLOAT);
-                        float off = 0.85f; SetShaderValue(shBrow.shader, lBrow.browBendOffset, &off, SHADER_UNIFORM_FLOAT);
-                    });
-                    DrawDebug(lbr, ORANGE);
-                }
-            };
-
-            if (p.tearsLevel < 0.4f) { RenderEye(); RenderTearsBlush(); RenderBrows(); }
-            else { RenderTearsBlush(); RenderEye(); RenderBrows(); }
-        }
-
-        void Draw(Vector2 centerPos, EyeParams p, Color c) {
-            if (canvas.texture.width != GetScreenWidth() || canvas.texture.height != GetScreenHeight()) {
-                UnloadRenderTexture(canvas); canvas = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
-            }
-
-            BeginTextureMode(canvas);
-            ClearBackground(BLANK);
-            float ss = GlobalScaler.S(Config::REF_EYE_SIZE);
-            float sw = ss * Config::EYE_SCALE_FACTOR;
-            float sh = ss * Config::EYE_SCALE_FACTOR;
-            float shOffset = GlobalScaler.S(Config::EYE_HEIGHT_OFFSET);
-            float sp = GlobalScaler.S(p.spacing);
-
-            rlPushMatrix();
-            if (fabsf(p.angle) > 0.01f) {
-                rlTranslatef(centerPos.x, centerPos.y, 0); rlRotatef(p.angle, 0, 0, 1); rlTranslatef(-centerPos.x, -centerPos.y, 0);
-            }
-            
-            bool isStar = (p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5);
-            bool isHeart = (p.eyeShapeID > 4.5 && p.eyeShapeID < 5.5);
-            if (isStar) c = COL_STAR; else if (isHeart) c = COL_HEART;
-
-            EyeParams lp = p; lp.browSide = -1.0f; lp.eyeSide = 1.0f;
-            DrawStack({centerPos.x - sp*0.5f - sw*0.5f, centerPos.y - shOffset - sh*0.5f, sw, sh}, lp, c);
-            
-            EyeParams rp = p; rp.browSide = 1.0f; rp.eyeSide = -1.0f;
-            DrawStack({centerPos.x + sp*0.5f - sw*0.5f, centerPos.y - shOffset - sh*0.5f, sw, sh}, rp, c);
-            rlPopMatrix();
-            EndTextureMode();
-
-            BeginShaderMode(shPixel.shader);
-            float ps = p.pixelation; float rs[2] = { (float)canvas.texture.width, (float)canvas.texture.height };
-            SetShaderValue(shPixel.shader, lPix.locPixelSize, &ps, SHADER_UNIFORM_FLOAT);
-            SetShaderValue(shPixel.shader, lPix.locRenderSize, rs, SHADER_UNIFORM_VEC2);
-            DrawTexturePro(canvas.texture, {0,0,rs[0],-rs[1]}, {0,0,(float)GetScreenWidth(),(float)GetScreenHeight()}, {0,0}, 0.0f, WHITE);
-            EndShaderMode();
-        }
-    };
-}
-
-// --------------------------------------------------------
-// PART B: MOUTH ENGINE
-// --------------------------------------------------------
-namespace Mouth {
-    struct MouthParams {
-        float open = 0.05f; float width = 0.5f; float curve = 0.0f; 
-        float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
-        float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
-        float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
-        float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
-        float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
-    };
-
-    static MouthParams MakeDefaultParams() {
-        MouthParams p{};
-        p.open = 0.05f; p.width = 0.5f; p.curve = 0.2f; p.scale = 1.0f;
-        p.teethWidth = 0.5f; p.teethGap = 45.0f; p.tongueWidth = 0.65f;
-        p.teethY = -1.0f; p.squeezeTop = 0.0f; p.squeezeBottom = 0.0f;
-        p.tongueUp = 0.0f; p.tongueX = 0.0f; p.asymmetry = 0.0f;
-        p.squareness = 0.0f; p.sigma = 0.45f; p.power = 6.0f; p.maxLiftValue = 0.55f;
-        p.outlineThickness = 1.5f;
-        return p;
-    }
-
-    // Helper: Normalize poly
     static void ResamplePoly(const std::vector<Vector2>& input, float* outputFlat, int maxPts, int& outCount, float scale, Vector2 offset, bool closedLoop) {
         if (input.empty()) { outCount = 0; return; }
+
         if (input.size() <= (size_t)maxPts) {
             outCount = (int)input.size();
             for(int i=0; i<outCount; i++) {
-                outputFlat[i*2] = (input[i].x - offset.x) * scale;
-                outputFlat[i*2+1] = (input[i].y - offset.y) * scale;
+                outputFlat[i*2]     = (input[i].x - offset.x) * scale;
+                outputFlat[i*2 + 1] = (input[i].y - offset.y) * scale;
             }
             return;
         }
+
         outCount = maxPts;
-        float totalLen = 0;
-        for (size_t i = 0; i < input.size(); i++) {
-            if (!closedLoop && i == input.size() - 1) break;
-            totalLen += FaceMath::V2Dist(input[i], input[(i + 1) % input.size()]);
-        }
+        float totalLen = GetPolyPerimeter(input, closedLoop);
         float step = totalLen / (float)(closedLoop ? maxPts : maxPts - 1);
+        
         outputFlat[0] = (input[0].x - offset.x) * scale;
         outputFlat[1] = (input[0].y - offset.y) * scale;
-        int ptsEmitted = 1; float currentDist = 0.0f; float nextSample = step;
+        int ptsEmitted = 1;
+        float currentDist = 0.0f;
+        float nextSample = step;
+        
         for (size_t i = 0; i < input.size(); i++) {
             if (ptsEmitted >= maxPts) break;
             if (!closedLoop && i == input.size() - 1) break;
-            Vector2 p1 = input[i]; Vector2 p2 = input[(i + 1) % input.size()];
-            float segLen = FaceMath::V2Dist(p1, p2);
+
+            Vector2 p1 = input[i];
+            Vector2 p2 = input[(i + 1) % input.size()];
+            float segLen = V2Dist(p1, p2);
+            
             if (segLen < 1e-6f) { currentDist += segLen; continue; }
+            
             while (nextSample <= currentDist + segLen) {
                 float t = (nextSample - currentDist) / segLen;
-                outputFlat[ptsEmitted*2] = (p1.x + (p2.x - p1.x) * t - offset.x) * scale;
-                outputFlat[ptsEmitted*2+1] = (p1.y + (p2.y - p1.y) * t - offset.y) * scale;
-                ptsEmitted++; nextSample += step;
+                float px = p1.x + (p2.x - p1.x) * t;
+                float py = p1.y + (p2.y - p1.y) * t;
+                
+                outputFlat[ptsEmitted*2]     = (px - offset.x) * scale;
+                outputFlat[ptsEmitted*2 + 1] = (py - offset.y) * scale;
+                ptsEmitted++;
+                nextSample += step;
                 if (ptsEmitted >= maxPts) break;
             }
             currentDist += segLen;
         }
     }
 
-    struct ParametricMouth {
-        MouthParams current, target, velocity;
-        std::vector<Vector2> controlPoints; 
-        std::vector<Vector2> smoothContour, topTeethPoly, botTeethPoly, tonguePoly;
-        Shader sdfShader;
-        bool shaderLoaded = false;
-        int locMouthPts, locMouthCnt, locTopPts, locTopCnt, locBotPts, locBotCnt, locTonguePts, locTongueCnt;
-        int locRes, locPadding, locScale, locOutlineThickness, locColBg, locColLine, locColTeeth, locColTongue;
-        Vector2 centerPos; bool usePhysics = true;
-        const float GEO_SIZE = 1024.0f; const float SS = 4.0f; 
-        Color colBg={57,99,55,255}, colLine={20,35,20,255}, colTeeth={245,245,245,255}, colTongue={162,178,106,255}; 
-
-        void Init(Vector2 pos) {
-            velocity = {}; centerPos = pos;
-            controlPoints.resize(16); smoothContour.reserve(512); 
-            topTeethPoly.reserve(64); botTeethPoly.reserve(64); tonguePoly.reserve(64);
-            const char* filename = "mouth_es.fs";
-            std::string path = std::string(GetApplicationDirectory()) + filename;
-            if (!FileExists(path.c_str())) path = filename; 
-            if (FileExists(path.c_str())) {
-                 sdfShader = LoadShader(0, path.c_str());
-                 if (sdfShader.id > 0) {
-                     shaderLoaded = true;
-                     locMouthPts = GetShaderLocation(sdfShader, "uMouthPts");
-                     locMouthCnt = GetShaderLocation(sdfShader, "uMouthCount");
-                     locTopPts   = GetShaderLocation(sdfShader, "uTopTeethPts");
-                     locTopCnt   = GetShaderLocation(sdfShader, "uTopTeethCount");
-                     locBotPts   = GetShaderLocation(sdfShader, "uBotTeethPts");
-                     locBotCnt   = GetShaderLocation(sdfShader, "uBotTeethCount");
-                     locTonguePts= GetShaderLocation(sdfShader, "uTonguePts");
-                     locTongueCnt= GetShaderLocation(sdfShader, "uTongueCount");
-                     locRes      = GetShaderLocation(sdfShader, "uResolution");
-                     locPadding  = GetShaderLocation(sdfShader, "uPadding");
-                     locScale    = GetShaderLocation(sdfShader, "uScale");
-                     locOutlineThickness = GetShaderLocation(sdfShader, "uOutlineThickness");
-                     locColBg    = GetShaderLocation(sdfShader, "uColBg");
-                     locColLine  = GetShaderLocation(sdfShader, "uColLine");
-                     locColTeeth = GetShaderLocation(sdfShader, "uColTeeth");
-                     locColTongue= GetShaderLocation(sdfShader, "uColTongue");
-                 }
-            } else { std::cout << "[Mouth] SHADER MISSING: " << path << std::endl; }
-            target = MakeDefaultParams(); current = target;
+    static Rectangle GetBoundingBox(const std::vector<Vector2>& poly) {
+        if(poly.empty()) return {0,0,0,0};
+        float minX = 1e10f, maxX = -1e10f, minY = 1e10f, maxY = -1e10f;
+        for(auto& p : poly) {
+            if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+            if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
         }
+        return {minX, minY, maxX - minX, maxY - minY};
+    }
 
-        void Unload() { if(shaderLoaded) UnloadShader(sdfShader); }
-        void resetPosition(Vector2 pos) { centerPos = pos; }
-
-        void UpdatePhysics(float dt) {
-            target.open = Clamp(target.open, 0.0f, 1.2f);
-            target.scale = Clamp(target.scale, 0.5f, 4.0f);
-            if (!usePhysics) { current = target; return; }
-            if (dt > 0.05f) dt = 0.05f; 
-            const float STIFFNESS = 180.0f, DAMPING = 14.0f;    
-            auto Upd = [&](float& c, float& v, float t) {
-                float f = STIFFNESS * (t - c); float d = DAMPING * v;
-                v += (f - d) * dt; c += v * dt;
-            };
-            Upd(current.open, velocity.open, target.open);
-            Upd(current.width, velocity.width, target.width);
-            Upd(current.curve, velocity.curve, target.curve);
-            Upd(current.squeezeTop, velocity.squeezeTop, target.squeezeTop);
-            Upd(current.squeezeBottom, velocity.squeezeBottom, target.squeezeBottom);
-            Upd(current.sigma, velocity.sigma, target.sigma);
-            Upd(current.power, velocity.power, target.power);
-            Upd(current.maxLiftValue, velocity.maxLiftValue, target.maxLiftValue);
-            Upd(current.teethY, velocity.teethY, target.teethY);
-            Upd(current.tongueUp, velocity.tongueUp, target.tongueUp);
-            Upd(current.tongueX, velocity.tongueX, target.tongueX);
-            Upd(current.tongueWidth, velocity.tongueWidth, target.tongueWidth);
-            Upd(current.asymmetry, velocity.asymmetry, target.asymmetry);
-            Upd(current.squareness, velocity.squareness, target.squareness);
-            Upd(current.teethWidth, velocity.teethWidth, target.teethWidth);
-            Upd(current.teethGap,   velocity.teethGap,   target.teethGap);
-            Upd(current.scale,     velocity.scale,     target.scale);
-            Upd(current.outlineThickness, velocity.outlineThickness, target.outlineThickness);
+    static void RemoveNearDuplicates(std::vector<Vector2>& poly, float eps=0.5f) {
+        if (poly.size() < 2) return;
+        std::vector<Vector2> out; out.push_back(poly[0]);
+        for (size_t i=1; i<poly.size(); i++){
+            if (V2Dist(poly[i], out.back()) > eps) out.push_back(poly[i]);
         }
+        if (out.size() > 2 && V2Dist(out.front(), out.back()) <= eps) out.pop_back();
+        poly = out;
+    }
 
-        void GenerateGeometry() {
-            float cx = GEO_SIZE * 0.5f; float cy = GEO_SIZE * 0.5f;
-            float baseRadius = 40.0f * SS; 
-            float w = baseRadius * (0.5f + current.width);
-            float h = (current.open < 0.08f) ? 0.0f : (baseRadius * (0.2f + current.open * 1.5f));
-
-            for (int i = 0; i < 16; i++) {
-                float t = (float)i / 16.0f; float angle = t * PI * 2.0f + PI; 
-                float x = cosf(angle) * w; float rawSin = sinf(angle);
-                bool isTop = (i <= 8);
-                float flatness = 0.0f;
-                if (current.asymmetry > 0.0f && isTop) flatness = current.asymmetry; 
-                if (current.asymmetry < 0.0f && !isTop) flatness = -current.asymmetry;
-
-                float effectiveH = h; float wave = std::abs(rawSin);
-                if (flatness > 0.01f) {
-                    effectiveH *= (1.0f - flatness * 0.6f); 
-                    wave = std::pow(wave, 1.0f - (flatness * 0.5f)); 
-                }
-                float sqPower = 1.0f - (current.squareness * 0.8f);
-                float shapedSin = std::pow(wave, sqPower);
-                float sign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
-                float y = shapedSin * effectiveH * sign;
-                
-                float bendFactor = 15.0f * SS; float normalizedX = x / w;
-                float rawBend = (normalizedX * normalizedX) * bendFactor * current.curve;
-                float bendMult = (flatness > 0.0f) ? 1.0f - flatness : 1.0f;
-                y -= rawBend * bendMult; 
-
-                float activeSqueeze = isTop ? current.squeezeTop : current.squeezeBottom;
-                float tX = Clamp(std::abs(x) / (w + 1e-6f), 0.0f, 1.0f);
-                float u = tX / current.sigma;
-                float influence = expf(-powf(u, current.power));  
-                float lift = activeSqueeze * influence * (h * current.maxLiftValue);
-                float archSign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
-                y -= lift * archSign;
-                controlPoints[i] = { cx + x, cy + y };
-            }
-
-            smoothContour.clear();
-            for (int i = 0; i < 16; i++) {
-                Vector2 p0 = controlPoints[(i-1+16)%16]; Vector2 p1 = controlPoints[i];
-                Vector2 p2 = controlPoints[(i+1)%16]; Vector2 p3 = controlPoints[(i+2)%16];
-                for (int k = 0; k < 16; k++) smoothContour.push_back(FaceMath::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
-            }
-            if (smoothContour.size() < 2) return;
-            // Clean duplicates
-            std::vector<Vector2> clean; clean.push_back(smoothContour[0]);
-            for (size_t i=1; i<smoothContour.size(); i++){
-                if (FaceMath::V2Dist(smoothContour[i], clean.back()) > 0.5f) clean.push_back(smoothContour[i]);
-            }
-            if (clean.size() > 2 && FaceMath::V2Dist(clean.front(), clean.back()) <= 0.5f) clean.pop_back();
-            smoothContour = clean;
-
-            // Rotate lowest Y to start (approximate fix for teeth rendering order consistency)
-            if(!smoothContour.empty()) {
-                int best = 0;
-                for (int i = 1; i < (int)smoothContour.size(); i++) {
-                    if (smoothContour[i].x < smoothContour[best].x || (smoothContour[i].x == smoothContour[best].x && smoothContour[i].y < smoothContour[best].y)) best = i;
-                }
-                std::rotate(smoothContour.begin(), smoothContour.begin() + best, smoothContour.end());
-                if (smoothContour.size()>4) {
-                    int n = (int)smoothContour.size();
-                    if (smoothContour[n/4].y > smoothContour[(3*n)/4].y) {
-                        std::reverse(smoothContour.begin(), smoothContour.end());
-                        best=0; for (int i=1; i<(int)smoothContour.size(); i++) if(smoothContour[i].x < smoothContour[best].x) best=i;
-                        std::rotate(smoothContour.begin(), smoothContour.begin() + best, smoothContour.end());
-                    }
-                }
-            }
-
-            topTeethPoly.clear(); botTeethPoly.clear(); tonguePoly.clear();
-            if (current.open > 0.10f && !smoothContour.empty()) {
-                float minY = 1e10, maxY = -1e10, minX = 1e10, maxX = -1e10;
-                for (const auto& p : smoothContour) {
-                    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
-                    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
-                }
-                
-                float shiftX = current.tongueX * (w * 0.4f);
-                float tongueCX = cx + shiftX;
-                float tongueW = (maxX - minX) * 0.5f * current.tongueWidth;
-                float tongueTip = Lerp(maxY, minY, current.tongueUp);
-                for (int i = 0; i <= 32; i++) {
-                    float t = (float)i / 32.0f; float tx = -cosf(t * PI); float ty = sinf(t * PI);  
-                    tonguePoly.push_back({tongueCX + (tx * tongueW), Lerp(maxY, tongueTip, ty)});
-                }
-                tonguePoly.push_back({tongueCX + tongueW, maxY + 10});
-                tonguePoly.push_back({tongueCX - tongueW, maxY + 10});
-                
-                float teethW = (maxX - minX) * current.teethWidth * 0.5f;
-                float gap = current.teethGap * SS;
-                float midY = cy + (current.teethY * 20.0f * SS);
-                float topTeethEdge = midY - gap/2; float botTeethEdge = midY + gap/2;
-
-                if(gap != 400 && topTeethEdge > minY + 5.0f) {
-                    float tW_curr = (current.teethWidth >= 0.95f) ? (maxX - minX)*0.6f : teethW;
-                    float tx1 = (current.teethWidth >= 0.95f) ? minX : cx - teethW;
-                    float tx2 = (current.teethWidth >= 0.95f) ? maxX : cx + teethW;
-                    topTeethPoly = { {tx1, minY}, {tx2, minY}, {tx2, topTeethEdge}, {tx1, topTeethEdge} };
-                }
-                if(gap != 400 && botTeethEdge < maxY - 5.0f) {
-                     float tW_curr = (current.teethWidth >= 0.95f) ? (maxX - minX)*0.6f : teethW;
-                     float tx1 = (current.teethWidth >= 0.95f) ? minX : cx - teethW;
-                     float tx2 = (current.teethWidth >= 0.95f) ? maxX : cx + teethW;
-                     botTeethPoly = { {tx1, botTeethEdge}, {tx2, botTeethEdge}, {tx2, maxY}, {tx1, maxY} };
-                }
-            }
+    static void RotateContourToLeftmost(std::vector<Vector2>& c) {
+        if (c.empty()) return;
+        int best = 0;
+        for (int i = 1; i < (int)c.size(); i++) {
+            if (c[i].x < c[best].x || (c[i].x == c[best].x && c[i].y < c[best].y)) best = i;
         }
+        std::rotate(c.begin(), c.begin() + best, c.end());
+    }
 
-        void Draw() {
-            if (!shaderLoaded || smoothContour.empty()) return;
-            const float paddingPx = 8.0f; 
-            float unitScale = (256.0f / GEO_SIZE) * current.scale;
-            if (unitScale < 0.0001f) unitScale = 0.0001f;
+    static void NormalizeContourForTeeth(std::vector<Vector2>& c) {
+        if (c.size() < 4) return;
+        RotateContourToLeftmost(c);
+        int n = (int)c.size();
+        if (c[n/4].y > c[(3*n)/4].y) {
+            std::reverse(c.begin(), c.end());
+            RotateContourToLeftmost(c); 
+        }
+    }
+    
+    static int ClampInt(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi) ? hi : v; }
+    static Vector4 ColorNormalize(Color c) { return { c.r/255.0f, c.g/255.0f, c.b/255.0f, c.a/255.0f }; }
+}
+
+// --------------------------------------------------------
+// CONFIG
+// --------------------------------------------------------
+namespace Config {
+    // Shader Filenames
+    const char* SHADER_EYE       = "eyes_es.fs";
+    const char* SHADER_BROW      = "brow_es.fs";
+    const char* SHADER_TEAR      = "tears_es.fs";
+    const char* SHADER_MOUTH     = "mouth_es.fs";
+    const char* SHADER_PIXELIZER = "pixelizer_es.fs";
+    const char* SHADER_DIR       = "src/";
+
+    // Animation & Physics (Eyes)
+    const float BLINK_MIN_DELAY = 2.0f;
+    const float BLINK_MAX_DELAY = 5.0f;
+    const float BLINK_HOLD_DURATION = 0.10f;
+    const float BLINK_CLOSE_THRESHOLD = 0.2f;
+    const float BLINK_OPEN_THRESHOLD = 0.9f;
+
+    // Drawing
+    const float REF_EYE_SIZE = 100.0f;
+    const float EYE_SCALE_FACTOR = 2.7f;
+    const float EYE_HEIGHT_OFFSET = 150.0f;
+}
+
+// --------------------------------------------------------
+// PHYSICS STRUCTS
+// --------------------------------------------------------
+struct Spring {
+    float val, vel, target;
+    float stiffness, damping;
+
+    void Reset(float initial) {
+        val = initial; target = initial; vel = 0.0f;
+    }
+
+    void Update(float dt) {
+        float f = stiffness * (target - val);
+        vel = (vel + f * dt) * damping;
+        val += vel * dt;
+    }
+};
+
+// --------------------------------------------------------
+// SHADER WRAPPER (Unified)
+// --------------------------------------------------------
+struct ShaderAsset {
+    Shader shader;
+    std::string filePath;
+    long lastModTime;
+    
+    // Cached Uniform Locations (Union of all possible locations)
+    struct Locations {
+        // Common
+        int resolution, time, color;
+        // Eye
+        int shape, bend, thickness, side, spiral, distort, stress, gloom, squareness;
+        // Brow
+        int browLen, browY, browAngle, browBendOffset;
+        // Tears
+        int scale, tearLevel, blushMode, showBlush, blushCol, tearCol;
+        // Mouth
+        int mouthPts, mouthCnt, topPts, topCnt, botPts, botCnt, tonguePts, tongueCnt;
+        int padding, outlineThickness;
+        int colBg, colLine, colTeeth, colTongue;
+        // Pixel
+        int locPixelSize, locRenderSize;
+    } locs;
+
+    void Load(const char* filename, const char* dir) {
+        if (FileExists(filename)) filePath = filename;
+        else if (FileExists((std::string(dir) + filename).c_str())) filePath = std::string(dir) + filename;
+        else filePath = filename; 
+
+        shader = LoadShader(0, filePath.c_str());
+        lastModTime = GetFileModTime(filePath.c_str());
+        if(shader.id == 0) std::cout << "[ShaderAsset] Failed to load: " << filePath << std::endl;
+    }
+
+    void ReloadIfChanged() {
+        long currentModTime = GetFileModTime(filePath.c_str());
+        if (currentModTime > lastModTime) {
+            std::cout << "[HOT RELOAD] Reloading shader: " << filePath << std::endl;
+            Shader newShader = LoadShader(0, filePath.c_str());
             
-            // Calc bounds
-            float minX = 1e10f, maxX = -1e10f, minY = 1e10f, maxY = -1e10f;
-            for(auto& p : smoothContour) { if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x; if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y; }
-            Rectangle boundsPhys = {minX, minY, maxX - minX, maxY - minY};
+            if (newShader.id != rlGetShaderIdDefault()) {
+                UnloadShader(shader);
+                shader = newShader;
+                lastModTime = currentModTime;
+                TraceLog(LOG_INFO, "HOT RELOAD: Success (%s)", filePath.c_str());
+            } else {
+                TraceLog(LOG_WARNING, "HOT RELOAD: Compile failed (%s)", filePath.c_str());
+            }
+        }
+    }
+    
+    void Unload() { UnloadShader(shader); }
+};
 
-            float paddingPhys = paddingPx / unitScale;
-            boundsPhys.x -= paddingPhys; boundsPhys.y -= paddingPhys;
-            boundsPhys.width += paddingPhys * 2.0f; boundsPhys.height += paddingPhys * 2.0f;
+// --------------------------------------------------------
+// PARAMETERS
+// --------------------------------------------------------
+struct EyeParams {
+    // Eye Shape
+    float eyeShapeID = 0.0f; float bend = 0.0f; float eyeThickness = 4.0f;
+    float eyeSide = 0.0f; float scaleX = 1.0f; float scaleY = 1.0f;
+    float angle = 0.0f; float spacing = 612.0f; float squareness = 0.0f;
 
-            float physRefLeft = centerPos.x - (GEO_SIZE * 0.5f * unitScale);
-            float physRefTop  = centerPos.y - (GEO_SIZE * 0.5f * unitScale);
-            Rectangle screenRect = { physRefLeft + (boundsPhys.x * unitScale), physRefTop  + (boundsPhys.y * unitScale), boundsPhys.width * unitScale, boundsPhys.height * unitScale };
+    // FX
+    float stressLevel = 0.0f; float gloomLevel = 0.0f;
+    int distortMode = 0; float spiralSpeed = -1.2f;
 
-            const int MAX_PTS = 64;
-            float fMouth[MAX_PTS*2], fTop[MAX_PTS*2], fBot[MAX_PTS*2], fTng[MAX_PTS*2];
-            int cM=0, cT=0, cB=0, cTg=0;
-            Vector2 offset = {boundsPhys.x, boundsPhys.y};
+    // Look
+    float lookX = 0.0f; float lookY = 62.50f;
+
+    // Brow
+    bool showBrow = false; bool useLowerBrow = false;
+    float eyebrowThickness = 4.0f; float eyebrowLength = 1.0f;
+    float eyebrowSpacing = 0.0f; float eyebrowX = 0.0f; float eyebrowY = 0.0f;
+    float browScale = 1.0f; float browSide = 1.0f; float browAngle = 0.0f;
+    float browBend = 0.0f; float browBendOffset = 0.85f;
+
+    // Tears/Blush
+    bool showTears = false; bool showBlush = false;
+    float tearsLevel = 0.0f; int blushMode = 0; float blushScale = 1.0f;
+    float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
+
+    // Global
+    float pixelation = 1.0f;
+};
+
+struct MouthParams {
+    float open = 0.05f; float width = 0.5f; float curve = 0.0f; 
+    float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
+    float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
+    float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
+    float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
+    float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
+};
+
+// --------------------------------------------------------
+// FACE SYSTEM (UNIFIED)
+// --------------------------------------------------------
+struct FaceSystem {
+    // --- Resources ---
+    ShaderAsset shEye;
+    ShaderAsset shBrow;
+    ShaderAsset shTears;
+    ShaderAsset shMouth;
+    ShaderAsset shPixel;
+    RenderTexture2D canvas;
+
+    // --- Colors ---
+    const Color COL_STAR   = { 255, 184, 0, 255 };
+    const Color COL_HEART  = { 220, 1, 1, 255 };
+    const Color COL_BLUSH  = { 255, 105, 180, 150 };
+    const Color COL_TEAR   = { 100, 180, 255, 220 };
+    Color colMouthBg       = { 57, 99, 55, 255 };
+    Color colMouthLine     = { 20, 35, 20, 255 };
+    Color colMouthTeeth    = { 245, 245, 245, 255 };
+    Color colMouthTongue   = { 162, 178, 106, 255 }; 
+
+    // --- Eye Physics ---
+    Spring sScaleX = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f};
+    Spring sScaleY = {1.0f, 0.0f, 1.0f, 600.0f, 0.5f};
+    Spring sLookX  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f};
+    Spring sLookY  = {0.0f, 0.0f, 0.0f, 120.0f, 0.6f};
+    float blinkTimer = 0.0f;
+    float nextBlinkTime = 3.0f;
+    int blinkPhase = 0; // 0=Open, 1=Closing, 2=Closed, 3=Opening
+
+    // --- Mouth Physics & Geometry ---
+    MouthParams mCurrent, mVelocity; // Target is passed in Draw
+    std::vector<Vector2> mouthCtrlPts; 
+    std::vector<Vector2> mouthContour; 
+    std::vector<Vector2> topTeethPoly, botTeethPoly, tonguePoly;
+    const float MOUTH_GEO_SIZE = 1024.0f;
+    const float MOUTH_SS = 4.0f; 
+
+    // --- System State ---
+    bool usePhysics = true;
+    bool debugBoxes = false;
+    float hotReloadTimer = 0.0f;
+    float currentGlobalScale = 1.0f;
+
+    // ----------------------------------------------------
+    // INIT
+    // ----------------------------------------------------
+    void Init() {
+        // Load Shaders
+        shEye.Load(Config::SHADER_EYE, Config::SHADER_DIR);     RefreshLocEye();
+        shBrow.Load(Config::SHADER_BROW, Config::SHADER_DIR);   RefreshLocBrow();
+        shTears.Load(Config::SHADER_TEAR, Config::SHADER_DIR);  RefreshLocTear();
+        shPixel.Load(Config::SHADER_PIXELIZER, Config::SHADER_DIR); RefreshLocPixel();
+        shMouth.Load(Config::SHADER_MOUTH, Config::SHADER_DIR); RefreshLocMouth();
+
+        // Canvas
+        canvas = LoadRenderTexture(GetScreenHeight(), GetScreenHeight());
+
+        // Initialize Mouth Lists
+        mouthCtrlPts.resize(16);
+        mouthContour.reserve(512);
+        topTeethPoly.reserve(64);
+        botTeethPoly.reserve(64);
+        tonguePoly.reserve(64);
+
+        // Initialize Mouth Physics Defaults
+        mCurrent = {};
+        mCurrent.open = 0.05f; mCurrent.width = 0.5f; mCurrent.curve = 0.2f; mCurrent.scale = 1.0f;
+        mCurrent.teethWidth = 0.5f; mCurrent.teethGap = 45.0f; mCurrent.tongueWidth = 0.65f;
+        mCurrent.teethY = -1.0f; mCurrent.sigma = 0.45f; mCurrent.power = 6.0f; mCurrent.maxLiftValue = 0.55f;
+        mCurrent.outlineThickness = 1.5f;
+    }
+
+    void Unload() {
+        shEye.Unload(); shBrow.Unload(); shTears.Unload(); shPixel.Unload(); shMouth.Unload();
+        UnloadRenderTexture(canvas);
+    }
+
+    // ----------------------------------------------------
+    // UPDATE
+    // ----------------------------------------------------
+    void Update(float dt, const EyeParams& eParams, const MouthParams& mParams) {
+        currentGlobalScale = GlobalScaler.scale;
+
+        // Hot Reload
+        hotReloadTimer += dt;
+        if (hotReloadTimer > 1.0f) { CheckHotReload(); hotReloadTimer = 0.0f; }
+
+        // --- EYE PHYSICS ---
+        if (!usePhysics) {
+            sScaleX.val = eParams.scaleX; sScaleY.val = eParams.scaleY;
+            sLookX.val = eParams.lookX; sLookY.val = eParams.lookY;
+            blinkPhase = 0;
+            mCurrent = mParams; // Snap mouth
+            GenerateMouthGeometry();
+        } else {
+            UpdateEyesPhysics(dt, eParams);
+            UpdateMouthPhysics(dt, mParams);
+        }
+    }
+
+    void UpdateEyesPhysics(float dt, const EyeParams& p) {
+        // Blink Logic
+        bool canBlink = (p.eyeShapeID < 0.5f || p.eyeShapeID > 3.5f);
+        if (canBlink) {
+            blinkTimer += dt;
+            if (blinkTimer > nextBlinkTime && blinkPhase == 0) {
+                blinkPhase = 1; blinkTimer = 0.0f;
+                nextBlinkTime = (float)GetRandomValue((int)(Config::BLINK_MIN_DELAY * 10), (int)(Config::BLINK_MAX_DELAY * 10)) / 10.0f;
+            }
+        } else { blinkPhase = 0; }
+
+        switch (blinkPhase) {
+            case 1: // Closing
+                sScaleY.target = 0.0f;
+                if (sScaleY.val < Config::BLINK_CLOSE_THRESHOLD) { blinkPhase = 2; blinkTimer = 0.0f; }
+                break;
+            case 2: // Closed
+                sScaleY.val = 1.0f; sScaleY.target = 1.0f; 
+                if (blinkTimer > Config::BLINK_HOLD_DURATION) { blinkPhase = 3; sScaleY.val = 0.0f; }
+                break;
+            case 3: // Opening
+                sScaleY.target = p.scaleY;
+                if (sScaleY.val > p.scaleY * Config::BLINK_OPEN_THRESHOLD) { blinkPhase = 0; }
+                break;
+        }
+
+        // Breathing
+        if (blinkPhase == 0) {
+             float breath = (p.scaleY > 0.8f) ? sinf((float)GetTime() * 2.0f) * 0.02f : 0.0f;
+             sScaleY.target = p.scaleY + breath;
+             sScaleX.target = p.scaleX - breath;
+        }
+        
+        sLookX.target = p.lookX; sLookY.target = p.lookY;
+        sScaleX.Update(dt); sScaleY.Update(dt); sLookX.Update(dt); sLookY.Update(dt);
+    }
+
+    void UpdateMouthPhysics(float dt, const MouthParams& target) {
+        // Clamping strict dt for mouth physics stability
+        float step = (dt > 0.05f) ? 0.05f : dt;
+        
+        const float STIFFNESS = 180.0f;
+        const float DAMPING   = 14.0f;    
+        auto Upd = [&](float& c, float& v, float t) {
+            float f = STIFFNESS * (t - c);
+            float d = DAMPING * v;
+            v += (f - d) * step; 
+            c += v * step;
+        };
+
+        // Update all mouth params
+        Upd(mCurrent.open, mVelocity.open, Clamp(target.open, 0.0f, 1.2f));
+        Upd(mCurrent.width, mVelocity.width, target.width);
+        Upd(mCurrent.curve, mVelocity.curve, target.curve);
+        Upd(mCurrent.squeezeTop, mVelocity.squeezeTop, target.squeezeTop);
+        Upd(mCurrent.squeezeBottom, mVelocity.squeezeBottom, target.squeezeBottom);
+        Upd(mCurrent.sigma, mVelocity.sigma, target.sigma);
+        Upd(mCurrent.power, mVelocity.power, target.power);
+        Upd(mCurrent.maxLiftValue, mVelocity.maxLiftValue, target.maxLiftValue);
+        Upd(mCurrent.teethY, mVelocity.teethY, target.teethY);
+        Upd(mCurrent.tongueUp, mVelocity.tongueUp, target.tongueUp);
+        Upd(mCurrent.tongueX, mVelocity.tongueX, target.tongueX);
+        Upd(mCurrent.tongueWidth, mVelocity.tongueWidth, target.tongueWidth);
+        Upd(mCurrent.asymmetry, mVelocity.asymmetry, target.asymmetry);
+        Upd(mCurrent.squareness, mVelocity.squareness, target.squareness);
+        Upd(mCurrent.teethWidth, mVelocity.teethWidth, target.teethWidth);
+        Upd(mCurrent.teethGap,   mVelocity.teethGap,   target.teethGap);
+        Upd(mCurrent.scale,     mVelocity.scale,     Clamp(target.scale, 0.5f, 4.0f));
+        Upd(mCurrent.outlineThickness, mVelocity.outlineThickness, target.outlineThickness);
+        
+        GenerateMouthGeometry();
+    }
+
+    void GenerateMouthGeometry() {
+        float cx = MOUTH_GEO_SIZE * 0.5f; 
+        float cy = MOUTH_GEO_SIZE * 0.5f;
+        float baseRadius = 40.0f * MOUTH_SS; 
+        float w = baseRadius * (0.5f + mCurrent.width);
+        float h = (mCurrent.open < 0.08f) ? 0.0f : (baseRadius * (0.2f + mCurrent.open * 1.5f));
+
+        for (int i = 0; i < 16; i++) {
+            float t = (float)i / 16.0f;
+            float angle = t * PI * 2.0f + PI; 
+            float x = cosf(angle) * w;
+            float rawSin = sinf(angle);
+            bool isTop = (i <= 8); 
+
+            float flatness = 0.0f;
+            if (mCurrent.asymmetry > 0.0f && isTop) flatness = mCurrent.asymmetry; 
+            if (mCurrent.asymmetry < 0.0f && !isTop) flatness = -mCurrent.asymmetry;
+
+            float effectiveH = h;
+            float wave = std::abs(rawSin);
+            if (flatness > 0.01f) {
+                effectiveH *= (1.0f - flatness * 0.6f); 
+                wave = std::pow(wave, 1.0f - (flatness * 0.5f)); 
+            }
+
+            float sqPower = 1.0f - (mCurrent.squareness * 0.8f);
+            float shapedSin = std::pow(wave, sqPower);
+            float sign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
+            float y = shapedSin * effectiveH * sign;
             
-            ResamplePoly(smoothContour, fMouth, MAX_PTS, cM, unitScale, offset, true);
-            ResamplePoly(topTeethPoly, fTop, MAX_PTS, cT, unitScale, offset, true);
-            ResamplePoly(botTeethPoly, fBot, MAX_PTS, cB, unitScale, offset, true);
-            ResamplePoly(tonguePoly, fTng, MAX_PTS, cTg, unitScale, offset, true);
+            float bendFactor = 15.0f * MOUTH_SS; 
+            float normalizedX = x / w;
+            float rawBend = (normalizedX * normalizedX) * bendFactor * mCurrent.curve;
+            float bendMult = (flatness > 0.0f) ? (1.0f - flatness) : 1.0f;
+            y -= rawBend * bendMult; 
 
-            auto V4 = [](Color c){ return Vector4{c.r/255.f, c.g/255.f, c.b/255.f, c.a/255.f}; };
+            float activeSqueeze = isTop ? mCurrent.squeezeTop : mCurrent.squeezeBottom;
+            float tX = Clamp(std::abs(x) / (w + 1e-6f), 0.0f, 1.0f);
+            float u = tX / mCurrent.sigma;
+            float influence = expf(-powf(u, mCurrent.power));
+            float maxLift = (h * mCurrent.maxLiftValue);
+            float archSign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
+            y -= activeSqueeze * influence * maxLift * archSign;
 
-            BeginShaderMode(sdfShader);
-                SetShaderValueV(sdfShader, locMouthPts, fMouth, SHADER_UNIFORM_VEC2, MAX_PTS);
-                SetShaderValue(sdfShader, locMouthCnt, &cM, SHADER_UNIFORM_INT);
-                SetShaderValueV(sdfShader, locTopPts, fTop, SHADER_UNIFORM_VEC2, MAX_PTS);
-                SetShaderValue(sdfShader, locTopCnt, &cT, SHADER_UNIFORM_INT);
-                SetShaderValueV(sdfShader, locBotPts, fBot, SHADER_UNIFORM_VEC2, MAX_PTS);
-                SetShaderValue(sdfShader, locBotCnt, &cB, SHADER_UNIFORM_INT);
-                SetShaderValueV(sdfShader, locTonguePts, fTng, SHADER_UNIFORM_VEC2, MAX_PTS);
-                SetShaderValue(sdfShader, locTongueCnt, &cTg, SHADER_UNIFORM_INT);
-                
-                float res[2] = { screenRect.width, screenRect.height };
-                SetShaderValue(sdfShader, locRes, res, SHADER_UNIFORM_VEC2);
-                SetShaderValue(sdfShader, locPadding, &paddingPx, SHADER_UNIFORM_FLOAT);
-                SetShaderValue(sdfShader, locScale, &current.scale, SHADER_UNIFORM_FLOAT);
-                SetShaderValue(sdfShader, locOutlineThickness, &current.outlineThickness, SHADER_UNIFORM_FLOAT);
-                
-                Vector4 cb=V4(colBg), cl=V4(colLine), ct=V4(colTeeth), ctg=V4(colTongue);
-                SetShaderValue(sdfShader, locColBg, &cb, SHADER_UNIFORM_VEC4);
-                SetShaderValue(sdfShader, locColLine, &cl, SHADER_UNIFORM_VEC4);
-                SetShaderValue(sdfShader, locColTeeth, &ct, SHADER_UNIFORM_VEC4);
-                SetShaderValue(sdfShader, locColTongue, &ctg, SHADER_UNIFORM_VEC4);
+            mouthCtrlPts[i] = { cx + x, cy + y };
+        }
 
-                rlBegin(RL_QUADS);
-                    rlColor4ub(255, 255, 255, 255);
-                    rlTexCoord2f(0.0f, 0.0f); rlVertex2f(screenRect.x, screenRect.y);
-                    rlTexCoord2f(0.0f, 1.0f); rlVertex2f(screenRect.x, screenRect.y + screenRect.height);
-                    rlTexCoord2f(1.0f, 1.0f); rlVertex2f(screenRect.x + screenRect.width, screenRect.y + screenRect.height);
-                    rlTexCoord2f(1.0f, 0.0f); rlVertex2f(screenRect.x + screenRect.width, screenRect.y);
-                rlEnd();
+        mouthContour.clear();
+        for (int i = 0; i < 16; i++) {
+            Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
+            Vector2 p1 = mouthCtrlPts[i];
+            Vector2 p2 = mouthCtrlPts[(i+1)%16];
+            Vector2 p3 = mouthCtrlPts[(i+2)%16];
+            for (int k = 0; k < 16; k++) { 
+                mouthContour.push_back(MathUtils::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
+            }
+        }
+        MathUtils::RemoveNearDuplicates(mouthContour);
+        MathUtils::NormalizeContourForTeeth(mouthContour);
+
+        topTeethPoly.clear(); botTeethPoly.clear(); tonguePoly.clear();
+        
+        if (mCurrent.open > 0.10f && !mouthContour.empty()) {
+            Rectangle bounds = MathUtils::GetBoundingBox(mouthContour);
+            
+            float shiftX = mCurrent.tongueX * (w * 0.4f);
+            float tongueCX = cx + shiftX;
+            float tongueW = bounds.width * 0.5f * mCurrent.tongueWidth;
+            float tongueTip = Lerp(bounds.y + bounds.height, bounds.y, mCurrent.tongueUp);
+            float tongueBase = bounds.y + bounds.height;
+            
+            for (int i = 0; i <= 32; i++) {
+                float t = (float)i / 32.0f; 
+                float tx = -cosf(t * PI); float ty = sinf(t * PI);  
+                tonguePoly.push_back({tongueCX + (tx * tongueW), Lerp(tongueBase, tongueTip, ty)});
+            }
+            tonguePoly.push_back({tongueCX + tongueW, tongueBase + 10});
+            tonguePoly.push_back({tongueCX - tongueW, tongueBase + 10});
+
+            float teethW = bounds.width * mCurrent.teethWidth * 0.5f;
+            float gap = mCurrent.teethGap * MOUTH_SS;
+            float midY = cy + (mCurrent.teethY * 20.0f * MOUTH_SS);
+            float topTeethEdge = midY - gap/2;
+            float botTeethEdge = midY + gap/2;
+
+            if(gap != 400 && topTeethEdge > bounds.y + 5.0f) {
+                float tw = (mCurrent.teethWidth >= 0.95f) ? bounds.width * 0.6f : teethW;
+                float tx_min = (mCurrent.teethWidth >= 0.95f) ? bounds.x : cx - tw;
+                float tx_max = (mCurrent.teethWidth >= 0.95f) ? bounds.x + bounds.width : cx + tw;
+                topTeethPoly = { {tx_min, bounds.y}, {tx_max, bounds.y}, {tx_max, topTeethEdge}, {tx_min, topTeethEdge} };
+            }
+            if(gap != 400 && botTeethEdge < bounds.y + bounds.height - 5.0f) {
+                float tw = (mCurrent.teethWidth >= 0.95f) ? bounds.width * 0.6f : teethW;
+                float tx_min = (mCurrent.teethWidth >= 0.95f) ? bounds.x : cx - tw;
+                float tx_max = (mCurrent.teethWidth >= 0.95f) ? bounds.x + bounds.width : cx + tw;
+                botTeethPoly = { {tx_min, botTeethEdge}, {tx_max, botTeethEdge}, {tx_max, bounds.y + bounds.height}, {tx_min, bounds.y + bounds.height} };
+            }
+        }
+    }
+
+    // ----------------------------------------------------
+    // DRAWING
+    // ----------------------------------------------------
+    void Draw(Vector2 eyeCenter, Vector2 mouthCenter, EyeParams eP, Color eyeColor) {
+        // Resize Canvas if screen changes
+        if (canvas.texture.width != GetScreenWidth() || canvas.texture.height != GetScreenHeight()) {
+            UnloadRenderTexture(canvas);
+            canvas = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+        }
+
+        // --- RENDER TO CANVAS ---
+        BeginTextureMode(canvas);
+            ClearBackground(BLANK);
+            
+            // 1. Draw Eyes (Stacked)
+            DrawEyesCombined(eyeCenter, eP, eyeColor);
+            
+            // 2. Draw Mouth
+            // Mouth renders directly into the texture. We must handle its position manually
+            // since it calculates geometry around a local origin (GEO_SIZE/2).
+            rlSetTexture(0); // Ensure clean state
+            DrawMouthInternal(mouthCenter);
+
+        EndTextureMode();
+
+        // --- FINAL COMPOSITE ---
+        BeginShaderMode(shPixel.shader);
+            float pixelSize = eP.pixelation;
+            float renderSize[2] = { (float)canvas.texture.width, (float)canvas.texture.height };
+            SetShaderValue(shPixel.shader, shPixel.locs.locPixelSize, &pixelSize, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shPixel.shader, shPixel.locs.locRenderSize, renderSize, SHADER_UNIFORM_VEC2);
+
+            Rectangle src = { 0, 0, (float)canvas.texture.width, -(float)canvas.texture.height };
+            Rectangle dest = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+            DrawTexturePro(canvas.texture, src, dest, {0,0}, 0.0f, WHITE);
+        EndShaderMode();
+    }
+
+    // --- Eye Sub-Routines ---
+    void DrawEyesCombined(Vector2 centerPos, EyeParams p, Color c) {
+        float scaledSize = GlobalScaler.S(Config::REF_EYE_SIZE);
+        float scaledW = scaledSize * Config::EYE_SCALE_FACTOR;
+        float scaledH = scaledSize * Config::EYE_SCALE_FACTOR;
+        float scaledHeightOffset = GlobalScaler.S(Config::EYE_HEIGHT_OFFSET);
+        float scaledSpacing = GlobalScaler.S(p.spacing);
+
+        rlPushMatrix();
+        if(fabsf(p.angle) > 0.01f) {
+            rlTranslatef(centerPos.x, centerPos.y, 0);
+            rlRotatef(p.angle, 0, 0, 1);
+            rlTranslatef(-centerPos.x, -centerPos.y, 0);
+        }   
+
+        Rectangle leftRect = { centerPos.x - (scaledSpacing * 0.5f) - (scaledW * 0.5f), centerPos.y - scaledHeightOffset - (scaledH * 0.5f), scaledW, scaledH };
+        Rectangle rightRect = { centerPos.x + (scaledSpacing * 0.5f) - (scaledW * 0.5f), centerPos.y - scaledHeightOffset - (scaledH * 0.5f), scaledW, scaledH };
+
+        // Color Overrides
+        bool isStar = (p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5);
+        bool isHeart = (p.eyeShapeID > 4.5 && p.eyeShapeID < 5.5);
+        if (isStar) c = COL_STAR; else if (isHeart) c = COL_HEART;
+
+        EyeParams leftP = p; leftP.browSide = -1.0f; leftP.eyeSide = 1.0f;
+        DrawSingleEyeStack(leftRect, leftP, c);
+
+        EyeParams rightP = p; rightP.browSide = 1.0f; rightP.eyeSide = -1.0f;
+        DrawSingleEyeStack(rightRect, rightP, c);
+        rlPopMatrix();
+    }
+
+    void DrawSingleEyeStack(Rectangle rect, EyeParams p, Color c) {
+        Vector2 originalRes = { rect.width, rect.height };
+        
+        // Physics Transform
+        Rectangle eyeRect = rect;
+        eyeRect.x += GlobalScaler.S(sLookX.val);
+        eyeRect.y += GlobalScaler.S(sLookY.val);
+        
+        float oldW = eyeRect.width, oldH = eyeRect.height;
+        eyeRect.width *= sScaleX.val; eyeRect.height *= sScaleY.val;
+        eyeRect.x += (oldW - eyeRect.width) * 0.5f; eyeRect.y += (oldH - eyeRect.height) * 0.5f;
+
+        if(p.eyeShapeID>=12.0f) eyeRect.height *= 2.0f; // Special handling for "::" eyes
+
+        if(p.tearsLevel < 0.4f) {
+            DrawEyeLayer(eyeRect, originalRes, p, c);
+            DrawTearsAndBlush(eyeRect, p);
+            DrawBrows(eyeRect, rect, p);
+        } else {
+            DrawTearsAndBlush(eyeRect, p);
+            DrawEyeLayer(eyeRect, originalRes, p, c);
+            DrawBrows(eyeRect, rect, p);
+        }
+    }
+
+    void DrawEyeLayer(Rectangle rect, Vector2 originalRes, EyeParams p, Color color) {
+        rlSetTexture(0);
+        BeginShaderMode(shEye.shader);
+        SetCommonUniforms(shEye.shader, shEye.locs.resolution, shEye.locs.time, shEye.locs.color, {0,0,originalRes.x, originalRes.y}, color);
+        
+        float scaledThick = GlobalScaler.S(p.eyeThickness);
+        float finalShape = (blinkPhase == 2) ? 1.0f : p.eyeShapeID;
+        SetShaderValue(shEye.shader, shEye.locs.shape, &finalShape, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.bend, &p.bend, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.spiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.distort, &p.distortMode, SHADER_UNIFORM_INT);
+        SetShaderValue(shEye.shader, shEye.locs.stress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.gloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.squareness, &p.squareness, SHADER_UNIFORM_FLOAT);
+        DrawQuad(rect, color);
+        EndShaderMode();
+        if(debugBoxes) DrawRectangleLinesEx(rect, 1, RED);
+    }
+
+    void DrawBrows(Rectangle eyeRect, Rectangle originalRect, EyeParams p) {
+        if (!p.showBrow) return;
+        Rectangle browRect = originalRect;
+        browRect.width  = originalRect.width * 2.0f * p.browScale * p.eyebrowLength; 
+        browRect.height = originalRect.height * 0.5f * p.browScale;
+        browRect.x = originalRect.x + GlobalScaler.S(sLookX.val);
+        browRect.y = originalRect.y + GlobalScaler.S(sLookY.val) - (originalRect.height * 0.5f);
+        browRect.x += (originalRect.width - browRect.width) * 0.5f;
+        browRect.y += (originalRect.height - browRect.height) * 0.5f;
+        browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) + (GlobalScaler.S(p.eyebrowSpacing * 20.0f) * p.browSide);
+        browRect.y += GlobalScaler.S(p.eyebrowY * 20.0f);
+
+        rlSetTexture(0);
+        BeginShaderMode(shBrow.shader);
+        SetCommonUniforms(shBrow.shader, shBrow.locs.resolution, -1, shBrow.locs.color, browRect, BLACK);
+        float scaledThick = GlobalScaler.S(p.eyebrowThickness);
+        SetShaderValue(shBrow.shader, shBrow.locs.bend, &p.browBend, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.browLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.side, &p.browSide, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.browAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shBrow.shader, shBrow.locs.browBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
+        DrawQuad(browRect, BLACK);
+        EndShaderMode();
+
+        // Lower Brow
+        if (p.useLowerBrow) {
+             // Logic simplified for brevity but preserves original transform
+            EyeParams lowerP = p; lowerP.eyebrowY = 0.0f; lowerP.bend = -p.bend;
+            lowerP.eyebrowLength = 1.37f; lowerP.eyebrowThickness = 7.15f;
+            Rectangle lowerRect = eyeRect;
+            lowerRect.width  = eyeRect.width * 2.5f * p.browScale * lowerP.eyebrowLength;
+            lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
+            lowerRect.x = eyeRect.x + (eyeRect.width - lowerRect.width) * 0.5f;
+            lowerRect.y = (eyeRect.y + eyeRect.height * 0.5f + eyeRect.height * 0.5f) - (lowerRect.height * 0.53f) - eyeRect.height * 0.3f;
+            lowerRect.x += GlobalScaler.S(48.6235f);
+
+            rlSetTexture(0);
+            BeginShaderMode(shBrow.shader);
+            SetCommonUniforms(shBrow.shader, shBrow.locs.resolution, -1, shBrow.locs.color, lowerRect, BLACK);
+            float lThick = GlobalScaler.S(lowerP.eyebrowThickness);
+            SetShaderValue(shBrow.shader, shBrow.locs.bend, &lowerP.browBend, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow.shader, shBrow.locs.thickness, &lThick, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow.shader, shBrow.locs.browLen, &lowerP.eyebrowLength, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow.shader, shBrow.locs.side, &p.browSide, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow.shader, shBrow.locs.browAngle, &p.browAngle, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shBrow.shader, shBrow.locs.browBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
+            DrawQuad(lowerRect, BLACK);
             EndShaderMode();
         }
-    };
-}
+    }
+
+    void DrawTearsAndBlush(Rectangle eyeRect, EyeParams p) {
+        if (!p.showTears && !p.showBlush) return;
+        
+        if (p.showTears) {
+            float tearWidth = eyeRect.width + GlobalScaler.S(130.0f);
+            Rectangle tearRect = { eyeRect.x + (eyeRect.width * 0.5f) - (tearWidth * 0.5f), eyeRect.y + (eyeRect.height * 0.5f) - 5.0f, tearWidth, (float)GetScreenHeight() };
+            DrawTearLayer(tearRect, p, false);
+        }
+        if (p.showBlush) {
+            float blushSize = eyeRect.width * 0.6f * p.blushScale;
+            float cx = eyeRect.x + (eyeRect.width * 0.5f) + (GlobalScaler.S(150.0f) * -p.eyeSide) + GlobalScaler.S(p.blushX * 20.0f) + (GlobalScaler.S(p.blushSpacing * 10.0f) * -p.eyeSide);
+            float cy = eyeRect.y + (eyeRect.height * 0.5f) + GlobalScaler.S(200.0f) + GlobalScaler.S(p.blushY * 20.0f);
+            Rectangle blushRect = { cx - (blushSize * 0.5f), cy - (blushSize * 0.5f), blushSize, blushSize };
+            DrawTearLayer(blushRect, p, true);
+        }
+    }
+
+    void DrawTearLayer(Rectangle rect, EyeParams p, bool isBlush) {
+        rlSetTexture(0);
+        BeginShaderMode(shTears.shader);
+        SetCommonUniforms(shTears.shader, shTears.locs.resolution, shTears.locs.time, -1, rect, WHITE);
+        int blushToggle = isBlush ? 1 : 0;
+        int showBlush = (isBlush && p.showBlush) ? 1 : (p.showBlush ? 1 : 0); // Logic preserve
+        float pink[4] = { COL_BLUSH.r/255.0f, COL_BLUSH.g/255.0f, COL_BLUSH.b/255.0f, COL_BLUSH.a/255.0f };
+        float blue[4] = { COL_TEAR.r/255.0f, COL_TEAR.g/255.0f, COL_TEAR.b/255.0f, COL_TEAR.a/255.0f };
+        SetShaderValue(shTears.shader, shTears.locs.scale, &currentGlobalScale, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shTears.shader, shTears.locs.tearLevel, &p.tearsLevel, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shTears.shader, shTears.locs.blushMode, &p.blushMode, SHADER_UNIFORM_INT);
+        SetShaderValue(shTears.shader, shTears.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shTears.shader, shTears.locs.showBlush, &showBlush, SHADER_UNIFORM_INT);
+        SetShaderValue(shTears.shader, shTears.locs.blushCol, pink, SHADER_UNIFORM_VEC4);
+        SetShaderValue(shTears.shader, shTears.locs.tearCol, blue, SHADER_UNIFORM_VEC4);
+        DrawQuad(rect, WHITE);
+        EndShaderMode();
+    }
+
+    // --- Mouth Sub-Routines ---
+    void DrawMouthInternal(Vector2 centerPos) {
+        if (mouthContour.empty()) return;
+
+        const float paddingPx = 8.0f; 
+        // [UNIFICATION] Scale factor now integrates GlobalScaler
+        float unitScale = (256.0f / MOUTH_GEO_SIZE) * mCurrent.scale * GlobalScaler.scale; 
+        if (unitScale < 0.0001f) unitScale = 0.0001f;
+
+        Rectangle boundsPhys = MathUtils::GetBoundingBox(mouthContour);
+        float paddingPhys = paddingPx / unitScale;
+        boundsPhys.x -= paddingPhys; boundsPhys.y -= paddingPhys;
+        boundsPhys.width += paddingPhys * 2.0f; boundsPhys.height += paddingPhys * 2.0f;
+
+        // Origin logic from Mouth: Center of GEO_SIZE maps to centerPos
+        float physRefLeft = centerPos.x - (MOUTH_GEO_SIZE * 0.5f * unitScale);
+        float physRefTop  = centerPos.y - (MOUTH_GEO_SIZE * 0.5f * unitScale);
+        
+        Rectangle screenRect = {
+            physRefLeft + (boundsPhys.x * unitScale),
+            physRefTop  + (boundsPhys.y * unitScale),
+            boundsPhys.width * unitScale,
+            boundsPhys.height * unitScale
+        };
+
+        const int MAX_PTS = 64;
+        float flatMouth[MAX_PTS * 2], flatTop[MAX_PTS * 2], flatBot[MAX_PTS * 2], flatTongue[MAX_PTS * 2];
+        int cntMouth=0, cntTop=0, cntBot=0, cntTongue=0;
+        Vector2 offset = {boundsPhys.x, boundsPhys.y};
+        
+        MathUtils::ResamplePoly(mouthContour, flatMouth, MAX_PTS, cntMouth, unitScale, offset, true);
+        MathUtils::ResamplePoly(topTeethPoly, flatTop, MAX_PTS, cntTop, unitScale, offset, true);
+        MathUtils::ResamplePoly(botTeethPoly, flatBot, MAX_PTS, cntBot, unitScale, offset, true);
+        MathUtils::ResamplePoly(tonguePoly, flatTongue, MAX_PTS, cntTongue, unitScale, offset, true);
+
+        BeginShaderMode(shMouth.shader);
+            SetShaderValueV(shMouth.shader, shMouth.locs.mouthPts, flatMouth, SHADER_UNIFORM_VEC2, MAX_PTS);
+            SetShaderValue(shMouth.shader, shMouth.locs.mouthCnt, &cntMouth, SHADER_UNIFORM_INT);
+            SetShaderValueV(shMouth.shader, shMouth.locs.topPts, flatTop, SHADER_UNIFORM_VEC2, MAX_PTS);
+            SetShaderValue(shMouth.shader, shMouth.locs.topCnt, &cntTop, SHADER_UNIFORM_INT);
+            SetShaderValueV(shMouth.shader, shMouth.locs.botPts, flatBot, SHADER_UNIFORM_VEC2, MAX_PTS);
+            SetShaderValue(shMouth.shader, shMouth.locs.botCnt, &cntBot, SHADER_UNIFORM_INT);
+            SetShaderValueV(shMouth.shader, shMouth.locs.tonguePts, flatTongue, SHADER_UNIFORM_VEC2, MAX_PTS);
+            SetShaderValue(shMouth.shader, shMouth.locs.tongueCnt, &cntTongue, SHADER_UNIFORM_INT);
+            
+            float res[2] = { screenRect.width, screenRect.height };
+            SetShaderValue(shMouth.shader, shMouth.locs.resolution, res, SHADER_UNIFORM_VEC2);
+            SetShaderValue(shMouth.shader, shMouth.locs.padding, &paddingPx, SHADER_UNIFORM_FLOAT);
+            // Combined scale for outline thickness correction
+            float combinedScale = mCurrent.scale * GlobalScaler.scale;
+            SetShaderValue(shMouth.shader, shMouth.locs.scale, &combinedScale, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shMouth.shader, shMouth.locs.outlineThickness, &mCurrent.outlineThickness, SHADER_UNIFORM_FLOAT);
+            
+            Vector4 cBg = MathUtils::ColorNormalize(colMouthBg);
+            Vector4 cLn = MathUtils::ColorNormalize(colMouthLine);
+            Vector4 cTh = MathUtils::ColorNormalize(colMouthTeeth);
+            Vector4 cTg = MathUtils::ColorNormalize(colMouthTongue);
+            
+            SetShaderValue(shMouth.shader, shMouth.locs.colBg, &cBg, SHADER_UNIFORM_VEC4);
+            SetShaderValue(shMouth.shader, shMouth.locs.colLine, &cLn, SHADER_UNIFORM_VEC4);
+            SetShaderValue(shMouth.shader, shMouth.locs.colTeeth, &cTh, SHADER_UNIFORM_VEC4);
+            SetShaderValue(shMouth.shader, shMouth.locs.colTongue, &cTg, SHADER_UNIFORM_VEC4);
+
+            DrawQuad(screenRect, WHITE);
+        EndShaderMode();
+        if(debugBoxes) DrawRectangleLinesEx(screenRect, 1, GREEN);
+    }
+
+    // --- Helpers ---
+    void SetCommonUniforms(Shader shader, int locRes, int locTime, int locCol, Rectangle rect, Color color) {
+        float res[2] = { rect.width, rect.height };
+        float time = (float)GetTime();
+        float colVec[4] = { color.r/255.0f, color.g/255.0f, color.b/255.0f, color.a/255.0f };
+        if (locRes != -1) SetShaderValue(shader, locRes, res, SHADER_UNIFORM_VEC2);
+        if (locTime != -1) SetShaderValue(shader, locTime, &time, SHADER_UNIFORM_FLOAT);
+        if (locCol != -1) SetShaderValue(shader, locCol, colVec, SHADER_UNIFORM_VEC4);
+    }
+
+    void DrawQuad(Rectangle rect, Color color) {
+        rlBegin(RL_QUADS);
+            rlColor4ub(color.r, color.g, color.b, color.a);
+            rlTexCoord2f(0.0f, 0.0f); rlVertex2f(rect.x, rect.y);
+            rlTexCoord2f(0.0f, 1.0f); rlVertex2f(rect.x, rect.y + rect.height);
+            rlTexCoord2f(1.0f, 1.0f); rlVertex2f(rect.x + rect.width, rect.y + rect.height);
+            rlTexCoord2f(1.0f, 0.0f); rlVertex2f(rect.x + rect.width, rect.y);
+        rlEnd();
+    }
+
+    void CheckHotReload() {
+        long t1 = shEye.lastModTime; long t2 = shBrow.lastModTime; long t3 = shTears.lastModTime; long t4 = shMouth.lastModTime;
+        shEye.ReloadIfChanged();   if (shEye.lastModTime > t1) RefreshLocEye();
+        shBrow.ReloadIfChanged();  if (shBrow.lastModTime > t2) RefreshLocBrow();
+        shTears.ReloadIfChanged(); if (shTears.lastModTime > t3) RefreshLocTear();
+        shMouth.ReloadIfChanged(); if (shMouth.lastModTime > t4) RefreshLocMouth();
+        shPixel.ReloadIfChanged(); 
+    }
+
+    // --- Refresh Locations ---
+    void RefreshLocEye() {
+        shEye.locs.resolution = GetShaderLocation(shEye.shader, "uResolution");
+        shEye.locs.time = GetShaderLocation(shEye.shader, "uTime");
+        shEye.locs.color = GetShaderLocation(shEye.shader, "uColor");
+        shEye.locs.shape = GetShaderLocation(shEye.shader, "uShapeID");
+        shEye.locs.bend = GetShaderLocation(shEye.shader, "uBend");
+        shEye.locs.thickness = GetShaderLocation(shEye.shader, "uThickness");
+        shEye.locs.side = GetShaderLocation(shEye.shader, "uEyeSide");
+        shEye.locs.spiral = GetShaderLocation(shEye.shader, "uSpiralSpeed");
+        shEye.locs.distort = GetShaderLocation(shEye.shader, "uDistortMode");
+        shEye.locs.stress = GetShaderLocation(shEye.shader, "uStressLevel");
+        shEye.locs.gloom = GetShaderLocation(shEye.shader, "uGloomLevel");
+        shEye.locs.squareness = GetShaderLocation(shEye.shader, "uSquareness");
+    }
+    void RefreshLocBrow() {
+        shBrow.locs.resolution = GetShaderLocation(shBrow.shader, "uResolution");
+        shBrow.locs.color = GetShaderLocation(shBrow.shader, "uColor");
+        shBrow.locs.bend = GetShaderLocation(shBrow.shader, "uBend");
+        shBrow.locs.thickness = GetShaderLocation(shBrow.shader, "uThickness");
+        shBrow.locs.browLen = GetShaderLocation(shBrow.shader, "uEyeBrowLength");
+        shBrow.locs.side = GetShaderLocation(shBrow.shader, "uBrowSide");
+        shBrow.locs.browAngle = GetShaderLocation(shBrow.shader, "uAngle");
+        shBrow.locs.browBendOffset = GetShaderLocation(shBrow.shader, "uBendOffset");
+    }
+    void RefreshLocTear() {
+        shTears.locs.resolution = GetShaderLocation(shTears.shader, "uResolution");
+        shTears.locs.scale = GetShaderLocation(shTears.shader, "uScale");
+        shTears.locs.time = GetShaderLocation(shTears.shader, "uTime");
+        shTears.locs.tearLevel = GetShaderLocation(shTears.shader, "uTearsLevel");
+        shTears.locs.blushMode = GetShaderLocation(shTears.shader, "uBlushMode");
+        shTears.locs.showBlush = GetShaderLocation(shTears.shader, "uShowBlush");
+        shTears.locs.blushCol = GetShaderLocation(shTears.shader, "uBlushColor");
+        shTears.locs.tearCol = GetShaderLocation(shTears.shader, "uTearColor");
+        shTears.locs.side = GetShaderLocation(shTears.shader, "uSide");
+    }
+    void RefreshLocMouth() {
+        shMouth.locs.mouthPts = GetShaderLocation(shMouth.shader, "uMouthPts");
+        shMouth.locs.mouthCnt = GetShaderLocation(shMouth.shader, "uMouthCount");
+        shMouth.locs.topPts = GetShaderLocation(shMouth.shader, "uTopTeethPts");
+        shMouth.locs.topCnt = GetShaderLocation(shMouth.shader, "uTopTeethCount");
+        shMouth.locs.botPts = GetShaderLocation(shMouth.shader, "uBotTeethPts");
+        shMouth.locs.botCnt = GetShaderLocation(shMouth.shader, "uBotTeethCount");
+        shMouth.locs.tonguePts = GetShaderLocation(shMouth.shader, "uTonguePts");
+        shMouth.locs.tongueCnt = GetShaderLocation(shMouth.shader, "uTongueCount");
+        shMouth.locs.resolution = GetShaderLocation(shMouth.shader, "uResolution");
+        shMouth.locs.padding = GetShaderLocation(shMouth.shader, "uPadding");
+        shMouth.locs.scale = GetShaderLocation(shMouth.shader, "uScale");
+        shMouth.locs.outlineThickness = GetShaderLocation(shMouth.shader, "uOutlineThickness");
+        shMouth.locs.colBg = GetShaderLocation(shMouth.shader, "uColBg");
+        shMouth.locs.colLine = GetShaderLocation(shMouth.shader, "uColLine");
+        shMouth.locs.colTeeth = GetShaderLocation(shMouth.shader, "uColTeeth");
+        shMouth.locs.colTongue = GetShaderLocation(shMouth.shader, "uColTongue");
+    }
+    void RefreshLocPixel() {
+        shPixel.locs.locPixelSize = GetShaderLocation(shPixel.shader, "pixelSize");
+        shPixel.locs.locRenderSize = GetShaderLocation(shPixel.shader, "renderSize");
+    }
+};
