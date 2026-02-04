@@ -7,7 +7,6 @@ uniform vec2 uResolution;
 uniform vec4 uColor; // Typically Black
 
 // --- BROW PARAMS ---
-uniform float uEyebrowType;  // 0=None, 1=Angry, 2=Sad, 3=Raised, 4=TickMark
 uniform float uBend;         // Curve intensity
 uniform float uThickness;    
 uniform float uEyeBrowLength;

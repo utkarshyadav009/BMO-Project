@@ -31,9 +31,12 @@ FetchContent_MakeAvailable(raygui)
 # -----------------------------------------------------------------------------
 # Since FacePoser.cpp includes ParametricMouth.cpp directly, we only list FacePoser here.
 add_executable(BMO_Engine 
-    src/SEyePoser.cpp 
+    src/SFacePoserFinal.cpp 
     src/eyes_es.fs    
     src/brow_es.fs
+    src/tears_es.fs
+    src/mouth_es.fs
+    src/pixelizer_es.fs
 )
 
 # Silence the "enum-compare" warnings from raygui
@@ -87,6 +90,11 @@ add_custom_command(TARGET BMO_Engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/src/tears_es.fs"
     "$<TARGET_FILE_DIR:BMO_Engine>/tears_es.fs"
+
+    # Copy Pixelizer Shader [NEW]
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/pixelizer_es.fs"
+    "$<TARGET_FILE_DIR:BMO_Engine>/pixelizer_es.fs"
 )
 
 

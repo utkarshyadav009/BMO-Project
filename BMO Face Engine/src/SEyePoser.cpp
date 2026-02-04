@@ -166,8 +166,10 @@ struct EyeDatabase {
                            >> e.params.eyeThickness 
                            >> e.params.eyeSide 
                            >> e.params.scaleX 
-                           >> e.params.scaleY 
+                           >> e.params.scaleY
+                           >> e.params.angle 
                            >> e.params.spacing
+                           >> e.params.squareness
 
                            // Surface FX
                            >> e.params.stressLevel 
@@ -182,7 +184,6 @@ struct EyeDatabase {
                            // Eyebrow
                            >> tShowBrow 
                            >> tUseLowerBrow 
-                           >> e.params.eyebrowType 
                            >> e.params.eyebrowThickness 
                            >> e.params.eyebrowLength 
                            >> e.params.eyebrowSpacing
@@ -202,7 +203,10 @@ struct EyeDatabase {
                            >> e.params.blushScale 
                            >> e.params.blushX 
                            >> e.params.blushY 
-                           >> e.params.blushSpacing;
+                           >> e.params.blushSpacing
+
+                           //Pixelation
+                           >> e.params.pixelation;
 
                         // Cast ints back to types
                         e.params.distortMode = tDistortMode;
@@ -241,7 +245,7 @@ struct EyeDatabase {
         newLine << "eyes[\"" << name << "\"] = { "
                 // Main Eye
                 << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, " << p.eyeSide << "f, "
-                << p.scaleX << "f, " << p.scaleY << "f, " << p.spacing << "f, "
+                << p.scaleX << "f, " << p.scaleY << "f, " << p.angle << "f, " << p.spacing << "f, " << p.squareness << "f, "
 
                 // Surface FX
                 << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", " << p.spiralSpeed << "f, "
@@ -251,7 +255,7 @@ struct EyeDatabase {
 
                 // Eyebrow
                 << (int)p.showBrow << ", " << (int)p.useLowerBrow << ", "
-                << p.eyebrowType << "f, " << p.eyebrowThickness << "f, " << p.eyebrowLength << "f, "
+                << p.eyebrowThickness << "f, " << p.eyebrowLength << "f, "
                 << p.eyebrowSpacing << "f, " << p.eyebrowX << "f, " << p.eyebrowY << "f, "
                 << p.browScale << "f, " << p.browSide << "f, " 
                 << p.browAngle << "f, " << p.browBend << "f, " << p.browBendOffset << "f, "
@@ -259,7 +263,10 @@ struct EyeDatabase {
                 // Tears & Blush
                 << (int)p.showTears << ", " << (int)p.showBlush << ", "
                 << p.tearsLevel << "f, " << p.blushMode << ", "
-                << p.blushScale << "f, " << p.blushX << "f, " << p.blushY << "f, " << p.blushSpacing << "f };";
+                << p.blushScale << "f, " << p.blushX << "f, " << p.blushY << "f, " << p.blushSpacing << "f, "
+
+                //pixelation
+                << p.pixelation << "f };"; 
 
         if (infile.is_open()) {
             while (std::getline(infile, line)) {
@@ -333,10 +340,10 @@ void DrawMainSettings(float& y, EyeParams& p) {
 
     // Shape Selector
     int shapeInt = (int)p.eyeShapeID;
-    GuiHelper::Slider("Shape ID", &p.eyeShapeID, 0.0f, 11.0f, y);
+    GuiHelper::Slider("Shape ID", &p.eyeShapeID, 0.0f, 12.0f, y);
     
-    const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked" };
-    if(shapeInt >= 0 && shapeInt <= 10) {
+    const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked", "Teary", "Colon Eyes" };
+    if(shapeInt >= 0 && shapeInt <= 12) {
         GuiLabel({UI::START_X + 10 + UI::LABEL_WIDTH, y - 25, UI::GetSliderWidth(), 20}, shapeNames[shapeInt]);
     }
 
@@ -353,6 +360,9 @@ void DrawMainSettings(float& y, EyeParams& p) {
     GuiHelper::Slider("Spacing", &p.spacing, 0.0f, 1000.0f, y);
     GuiHelper::Slider("Look X", &p.lookX, -300.0f, 300.0f, y);
     GuiHelper::Slider("Look Y", &p.lookY, -300.0f, 300.0f, y);
+    GuiHelper::Slider("Angle", &p.angle, -180.0f, 180.0f, y);
+    GuiHelper::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);
+    GuiHelper::Slider("Pixelation", &p.pixelation,1.0f, 8.0f, y);
     
     y += 20.0f; // Padding bottom
 }
@@ -369,7 +379,6 @@ void DrawElementsPanel(float& y, EyeParams& p) {
 
     if (p.showBrow) {
         GuiLabel({UI::START_X+10, y, 200, 20}, "- BROW SETTINGS -"); y+= 20;
-        GuiHelper::Slider("Type", &p.eyebrowType, 0, 4, y);
         GuiHelper::Slider("Thick", &p.eyebrowThickness, 1, 20, y);
         GuiHelper::Slider("Len", &p.eyebrowLength, 0.5f, 2.0f, y);
         GuiHelper::Slider("Spacing", &p.eyebrowSpacing, -100.0f, 100.0f, y);
@@ -396,10 +405,12 @@ void DrawElementsPanel(float& y, EyeParams& p) {
         GuiHelper::Slider("Pos Y", &p.blushY, -10.0f, 10.0f, y);
         GuiHelper::Slider("Space", &p.blushSpacing, -100.0f, 100.0f, y);
 
-        GuiLabel({UI::START_X+10, y, UI::LABEL_WIDTH, 20}, "Color");
-        if (GuiButton({UI::START_X+10+UI::LABEL_WIDTH, y, 80, 20}, p.blushMode == 0 ? "Pink" : "Green")) {
-            p.blushMode = !p.blushMode;
+        GuiLabel({UI::START_X+10, y, UI::LABEL_WIDTH, 20}, "Blush Mode");
+        //Adding button to toggle between 3 modes 
+        if(GuiButton({UI::START_X+10+UI::LABEL_WIDTH,  y, 80, 20}, p.blushMode == 0 ? "Pink" : (p.blushMode == 1 ? "Green" : "Yellow"))) {
+            p.blushMode = (p.blushMode + 1) % 3;
         }
+        std::cout << "Blush Mode: " << p.blushMode << std::endl;
         y += 25;
         y += 10;
     }

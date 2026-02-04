@@ -19,6 +19,7 @@ namespace Config {
     const char* SHADER_EYE   = "eyes_es.fs";
     const char* SHADER_BROW  = "brow_es.fs";
     const char* SHADER_TEAR  = "tears_es.fs";
+    const char* SHADER_PIXELIZER = "pixelizer_es.fs";
     const char* SHADER_DIR   = "src/";
 
     // Animation & Physics
@@ -63,7 +64,9 @@ struct EyeParams {
     float eyeSide = 0.0f;
     float scaleX = 1.0f;
     float scaleY = 1.0f;
+    float angle = 0.0f;
     float spacing = 612.0f;
+    float squareness = 0.0f;
 
     // --- Eye Surface FX ---
     float stressLevel = 0.0f;    // 0-1: Angry lines
@@ -78,7 +81,6 @@ struct EyeParams {
     // --- Eyebrow ---
     bool showBrow = false;
     bool useLowerBrow = false;
-    float eyebrowType = 0.0f;
     float eyebrowThickness = 4.0f;
     float eyebrowLength = 1.0f;
     float eyebrowSpacing = 0.0f;    
@@ -99,6 +101,9 @@ struct EyeParams {
     float blushX = 0.0f;
     float blushY = 0.0f;
     float blushSpacing = 0.0f;
+
+    //Pixelizer 
+    float pixelation = 1.0f;
 };
 
 // --------------------------------------------------------
@@ -115,11 +120,14 @@ struct ShaderAsset {
         // Layer-specific uniforms stored in a generic way or specific map could be used,
         // but keeping it flat for simplicity in C++ struct mirroring.
         // Eye
-        int shape, bend, thickness, side, spiral, distort, stress, gloom;
+        int shape, bend, thickness, side, spiral, distort, stress, gloom, squareness;
         // Brow
-        int browType, browLen, browY, browAngle, browBendOffset;
+        int browLen, browY, browAngle, browBendOffset;
         // Tears
         int scale, tearLevel, blushMode, showBlush, blushCol, tearCol;
+
+        //Pixel Locations
+        int locPixelSize, locRenderSize;
     } locs;
 
     void Load(const char* filename, const char* dir) {
@@ -162,6 +170,10 @@ struct ParametricEyes {
     ShaderAsset shEye;
     ShaderAsset shBrow;
     ShaderAsset shTears;
+    ShaderAsset shPixel;
+
+    //rendering target
+    RenderTexture2D canvas;
 
     // Colors
     const Color COL_STAR   = { 255, 184, 0, 255 };
@@ -199,12 +211,20 @@ struct ParametricEyes {
 
         shTears.Load(Config::SHADER_TEAR, Config::SHADER_DIR);
         RefreshLocationsTear();
+
+        shPixel.Load(Config::SHADER_PIXELIZER, Config::SHADER_DIR);
+        RefreshLocationsPixel();
+
+        // Create Render Target
+        canvas = LoadRenderTexture(GetScreenHeight(), GetScreenHeight());
     }
 
     void Unload() {
         shEye.Unload();
         shBrow.Unload();
         shTears.Unload();
+        shPixel.Unload();
+        UnloadRenderTexture(canvas);
     }
 
     // ----------------------------------------------------
@@ -336,6 +356,7 @@ struct ParametricEyes {
         SetShaderValue(shEye.shader, shEye.locs.distort, &p.distortMode, SHADER_UNIFORM_INT);
         SetShaderValue(shEye.shader, shEye.locs.stress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.gloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.squareness, &p.squareness, SHADER_UNIFORM_FLOAT);
 
         DrawQuad(rect, color);
         EndShaderMode();
@@ -350,7 +371,6 @@ struct ParametricEyes {
 
         float scaledThick = GlobalScaler.S(p.eyebrowThickness);
         
-        SetShaderValue(shBrow.shader, shBrow.locs.browType, &p.eyebrowType, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shBrow.shader, shBrow.locs.bend, &p.browBend, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shBrow.shader, shBrow.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shBrow.shader, shBrow.locs.browLen, &p.eyebrowLength, SHADER_UNIFORM_FLOAT);
@@ -511,6 +531,13 @@ struct ParametricEyes {
         eyeRect.x += (oldW - eyeRect.width) * 0.5f;
         eyeRect.y += (oldH - eyeRect.height) * 0.5f;
 
+        //Increase eyerect lengthe at the bottom for :: eyes 
+        if(p.eyeShapeID>=12.0f)
+        {
+            //Increasing height and moving up a bit
+            eyeRect.height *= 2.0f;
+        }
+
         // 2. Render Order
         if(p.tearsLevel<0.4f)
         {
@@ -524,47 +551,83 @@ struct ParametricEyes {
             DrawEyeLayer(eyeRect, originalRes, p, c);
             DrawBrows(eyeRect, rect, p);
         }
+
+        
         
     }
 
     void Draw(Vector2 centerPos, EyeParams p, Color c) {
-        float scaledSize = GlobalScaler.S(Config::REF_EYE_SIZE);
-        float scaledW = scaledSize * Config::EYE_SCALE_FACTOR;
-        float scaledH = scaledSize * Config::EYE_SCALE_FACTOR;
-        float scaledHeightOffset = GlobalScaler.S(Config::EYE_HEIGHT_OFFSET);
-        float scaledSpacing = GlobalScaler.S(p.spacing);
-
-        Rectangle leftRect = { 
-            centerPos.x - (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
-            centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
-            scaledW, scaledH 
-        };
-
-        Rectangle rightRect = { 
-            centerPos.x + (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
-            centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
-            scaledW, scaledH 
-        };
-
-        // Color Overrides
-        // Star Eyes (Gold) or Heart Eyes (Red)
-        bool isStar = (p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5);
-        bool isHeart = (p.eyeShapeID > 4.5 && p.eyeShapeID < 5.5);
         
-        if (isStar) c = COL_STAR;
-        else if (isHeart) c = COL_HEART;
+        // 1. Resize Canvas if needed
+        if (canvas.texture.width != GetScreenWidth() || canvas.texture.height != GetScreenHeight()) {
+            UnloadRenderTexture(canvas);
+            canvas = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+        }
 
-        // Draw Left
-        EyeParams leftParams = p;
-        leftParams.browSide = -1.0f;
-        leftParams.eyeSide = 1.0f;
-        DrawSingleEyeStack(leftRect, leftParams, c);
-        
-        // Draw Right
-        EyeParams rightParams = p;
-        rightParams.browSide = 1.0f;
-        rightParams.eyeSide = -1.0f;
-        DrawSingleEyeStack(rightRect, rightParams, c);
+        BeginTextureMode(canvas);
+            ClearBackground(BLANK);
+
+            float scaledSize = GlobalScaler.S(Config::REF_EYE_SIZE);
+            float scaledW = scaledSize * Config::EYE_SCALE_FACTOR;
+            float scaledH = scaledSize * Config::EYE_SCALE_FACTOR;
+            float scaledHeightOffset = GlobalScaler.S(Config::EYE_HEIGHT_OFFSET);
+            float scaledSpacing = GlobalScaler.S(p.spacing);
+
+            //Rotating the Stack 
+            rlPushMatrix();
+            if(fabsf(p.angle) > 0.01f)
+            {
+                rlTranslatef(centerPos.x, centerPos.y, 0);
+                rlRotatef(p.angle, 0, 0, 1);
+                rlTranslatef(-centerPos.x, -centerPos.y, 0);
+            }   
+
+            Rectangle leftRect = { 
+                centerPos.x - (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
+                centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
+                scaledW, scaledH 
+            };
+
+            Rectangle rightRect = { 
+                centerPos.x + (scaledSpacing * 0.5f) - (scaledW * 0.5f), 
+                centerPos.y - scaledHeightOffset - (scaledH * 0.5f), 
+                scaledW, scaledH 
+            };
+
+            // Color Overrides
+            // Star Eyes (Gold) or Heart Eyes (Red)
+            bool isStar = (p.eyeShapeID > 3.5 && p.eyeShapeID < 4.5) || (p.eyeShapeID > 7.5 && p.eyeShapeID < 8.5);
+            bool isHeart = (p.eyeShapeID > 4.5 && p.eyeShapeID < 5.5);
+
+            if (isStar) c = COL_STAR;
+            else if (isHeart) c = COL_HEART;
+
+            // Draw Left
+            EyeParams leftParams = p;
+            leftParams.browSide = -1.0f;
+            leftParams.eyeSide = 1.0f;
+            DrawSingleEyeStack(leftRect, leftParams, c);
+
+            // Draw Right
+            EyeParams rightParams = p;
+            rightParams.browSide = 1.0f;
+            rightParams.eyeSide = -1.0f;
+            DrawSingleEyeStack(rightRect, rightParams, c);
+            rlPopMatrix();
+
+        EndTextureMode();
+
+        BeginShaderMode(shPixel.shader);
+            float pixelSize = p.pixelation;
+            float renderSize[2] = { (float)canvas.texture.width, (float)canvas.texture.height };
+            SetShaderValue(shPixel.shader, shPixel.locs.locPixelSize, &pixelSize, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shPixel.shader, shPixel.locs.locRenderSize, renderSize, SHADER_UNIFORM_VEC2);
+
+            Rectangle src = { 0, 0, (float)canvas.texture.width, -(float)canvas.texture.height };
+            Rectangle dest = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+            DrawTexturePro(canvas.texture, src, dest, {0,0}, 0.0f, WHITE);
+        EndShaderMode();
+            
     }
 
     // ----------------------------------------------------
@@ -582,12 +645,12 @@ struct ParametricEyes {
         shEye.locs.distort    = GetShaderLocation(shEye.shader, "uDistortMode");
         shEye.locs.stress     = GetShaderLocation(shEye.shader, "uStressLevel");
         shEye.locs.gloom      = GetShaderLocation(shEye.shader, "uGloomLevel");
+        shEye.locs.squareness = GetShaderLocation(shEye.shader, "uSquareness");
     }
 
     void RefreshLocationsBrow() {
         shBrow.locs.resolution     = GetShaderLocation(shBrow.shader, "uResolution");
         shBrow.locs.color          = GetShaderLocation(shBrow.shader, "uColor");
-        shBrow.locs.browType       = GetShaderLocation(shBrow.shader, "uEyebrowType");
         shBrow.locs.bend           = GetShaderLocation(shBrow.shader, "uBend");
         shBrow.locs.thickness      = GetShaderLocation(shBrow.shader, "uThickness");
         shBrow.locs.browLen        = GetShaderLocation(shBrow.shader, "uEyeBrowLength");
@@ -606,6 +669,11 @@ struct ParametricEyes {
         shTears.locs.blushCol   = GetShaderLocation(shTears.shader, "uBlushColor");
         shTears.locs.tearCol    = GetShaderLocation(shTears.shader, "uTearColor");
         shTears.locs.side       = GetShaderLocation(shTears.shader, "uSide");
+    }
+
+    void RefreshLocationsPixel() {
+        shPixel.locs.locPixelSize = GetShaderLocation(shPixel.shader, "pixelSize");
+        shPixel.locs.locRenderSize = GetShaderLocation(shPixel.shader, "renderSize");
     }
 
     void CheckHotReload() {
