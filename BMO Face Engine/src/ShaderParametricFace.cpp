@@ -192,7 +192,7 @@ struct ShaderAsset {
         // Mouth
         int mouthPts, mouthCnt, topPts, topCnt, botPts, botCnt, tonguePts, tongueCnt;
         int padding, outlineThickness;
-        int colBg, colLine, colTeeth, colTongue;
+        int colBg, colLine, colTeeth, colTongue, stressLines;
         // Pixel
         int locPixelSize, locRenderSize;
     } locs;
@@ -266,6 +266,7 @@ struct MouthParams {
     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
     float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
     float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
+    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f;
 };
 
 // --------------------------------------------------------
@@ -439,6 +440,9 @@ struct FaceSystem {
         Upd(mCurrent.teethGap,   mVelocity.teethGap,   target.teethGap);
         Upd(mCurrent.scale,     mVelocity.scale,     Clamp(target.scale, 0.5f, 4.0f));
         Upd(mCurrent.outlineThickness, mVelocity.outlineThickness, target.outlineThickness);
+        Upd(mCurrent.lookX, mVelocity.lookX, target.lookX); 
+        Upd(mCurrent.lookY, mVelocity.lookY, target.lookY);
+        Upd(mCurrent.stressLines, mVelocity.stressLines, target.stressLines);
         
         GenerateMouthGeometry();
     }
@@ -564,7 +568,14 @@ struct FaceSystem {
             // Mouth renders directly into the texture. We must handle its position manually
             // since it calculates geometry around a local origin (GEO_SIZE/2).
             rlSetTexture(0); // Ensure clean state
-            DrawMouthInternal(mouthCenter);
+            rlPushMatrix();
+                if(fabsf(eP.angle) > 0.01f) {
+                    rlTranslatef(eyeCenter.x, eyeCenter.y, 0);
+                    rlRotatef(eP.angle, 0, 0, 1);
+                    rlTranslatef(-eyeCenter.x, -eyeCenter.y, 0);
+                }  
+                DrawMouthInternal(mouthCenter);
+            rlPopMatrix();
 
         EndTextureMode();
 
@@ -750,10 +761,21 @@ struct FaceSystem {
     void DrawMouthInternal(Vector2 centerPos) {
         if (mouthContour.empty()) return;
 
-        const float paddingPx = 8.0f; 
+        float basePadding = 20.0f;
+
+        // 2. Extra padding for the stress lines (cheeks)
+        // We scale this by mCurrent.scale so the box grows when the mouth grows.
+        // 120.0f is the rough radius of the stress lines from the center.
+        float stressPadding = 50.0f * mCurrent.scale; 
+
+        // 3. Total dynamic padding
+        const float paddingPx = basePadding + stressPadding;
         // [UNIFICATION] Scale factor now integrates GlobalScaler
         float unitScale = (256.0f / MOUTH_GEO_SIZE) * mCurrent.scale * GlobalScaler.scale; 
         if (unitScale < 0.0001f) unitScale = 0.0001f;
+
+        float offsetX = GlobalScaler.S(mCurrent.lookX);
+        float offsetY = GlobalScaler.S(mCurrent.lookY);
 
         Rectangle boundsPhys = MathUtils::GetBoundingBox(mouthContour);
         float paddingPhys = paddingPx / unitScale;
@@ -761,8 +783,8 @@ struct FaceSystem {
         boundsPhys.width += paddingPhys * 2.0f; boundsPhys.height += paddingPhys * 2.0f;
 
         // Origin logic from Mouth: Center of GEO_SIZE maps to centerPos
-        float physRefLeft = centerPos.x - (MOUTH_GEO_SIZE * 0.5f * unitScale);
-        float physRefTop  = centerPos.y - (MOUTH_GEO_SIZE * 0.5f * unitScale);
+        float physRefLeft = centerPos.x - (MOUTH_GEO_SIZE * 0.5f * unitScale) + offsetX;
+        float physRefTop  = centerPos.y - (MOUTH_GEO_SIZE * 0.5f * unitScale) + offsetY;
         
         Rectangle screenRect = {
             physRefLeft + (boundsPhys.x * unitScale),
@@ -808,6 +830,7 @@ struct FaceSystem {
             SetShaderValue(shMouth.shader, shMouth.locs.colLine, &cLn, SHADER_UNIFORM_VEC4);
             SetShaderValue(shMouth.shader, shMouth.locs.colTeeth, &cTh, SHADER_UNIFORM_VEC4);
             SetShaderValue(shMouth.shader, shMouth.locs.colTongue, &cTg, SHADER_UNIFORM_VEC4);
+            SetShaderValue(shMouth.shader, shMouth.locs.stressLines, &mCurrent.stressLines, SHADER_UNIFORM_FLOAT);
 
             DrawQuad(screenRect, WHITE);
         EndShaderMode();
@@ -896,6 +919,7 @@ struct FaceSystem {
         shMouth.locs.colLine = GetShaderLocation(shMouth.shader, "uColLine");
         shMouth.locs.colTeeth = GetShaderLocation(shMouth.shader, "uColTeeth");
         shMouth.locs.colTongue = GetShaderLocation(shMouth.shader, "uColTongue");
+        shMouth.locs.stressLines = GetShaderLocation(shMouth.shader, "uStressLines");
     }
     void RefreshLocPixel() {
         shPixel.locs.locPixelSize = GetShaderLocation(shPixel.shader, "pixelSize");

@@ -252,6 +252,10 @@ struct FaceDatabase {
                     if (v.size() > idx) mp.sigma = v[idx++];
                     if (v.size() > idx) mp.power = v[idx++];
                     if (v.size() > idx) mp.maxLiftValue = v[idx++];
+                    if (v.size() > idx) mp.lookX = v[idx++];
+                    if (v.size() > idx) mp.lookY = v[idx++];
+                    if (v.size() > idx) mp.stressLines = v[idx++];
+
 
                     entries.push_back(e);
                 }
@@ -295,7 +299,8 @@ struct FaceDatabase {
         ss << m.open << "f, " << m.width << "f, " << m.curve << "f, " << m.squeezeTop << "f, " << m.squeezeBottom << "f, "
            << m.teethY << "f, " << m.tongueUp << "f, " << m.tongueX << "f, " << m.tongueWidth << "f, "
            << m.asymmetry << "f, " << m.squareness << "f, " << m.teethWidth << "f, " << m.teethGap << "f, "
-           << m.scale << "f, " << m.outlineThickness << "f, " << m.sigma << "f, " << m.power << "f, " << m.maxLiftValue << "f };";
+           << m.scale << "f, " << m.outlineThickness << "f, " << m.sigma << "f, " << m.power << "f, " << m.maxLiftValue 
+           << m.lookX << "f, " << m.lookY << "f, "<< m.stressLines << "f };";
 
         std::string newLine = ss.str();
 
@@ -413,7 +418,9 @@ void DrawEyeControls(float& y, EyeParams& p) {
 
 void DrawMouthControls(float& y, MouthParams& p) {
     GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "MOUTH SETTINGS"); y += 20.0f;
-    UI::Slider("Scale", &p.scale, 0.5f, 4.0f, y);
+    UI::Slider("Scale", &p.scale, 0.5f, 6.0f, y);
+    UI::Slider("Look X", &p.lookX, -250.0f, 250.0f, y);
+    UI::Slider("Look Y", &p.lookY, -250.0f, 250.0f, y);
     UI::Slider("Outline", &p.outlineThickness, 1.f, 4.0f, y); y += 10;
     UI::Slider("Open", &p.open, 0.0f, 1.2f, y); UI::Slider("Width", &p.width, 0.1f, 1.5f, y);
     UI::Slider("Curve", &p.curve, -2.0f, 2.0f, y); y += 10;
@@ -425,6 +432,7 @@ void DrawMouthControls(float& y, MouthParams& p) {
     UI::Slider("Tongue Up", &p.tongueUp, 0.0f, 1.0f, y); UI::Slider("Tongue W", &p.tongueWidth, 0.3f, 1.0f, y);
     UI::Slider("Tongue X", &p.tongueX, -1.0f, 1.0f, y); y += 10;
     UI::Slider("Asymmetry", &p.asymmetry, -1.0f, 1.0f, y); UI::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);
+    UI::Slider("Stress Lns", &p.stressLines, 0.0f, 1.0f, y);
 }
 
 // ---------------------------------------------------------
