@@ -126,6 +126,8 @@ if %errorlevel% neq 0 goto :cmEnd
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/tears_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/Debug/tears_es.fs"
 if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/pixelizer_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/Debug/pixelizer_es.fs"
+if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
@@ -188,6 +190,8 @@ if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/brow_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/Release/brow_es.fs"
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/tears_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/Release/tears_es.fs"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/pixelizer_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/Release/pixelizer_es.fs"
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -252,6 +256,8 @@ if %errorlevel% neq 0 goto :cmEnd
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/tears_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/MinSizeRel/tears_es.fs"
 if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/pixelizer_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/MinSizeRel/pixelizer_es.fs"
+if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
@@ -313,6 +319,8 @@ if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/brow_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/RelWithDebInfo/brow_es.fs"
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/tears_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/RelWithDebInfo/tears_es.fs"
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/src/pixelizer_es.fs" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/RelWithDebInfo/pixelizer_es.fs"
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -393,10 +401,16 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\SEyePoser.cpp" />
+    <ClCompile Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\SFacePoserFinal.cpp" />
     <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\eyes_es.fs">
     </None>
     <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\brow_es.fs">
+    </None>
+    <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\tears_es.fs">
+    </None>
+    <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\mouth_es.fs">
+    </None>
+    <None Include="D:\LocalWorkDir\u521785\BMO-Project\BMO Face Engine\src\pixelizer_es.fs">
     </None>
   </ItemGroup>
   <ItemGroup>
