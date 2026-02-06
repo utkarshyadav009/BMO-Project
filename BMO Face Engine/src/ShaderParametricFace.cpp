@@ -126,6 +126,56 @@ namespace MathUtils {
     
     static int ClampInt(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi) ? hi : v; }
     static Vector4 ColorNormalize(Color c) { return { c.r/255.0f, c.g/255.0f, c.b/255.0f, c.a/255.0f }; }
+
+    static void BuildRoundedRectContour(std::vector<Vector2>& out, float cx, float cy,float halfW, float halfH, float radius, int arcSeg = 8)
+    {
+        out.clear();
+
+        radius = Clamp(radius, 0.0f, std::min(halfW, halfH));
+        if (radius <= 1e-5f) {
+            // Sharp rectangle (flat ends)
+            out.push_back({cx - halfW, cy - halfH});
+            out.push_back({cx + halfW, cy - halfH});
+            out.push_back({cx + halfW, cy + halfH});
+            out.push_back({cx - halfW, cy + halfH});
+            return;
+        }
+
+        const float left   = cx - halfW;
+        const float right  = cx + halfW;
+        const float top    = cy - halfH;
+        const float bottom = cy + halfH;
+
+        // Corner centers
+        Vector2 cTR{right - radius, top + radius};
+        Vector2 cTL{left + radius,  top + radius};
+        Vector2 cBL{left + radius,  bottom - radius};
+        Vector2 cBR{right - radius, bottom - radius};
+
+        auto arc = [&](Vector2 c, float a0, float a1) {
+            for (int i = 0; i <= arcSeg; ++i) {
+                float t = (float)i / (float)arcSeg;
+                float a = Lerp(a0, a1, t);
+                out.push_back({c.x + cosf(a) * radius, c.y + sinf(a) * radius});
+            }
+        };
+
+        // Clockwise: TR -> TL -> BL -> BR
+        arc(cTR, -PI * 0.5f, 0.0f);
+        arc(cBR, 0.0f, PI * 0.5f);
+        arc(cBL, PI * 0.5f, PI);
+        arc(cTL, PI, PI * 1.5f);
+
+        MathUtils::RemoveNearDuplicates(out);
+    }
+
+    static inline float Smoothstep(float a, float b, float x)
+    {
+        float t = Clamp((x - a) / (b - a + 1e-6f), 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+
 }
 
 // --------------------------------------------------------
@@ -256,17 +306,17 @@ struct EyeParams {
     float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
 
     // Global
-    float pixelation = 1.0f;
+    float pixelation = 1.0f; 
 };
 
 struct MouthParams {
-    float open = 0.05f; float width = 0.5f; float curve = 0.0f; 
+    float open = 0.05f; float width = 0.5f; float curve = 0.0f; float mouthAngle = 0.0f; 
     float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
     float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
     float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
     float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
-    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f;
+    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape;
 };
 
 // --------------------------------------------------------
@@ -280,6 +330,7 @@ struct FaceSystem {
     ShaderAsset shMouth;
     ShaderAsset shPixel;
     RenderTexture2D canvas;
+    Font mouthFont;
 
     // --- Colors ---
     const Color COL_STAR   = { 255, 184, 0, 255 };
@@ -327,6 +378,8 @@ struct FaceSystem {
 
         // Canvas
         canvas = LoadRenderTexture(GetScreenHeight(), GetScreenHeight());
+        mouthFont = LoadFontEx("assets/Roboto-Regular.ttf",256,NULL,0);
+        SetTextureFilter(mouthFont.texture, TEXTURE_FILTER_BILINEAR);
 
         // Initialize Mouth Lists
         mouthCtrlPts.resize(16);
@@ -346,6 +399,7 @@ struct FaceSystem {
     void Unload() {
         shEye.Unload(); shBrow.Unload(); shTears.Unload(); shPixel.Unload(); shMouth.Unload();
         UnloadRenderTexture(canvas);
+        UnloadFont(mouthFont);
     }
 
     // ----------------------------------------------------
@@ -443,6 +497,7 @@ struct FaceSystem {
         Upd(mCurrent.lookX, mVelocity.lookX, target.lookX); 
         Upd(mCurrent.lookY, mVelocity.lookY, target.lookY);
         Upd(mCurrent.stressLines, mVelocity.stressLines, target.stressLines);
+        mCurrent.showInnerMouth = target.showInnerMouth;
         
         GenerateMouthGeometry();
     }
@@ -472,14 +527,18 @@ struct FaceSystem {
                 wave = std::pow(wave, 1.0f - (flatness * 0.5f)); 
             }
 
-            float sqPower = 1.0f - (mCurrent.squareness * 0.8f);
+            float sqPower = 1.0f - (mCurrent.squareness * 0.99f);
             float shapedSin = std::pow(wave, sqPower);
             float sign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
             float y = shapedSin * effectiveH * sign;
             
             float bendFactor = 15.0f * MOUTH_SS; 
-            float normalizedX = x / w;
-            float rawBend = (normalizedX * normalizedX) * bendFactor * mCurrent.curve;
+            float normalizedX = x / (w + 1e-6f);
+            float rawBend = 0.0f;
+            float curvePower = 2.0f + (mCurrent.squareness * 10.0f);
+            rawBend = (normalizedX * normalizedX) * bendFactor * mCurrent.curve;
+            
+
             float bendMult = (flatness > 0.0f) ? (1.0f - flatness) : 1.0f;
             y -= rawBend * bendMult; 
 
@@ -495,6 +554,36 @@ struct FaceSystem {
         }
 
         mouthContour.clear();
+
+        // If nearly closed, avoid CatmullRom (it rounds the ends).
+        // if (mCurrent.open < 0.08f) {
+        //     // Mouth "line" thickness when closed (tweak to taste)
+        //     float lineH = std::max(2.0f * MOUTH_SS, baseRadius * 0.08f);
+        
+        //     float halfW = w;            // you already computed w
+        //     float halfH = lineH * 0.5f; // thin strip
+        
+        //     // squareness=0 -> rounded (capsule), squareness=1 -> sharp (rect)
+        //     float s = Clamp(mCurrent.squareness, 0.0f, 1.0f);
+        //     float roundness = powf(1.0f - s, 8.0f);   // 2..8 are good ranges
+        //     float radius = roundness * halfH;
+        
+        //     MathUtils::BuildRoundedRectContour(mouthContour, cx, cy, halfW, halfH, radius, 10);
+        // } 
+        // else {
+        //     // Normal open-mouth contour: CatmullRom is fine here
+        //     for (int i = 0; i < 16; i++) {
+        //         Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
+        //         Vector2 p1 = mouthCtrlPts[i];
+        //         Vector2 p2 = mouthCtrlPts[(i+1)%16];
+        //         Vector2 p3 = mouthCtrlPts[(i+2)%16];
+        //         for (int k = 0; k < 16; k++) { 
+        //             mouthContour.push_back(MathUtils::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
+        //         }
+        //     }
+        //     MathUtils::RemoveNearDuplicates(mouthContour);
+        // }
+        mouthContour.clear();
         for (int i = 0; i < 16; i++) {
             Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
             Vector2 p1 = mouthCtrlPts[i];
@@ -509,7 +598,7 @@ struct FaceSystem {
 
         topTeethPoly.clear(); botTeethPoly.clear(); tonguePoly.clear();
         
-        if (mCurrent.open > 0.10f && !mouthContour.empty()) {
+        if (mCurrent.showInnerMouth && mCurrent.open > 0.10f && !mouthContour.empty()) {
             Rectangle bounds = MathUtils::GetBoundingBox(mouthContour);
             
             float shiftX = mCurrent.tongueX * (w * 0.4f);
@@ -550,7 +639,7 @@ struct FaceSystem {
     // ----------------------------------------------------
     // DRAWING
     // ----------------------------------------------------
-    void Draw(Vector2 eyeCenter, Vector2 mouthCenter, EyeParams eP, Color eyeColor) {
+    void Draw(Vector2 eyeCenter, Vector2 mouthCenter, EyeParams eP, MouthParams mP,Color eyeColor) {
         // Resize Canvas if screen changes
         if (canvas.texture.width != GetScreenWidth() || canvas.texture.height != GetScreenHeight()) {
             UnloadRenderTexture(canvas);
@@ -569,11 +658,16 @@ struct FaceSystem {
             // since it calculates geometry around a local origin (GEO_SIZE/2).
             rlSetTexture(0); // Ensure clean state
             rlPushMatrix();
-                if(fabsf(eP.angle) > 0.01f) {
+                if (fabsf(mP.mouthAngle) > 0.01f) {
+                    rlTranslatef(mouthCenter.x, mouthCenter.y, 0);
+                    rlRotatef(mP.mouthAngle, 0, 0, 1);
+                    rlTranslatef(-mouthCenter.x, -mouthCenter.y, 0);
+                }
+                else if (fabsf(eP.angle) > 0.01f) {
                     rlTranslatef(eyeCenter.x, eyeCenter.y, 0);
                     rlRotatef(eP.angle, 0, 0, 1);
                     rlTranslatef(-eyeCenter.x, -eyeCenter.y, 0);
-                }  
+                }
                 DrawMouthInternal(mouthCenter);
             rlPopMatrix();
 
@@ -718,7 +812,10 @@ struct FaceSystem {
             SetShaderValue(shBrow.shader, shBrow.locs.browBendOffset, &p.browBendOffset, SHADER_UNIFORM_FLOAT);
             DrawQuad(lowerRect, BLACK);
             EndShaderMode();
+            if(debugBoxes) DrawRectangleLinesEx(lowerRect, 1, YELLOW);
+
         }
+        if(debugBoxes) DrawRectangleLinesEx(browRect, 1, YELLOW);
     }
 
     void DrawTearsAndBlush(Rectangle eyeRect, EyeParams p) {
@@ -726,7 +823,7 @@ struct FaceSystem {
         
         if (p.showTears) {
             float tearWidth = eyeRect.width + GlobalScaler.S(130.0f);
-            Rectangle tearRect = { eyeRect.x + (eyeRect.width * 0.5f) - (tearWidth * 0.5f), eyeRect.y + (eyeRect.height * 0.5f) - 5.0f, tearWidth, (float)GetScreenHeight() };
+            Rectangle tearRect = { eyeRect.x + (eyeRect.width * 0.5f) - (tearWidth * 0.5f), eyeRect.y + (eyeRect.height * 0.5f) - 17.0f, tearWidth, (float)GetScreenHeight() };
             DrawTearLayer(tearRect, p, false);
         }
         if (p.showBlush) {
@@ -736,6 +833,7 @@ struct FaceSystem {
             Rectangle blushRect = { cx - (blushSize * 0.5f), cy - (blushSize * 0.5f), blushSize, blushSize };
             DrawTearLayer(blushRect, p, true);
         }
+
     }
 
     void DrawTearLayer(Rectangle rect, EyeParams p, bool isBlush) {
@@ -755,10 +853,49 @@ struct FaceSystem {
         SetShaderValue(shTears.shader, shTears.locs.tearCol, blue, SHADER_UNIFORM_VEC4);
         DrawQuad(rect, WHITE);
         EndShaderMode();
+        if(debugBoxes) DrawRectangleLinesEx(rect, 1, BLACK);
+
     }
 
     // --- Mouth Sub-Routines ---
     void DrawMouthInternal(Vector2 centerPos) {
+        if (mCurrent.isThreeShape) {
+            const char* text = "3"; // Or ":3" if you want the full kitty face
+            
+            // 1. Calculate Size
+            // We scale the font size by your physics 'scale'
+            // 'GlobalScaler.scale' ensures it resizes with the window
+            float fontSize = 150.0f * mCurrent.scale * GlobalScaler.scale;
+            float spacing = 2.0f;
+
+            // 2. Measure text to center it perfectly
+            Vector2 textSize = MeasureTextEx(mouthFont, text, fontSize, spacing);
+            Vector2 textOrigin = { textSize.x * 0.5f, textSize.y * 0.5f };
+
+            // 3. Offset Correction
+            // Apply your 'lookX/Y' physics offsets
+            Vector2 drawPos = {
+                centerPos.x + GlobalScaler.S(mCurrent.lookX),
+                centerPos.y + GlobalScaler.S(mCurrent.lookY)
+            };
+
+            // 4. Draw it!
+            // Note: Rotation is 0.0f because you already apply rlRotatef 
+            // in the parent Draw() function before calling this.
+            DrawTextPro(
+                mouthFont,
+                text,
+                drawPos,
+                textOrigin, // Pivot point (center of text)
+                0.0f,       // Rotation (handled by parent matrix)
+                fontSize,
+                spacing,
+                colMouthLine // Use your existing mouth color!
+            );
+
+            // Return early so we don't draw the shader mouth on top
+            return;
+        }
         if (mouthContour.empty()) return;
 
         float basePadding = 20.0f;
@@ -793,7 +930,7 @@ struct FaceSystem {
             boundsPhys.height * unitScale
         };
 
-        const int MAX_PTS = 64;
+        const int MAX_PTS = 128;
         float flatMouth[MAX_PTS * 2], flatTop[MAX_PTS * 2], flatBot[MAX_PTS * 2], flatTongue[MAX_PTS * 2];
         int cntMouth=0, cntTop=0, cntBot=0, cntTongue=0;
         Vector2 offset = {boundsPhys.x, boundsPhys.y};
@@ -802,6 +939,20 @@ struct FaceSystem {
         MathUtils::ResamplePoly(topTeethPoly, flatTop, MAX_PTS, cntTop, unitScale, offset, true);
         MathUtils::ResamplePoly(botTeethPoly, flatBot, MAX_PTS, cntBot, unitScale, offset, true);
         MathUtils::ResamplePoly(tonguePoly, flatTongue, MAX_PTS, cntTongue, unitScale, offset, true);
+
+        Vector4 cBg, cTh, cTg; 
+
+        if (mCurrent.showInnerMouth) {
+            cBg = MathUtils::ColorNormalize(colMouthBg);
+            cTh = MathUtils::ColorNormalize(colMouthTeeth);
+            cTg = MathUtils::ColorNormalize(colMouthTongue);
+        } else {
+            cBg = { 0.0f, 0.0f, 0.0f, 0.0f }; // Transparent
+            cTh = { 0.0f, 0.0f, 0.0f, 0.0f };
+            cTg = { 0.0f, 0.0f, 0.0f, 0.0f };
+        }
+        
+        Vector4 cLn = MathUtils::ColorNormalize(colMouthLine);
 
         BeginShaderMode(shMouth.shader);
             SetShaderValueV(shMouth.shader, shMouth.locs.mouthPts, flatMouth, SHADER_UNIFORM_VEC2, MAX_PTS);
@@ -820,11 +971,6 @@ struct FaceSystem {
             float combinedScale = mCurrent.scale * GlobalScaler.scale;
             SetShaderValue(shMouth.shader, shMouth.locs.scale, &combinedScale, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shMouth.shader, shMouth.locs.outlineThickness, &mCurrent.outlineThickness, SHADER_UNIFORM_FLOAT);
-            
-            Vector4 cBg = MathUtils::ColorNormalize(colMouthBg);
-            Vector4 cLn = MathUtils::ColorNormalize(colMouthLine);
-            Vector4 cTh = MathUtils::ColorNormalize(colMouthTeeth);
-            Vector4 cTg = MathUtils::ColorNormalize(colMouthTongue);
             
             SetShaderValue(shMouth.shader, shMouth.locs.colBg, &cBg, SHADER_UNIFORM_VEC4);
             SetShaderValue(shMouth.shader, shMouth.locs.colLine, &cLn, SHADER_UNIFORM_VEC4);

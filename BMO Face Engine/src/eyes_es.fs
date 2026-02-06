@@ -208,8 +208,8 @@ float getEyeShape(vec2 p, float r, float th, float id, inout vec3 col, inout boo
     }
     else if (id < 7.5) { // 7: CHEVRON
         float dir = uEyeSide; vec2 pc = vec2(p.x * dir, p.y);
-        d = min(sdSegment(pc, vec2(-r*0.45, -r*0.35), vec2(r*0.35, 0.0)) - th, 
-                sdSegment(pc, vec2(-r*0.45,  r*0.35), vec2(r*0.35, 0.0)) - th);
+        d = min(sdSegment(pc, vec2(-r*0.45, -r*0.55), vec2(r*0.35, 0.0)) - th, 
+                sdSegment(pc, vec2(-r*0.45,  r*0.55), vec2(r*0.35, 0.0)) - th);
     }
     else if (id < 8.5) { // 8: SHURIKEN
         float sharp = 0.4 + (uBend * 0.3); 
@@ -346,8 +346,8 @@ void main() {
     if (useSafeAA) {
         alpha = 1.0 - smoothstep(-0.75, 0.75, d);
     } else {
-        float w = max(fwidth(d), 1.0);
-        alpha = 1.0 - smoothstep(0.0, w, d);
+        float w = fwidth(d);
+        alpha = 1.0 - smoothstep(-w, w, d);
     }
 
     if (alpha < 0.01) discard;

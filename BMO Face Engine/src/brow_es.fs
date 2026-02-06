@@ -126,7 +126,8 @@ void main() {
     dist = dCurve - (th * 0.85);
 
     // --- 4. RENDER ---
-    float alpha = 1.0 - smoothstep(-0.75, 0.75, dist);
+    float w = fwidth(dist);
+    float alpha = 1.0 - smoothstep(-w, w, dist);
     if (alpha < 0.01) discard;
     finalColor = vec4(uColor.rgb, alpha * uColor.a);
 }

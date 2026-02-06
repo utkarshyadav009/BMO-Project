@@ -110,7 +110,8 @@ vec4 getPoolStyle(vec2 p, float d) {
     vec2 center = p - vec2(xOffset, yOffset);
 
     // 2. Base Alpha (70% Opacity)
-    float alpha = (1.0 - smoothstep(-0.5, 0.5, d)) * 0.7;
+    float w = fwidth(d);
+    float alpha = (1.0 - smoothstep(-w, w, d)) * 0.7;
     if (alpha < 0.01) return vec4(0.0);
 
     // 3. Gradient Logic
@@ -239,8 +240,9 @@ vec4 getTears(vec2 p) {
         vec3 outlineColor = vec3(0.584, 0.952, 0.772);
         float outlineWidth = 4.0 * uScale;
 
-        float fillAlpha = 1.0 - smoothstep(-0.5, 0.5, d);
-        float borderAlpha = 1.0 - smoothstep(outlineWidth - 0.5, outlineWidth + 0.5, d);
+        float w = fwidth(d);
+        float fillAlpha = 1.0 - smoothstep(-w, w, d);
+        float borderAlpha = 1.0 - smoothstep(outlineWidth - w, outlineWidth + w, d);
 
         vec3 finalRGB = outlineColor;
         finalRGB = mix(finalRGB, baseColor, fillAlpha);

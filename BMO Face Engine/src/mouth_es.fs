@@ -4,7 +4,7 @@ in vec2 fragTexCoord;
 out vec4 finalColor;
 
 // --- CONFIGURATION ---
-#define MAX_PTS 64
+#define MAX_PTS 128
 #define EPSILON 1e-6
 
 // --- UNIFORMS ---
@@ -115,8 +115,17 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 }
 
 // Anti-aliasing helpers
-float getAlpha(float d) { return 1.0 - smoothstep(-0.5, 0.5, d); }
-float getStroke(float d, float thick) { return 1.0 - smoothstep(thick - 0.5, thick + 0.5, abs(d)); }
+float getAlpha(float d) { 
+    // Calculate the change in distance across one screen pixel
+    float w = fwidth(d); 
+    return 1.0 - smoothstep(-w, w, d);
+}
+
+float getStroke(float d, float thick) { 
+    float w = fwidth(d);
+    // Note: We use 1.5 * w to keep outlines slightly smoother than fills
+    return 1.0 - smoothstep(thick - w, thick + w, abs(d));
+}
 
 // --- EFFECTS: STRESS LINES (BEZIER) ---
 // Helper: Draws a single bezier curve
@@ -175,10 +184,10 @@ float getStressLines(vec2 p, float r) {
     // MODE 2: SWEAT DROP (Classic Anime Sweat)
     // Position: High up, Asymmetric (Right side only)
     // Bend: 0.6 (Very round, almost a circle/hook)
-    vec2  m2_pos  = vec2(r * 0.7, -r * 0.01); 
-    float m2_size = 0.8; 
-    float m2_bend = -0.60;
-    float m2_len  = 0.20; // Short/Stubby
+    vec2  m2_pos  = vec2(r * 0.58, r * 0.05); 
+    float m2_size = 0.7; 
+    float m2_bend = -0.52;
+    float m2_len  = 0.32; // Short/Stubby
     float m2_ang = 0.0;
 
     // MODE 3: STRESS TICK (Frustration Mark)
