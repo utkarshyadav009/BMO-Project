@@ -188,7 +188,7 @@ float getStressLines(vec2 p, float r) {
     float m3_size = 0.35;
     float m3_bend = -0.60; 
     float m3_len  = 0.50; // Long
-    float m3_ang = -9.9.0;
+    float m3_ang = -9.0;
 
     // ---------------------------------------------------------
     // --- SELECTION LOGIC ---
