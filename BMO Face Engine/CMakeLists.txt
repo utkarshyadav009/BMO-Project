@@ -4,27 +4,27 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 project(BMO_Face_Engine)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 include(FetchContent)
 
-# 1. Fetch Raylib
-FetchContent_Declare(
-    raylib
+# 1. Raylib (No timestamp flag for CMake 3.22)
+FetchContent_Declare(raylib
     URL https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
+set(PLATFORM "Desktop" CACHE STRING "")
+set(GRAPHICS "GRAPHICS_API_OPENGL_ES2" CACHE STRING "")
 FetchContent_MakeAvailable(raylib)
 
-# 2. Fetch Raygui
-FetchContent_Declare(
-    raygui
+# 2. Raygui
+FetchContent_Declare(raygui
     URL https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(raygui)
+
+# 3. JSON
+FetchContent_Declare(json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz
+)
+FetchContent_MakeAvailable(json)
 
 # -----------------------------------------------------------------------------
 # SOURCE FILES
@@ -45,12 +45,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # 3. Link Libraries
-target_link_libraries(BMO_Engine
-  PRIVATE
-    raylib
-    winmm
-    #cppzmq  #<-- Uncomment if you installed ZeroMQ
-    #libzmq
+target_link_libraries(BMO_Engine PRIVATE 
+    raylib 
+    nlohmann_json::nlohmann_json
+    m pthread dl rt X11
 )
 
 # 4. Include Directories

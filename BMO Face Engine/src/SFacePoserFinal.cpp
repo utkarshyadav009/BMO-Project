@@ -80,8 +80,8 @@ struct FaceState {
 struct ReferenceAtlas {
     Texture2D texture;
     std::unordered_map<std::string, Rectangle> frames;
-    std::vector<std::string> eyeNames; 
-    std::vector<std::string> mouthNames;
+    std::vector<std::string> faceNames;
+
 
     void Load(const char* img, const char* data) {
         texture = LoadTexture(img);
@@ -110,19 +110,14 @@ struct ReferenceAtlas {
                             (float)fr["frame"]["w"], (float)fr["frame"]["h"]
                         };
 
-                        // Sorting into categories based on filename
-                        if (lowerName.find("eye") != std::string::npos) {
-                            eyeNames.push_back(name);
-                        }
-                        if (lowerName.find("mouth") != std::string::npos || lowerName.find("phoneme") != std::string::npos) {
-                            mouthNames.push_back(name);
-                        }
+               
+                        faceNames.push_back(name);
                     }
                 }
             }
-            std::sort(eyeNames.begin(), eyeNames.end());
-            std::sort(mouthNames.begin(), mouthNames.end());
-            std::cout << "[Atlas] Loaded " << eyeNames.size() << " eyes, " << mouthNames.size() << " mouths." << std::endl;
+            std::sort(faceNames.begin(), faceNames.end());
+            
+            std::cout << "[Atlas] Loaded " << faceNames.size() << " Faces." << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "[Atlas] JSON Parse Error: " << e.what() << std::endl;
         }
@@ -333,8 +328,7 @@ struct EditorState {
     FaceState current;
     
     // Atlas Selection Indices
-    int eyeRefIdx = 0;
-    int mouthRefIdx = 0;
+    int faceRefIdx = 0;
     
     // Editor Settings
     bool showReference = true;
@@ -342,25 +336,18 @@ struct EditorState {
     bool usePhysics = false;
     bool enableGUI = true;
     bool debugBoxes = false;
-    int tabIndex = 0; // 0 = Eyes, 1 = Mouth
+    int tabIndex = 0; 
     
     // Dropdown UI
     int dropdownActive = 0;
     bool dropdownEditMode = false;
-
-    void CycleEye(ReferenceAtlas& atlas, int dir) {
-        if (atlas.eyeNames.empty()) return;
-        eyeRefIdx += dir;
-        if (eyeRefIdx < 0) eyeRefIdx = (int)atlas.eyeNames.size() - 1;
-        if (eyeRefIdx >= (int)atlas.eyeNames.size()) eyeRefIdx = 0;
-    }
-
-    void CycleMouth(ReferenceAtlas& atlas, int dir) {
-        if (atlas.mouthNames.empty()) return;
-        mouthRefIdx += dir;
-        if (mouthRefIdx < 0) mouthRefIdx = (int)atlas.mouthNames.size() - 1;
-        if (mouthRefIdx >= (int)atlas.mouthNames.size()) mouthRefIdx = 0;
-    }
+    
+    void CycleFace(ReferenceAtlas& atlas, int dir ){
+		if(atlas.faceNames.empty()) return;
+		faceRefIdx += dir;
+		if(faceRefIdx < 0) faceRefIdx = (int)atlas.faceNames.size() - 1;
+		if(faceRefIdx >= (int)atlas.faceNames.size()) faceRefIdx = 0;
+	}
 };
 
 // ---------------------------------------------------------
@@ -462,7 +449,7 @@ int main() {
     
     // Load Assets
     ReferenceAtlas atlas;
-    atlas.Load("assets/BMO_Animation_LipSyncSprite.png", "assets/BMO_Animation_Lipsync.json");
+    atlas.Load("assets/BMO_SpriteSheet_Texture.png", "assets/BMO_SpriteSheet_Data.json");
 
     FaceDatabase db;
     // Attempt to load unified database, fallbacks handled by struct defaults
@@ -498,11 +485,8 @@ int main() {
 
         // 1. Reference Layer (Background)
         if (state.showReference) {
-            if (!atlas.eyeNames.empty()) 
-                atlas.Draw(atlas.eyeNames[state.eyeRefIdx], center, 1.0f, state.refOpacity);
-            
-            if (!atlas.mouthNames.empty())
-                atlas.Draw(atlas.mouthNames[state.mouthRefIdx], mouthPos, 1.0f, state.refOpacity);
+            if (!atlas.faceNames.empty()) 
+                atlas.Draw(atlas.faceNames[state.faceRefIdx], center, 1.0f, state.refOpacity);
         }
 
         // 2. Procedural Face Layer (Midground)
@@ -514,10 +498,10 @@ int main() {
         
         // Sprite Navigation Shortcuts
         if (IsKeyPressed(KEY_RIGHT)) {
-            if (state.tabIndex == 0) state.CycleEye(atlas, 1); else state.CycleMouth(atlas, 1);
+            if (state.tabIndex == 0) state.CycleFace(atlas, 1);
         }
         if (IsKeyPressed(KEY_LEFT)) {
-            if (state.tabIndex == 0) state.CycleEye(atlas, -1); else state.CycleMouth(atlas, -1);
+            if (state.tabIndex == 0) state.CycleFace(atlas, -1);
         }
 
         if (state.enableGUI) {
@@ -529,15 +513,14 @@ int main() {
             // -- LEFT COLUMN: REFERENCE --
             GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 110}, "SPRITE REFERENCE");
             if (GuiButton({UI::START_X + 10, y + 30, 40, 30}, "<")) {
-                if (state.tabIndex == 0) state.CycleEye(atlas, -1); else state.CycleMouth(atlas, -1);
+                if (state.tabIndex == 0) state.CycleFace(atlas, -1);
             }
             if (GuiButton({UI::START_X + 270, y + 30, 40, 30}, ">")) {
-                if (state.tabIndex == 0) state.CycleEye(atlas, 1); else state.CycleMouth(atlas, 1);
+                if (state.tabIndex == 0) state.CycleFace(atlas, 1);
             }
 
-            std::string refLabel = "NONE";
-            if (state.tabIndex == 0 && !atlas.eyeNames.empty()) refLabel = atlas.eyeNames[state.eyeRefIdx];
-            else if (state.tabIndex == 1 && !atlas.mouthNames.empty()) refLabel = atlas.mouthNames[state.mouthRefIdx];
+            std::string refLabel = atlas.faceNames.empty() ? "NONE" : atlas.faceNames[state.faceRefIdx];
+			GuiLabel({UI::START_X + 60, y + 30, 200, 30}, refLabel.c_str());
             
             GuiLabel({UI::START_X + 60, y + 30, 200, 30}, refLabel.c_str());
 
@@ -591,8 +574,7 @@ int main() {
         // Global Save Shortcut
         if (IsKeyPressed(KEY_ENTER)) {
              std::string name = "custom";
-             if (state.tabIndex == 0 && !atlas.eyeNames.empty()) name = atlas.eyeNames[state.eyeRefIdx];
-             else if (state.tabIndex == 1 && !atlas.mouthNames.empty()) name = atlas.mouthNames[state.mouthRefIdx];
+             if (state.tabIndex == 0 && !atlas.faceNames.empty()) name = atlas.faceNames[state.faceRefIdx];
              db.Save("face_database.txt", name, state.current);
         }
 

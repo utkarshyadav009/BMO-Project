@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o -o BMO_Engine  _deps/raylib-build/raylib/libraylib.a -lm -lpthread -ldl -lrt -lX11 /usr/lib/aarch64-linux-gnu/libOpenGL.so /usr/lib/aarch64-linux-gnu/libGLX.so /usr/lib/aarch64-linux-gnu/libGLU.so /usr/lib/aarch64-linux-gnu/librt.a /usr/lib/aarch64-linux-gnu/libm.so -ldl 

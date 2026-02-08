@@ -22,14 +22,14 @@ function(check_file_hash has_hash hash_is_good)
   set("${has_hash}" TRUE PARENT_SCOPE)
 
   message(STATUS "verifying file...
-       file='D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'")
+       file='/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'")
 
-  file("" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz" actual_value)
+  file("" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz" actual_value)
 
   if(NOT "${actual_value}" STREQUAL "")
     set("${hash_is_good}" FALSE PARENT_SCOPE)
     message(STATUS " hash of
-    D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz
+    /home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz
   does not match expected value
     expected: ''
       actual: '${actual_value}'")
@@ -71,43 +71,51 @@ function(sleep_before_download attempt)
   execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep "${sleep_seconds}")
 endfunction()
 
-if(EXISTS "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
+if("/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz" STREQUAL "")
+  message(FATAL_ERROR "LOCAL can't be empty")
+endif()
+
+if("https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz" STREQUAL "")
+  message(FATAL_ERROR "REMOTE can't be empty")
+endif()
+
+if(EXISTS "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
   check_file_hash(has_hash hash_is_good)
   if(has_hash)
     if(hash_is_good)
       message(STATUS "File already exists and hash match (skip download):
-  file='D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'
+  file='/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'
   =''"
       )
       return()
     else()
       message(STATUS "File already exists but hash mismatch. Removing...")
-      file(REMOVE "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
+      file(REMOVE "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
     endif()
   else()
     message(STATUS "File already exists but no hash specified (use URL_HASH):
-  file='D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'
+  file='/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'
 Old file will be removed and new file downloaded from URL."
     )
-    file(REMOVE "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
+    file(REMOVE "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
   endif()
 endif()
 
 set(retry_number 5)
 
 message(STATUS "Downloading...
-   dst='D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'
+   dst='/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz'
    timeout='none'
    inactivity timeout='none'"
 )
-set(download_retry_codes 7 6 8 15 28)
+set(download_retry_codes 7 6 8 15)
 set(skip_url_list)
 set(status_code)
 foreach(i RANGE ${retry_number})
   if(status_code IN_LIST download_retry_codes)
     sleep_before_download(${i})
   endif()
-  foreach(url IN ITEMS [====[https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz]====])
+  foreach(url https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz)
     if(NOT url IN_LIST skip_url_list)
       message(STATUS "Using src='${url}'")
 
@@ -118,7 +126,7 @@ foreach(i RANGE ${retry_number})
 
       file(
         DOWNLOAD
-        "${url}" "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz"
+        "${url}" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz"
         SHOW_PROGRESS
         # no TIMEOUT
         # no INACTIVITY_TIMEOUT
@@ -135,7 +143,7 @@ foreach(i RANGE ${retry_number})
         check_file_hash(has_hash hash_is_good)
         if(has_hash AND NOT hash_is_good)
           message(STATUS "Hash mismatch, removing...")
-          file(REMOVE "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
+          file(REMOVE "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz")
         else()
           message(STATUS "Downloading... done")
           return()

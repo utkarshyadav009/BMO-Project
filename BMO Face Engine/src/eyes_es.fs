@@ -1,4 +1,5 @@
-#version 330 core
+#version 300 es
+precision highp float;
 
 in vec2 fragTexCoord;
 out vec4 finalColor;
@@ -204,7 +205,7 @@ float getEyeShape(vec2 p, float r, float th, float id, inout vec3 col, inout boo
         float R = r * 0.92; 
         float dir = (uBend >= 0.0) ? 1.0 : -1.0;
         float spin = uTime * uSpiralSpeed;
-        d = sdSpiral(rotate2D(p, spin), R, 3.0, th, 0, dir, 0.0);
+        d = sdSpiral(rotate2D(p, spin), R, 3.0, th, 0.0, dir, 0.0);
     }
     else if (id < 7.5) { // 7: CHEVRON
         float dir = uEyeSide; vec2 pc = vec2(p.x * dir, p.y);
@@ -296,7 +297,6 @@ float getGloomLines(vec2 p, float r) {
     
     return min(d1, min(d2, d3));
 }
-
 // ---------------------------
 // MAIN
 // ---------------------------
@@ -308,6 +308,10 @@ void main() {
     vec3 col = uColor.rgb;
     bool useSafeAA = false;
 
+    // STABLE PIXEL WIDTH: Calculate this BEFORE any distortion or loops
+    // This represents the size of one pixel in your 'p' coordinate space.
+    float pixelWidth = fwidth(p.x);
+    
     // 2. Domain Distortion (Squash/Stretch)
     if (uDistortMode == 1) { 
         float nx = p.x / r; 
@@ -315,27 +319,22 @@ void main() {
     }
 
     // 3. Calculate Main Shape
+    // Pass useSafeAA by reference so getEyeShape can toggle it for the spiral
     float d = getEyeShape(p, r, th, uShapeID, col, useSafeAA);
 
     // 4. Calculate Effects
-    // Stress
     if (uStressLevel > 0.3) {
         d = min(d, getStressLines(p, r));
     }
     
-    // Gloom
     if (uGloomLevel > 0.01) {
         float gloomDist = getGloomLines(p, r);
         d = min(d, gloomDist);
-        
-        // Gloom coloring
         float gloomMask = 1.0 - smoothstep(0.0, 1.5, gloomDist);
         vec3 gloomColor = vec3(0.37647, 0.13333, 0.61961);
         col = mix(col, gloomColor, gloomMask * uGloomLevel);
     }
 
-    //Adding squareness effect to all shapes 
-    //Fixing the squareness for :: eye shape 
     if (uSquareness > 0.0 && uShapeID != 12.0) {
         float squareDistX = sdMorphShape(p, r);
         d = mix(d, squareDistX, uSquareness);
@@ -344,8 +343,11 @@ void main() {
     // 5. Render Anti-Aliasing
     float alpha;
     if (useSafeAA) {
-        alpha = 1.0 - smoothstep(-0.75, 0.75, d);
+        // APPROACH: Use the stable coordinate width instead of fwidth(d)
+        // This removes the 'ghost' outlines caused by spiral branch switching.
+        alpha = 1.0 - smoothstep(-pixelWidth, pixelWidth, d);
     } else {
+        // Standard AA for non-looping shapes
         float w = fwidth(d);
         alpha = 1.0 - smoothstep(-w, w, d);
     }

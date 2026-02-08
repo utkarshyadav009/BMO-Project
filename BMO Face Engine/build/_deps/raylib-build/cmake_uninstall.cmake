@@ -1,14 +1,14 @@
-if(NOT EXISTS "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/install_manifest.txt")
-  message(FATAL_ERROR "Cannot find install manifest: D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/install_manifest.txt")
+if(NOT EXISTS "/home/bmo/BMO-Project/BMO Face Engine/build/install_manifest.txt")
+  message(FATAL_ERROR "Cannot find install manifest: /home/bmo/BMO-Project/BMO Face Engine/build/install_manifest.txt")
 endif()
 
-file(READ "D:/LocalWorkDir/u521785/BMO-Project/BMO Face Engine/build/install_manifest.txt" files)
+file(READ "/home/bmo/BMO-Project/BMO Face Engine/build/install_manifest.txt" files)
 string(REGEX REPLACE "\n" ";" files "${files}")
 foreach(file ${files})
   message(STATUS "Uninstalling $ENV{DESTDIR}${file}")
   if(IS_SYMLINK "$ENV{DESTDIR}${file}" OR EXISTS "$ENV{DESTDIR}${file}")
     exec_program(
-      "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" ARGS "-E remove \"$ENV{DESTDIR}${file}\""
+      "/usr/bin/cmake" ARGS "-E remove \"$ENV{DESTDIR}${file}\""
       OUTPUT_VARIABLE rm_out
       RETURN_VALUE rm_retval
       )
