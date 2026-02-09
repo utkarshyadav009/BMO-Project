@@ -115,16 +115,18 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 }
 
 // Anti-aliasing helpers
+// Anti-aliasing helpers
 float getAlpha(float d) { 
-    // Calculate the change in distance across one screen pixel
-    float w = fwidth(d); 
-    return 1.0 - smoothstep(-w, w, d);
+    // Since 'd' is already in screen pixels, we use a fixed 1-pixel feather.
+    // 0.0 to 1.0 is a 1px transition. -0.5 to 0.5 is also 1px but centered.
+    // Using 0.75 gives a slightly "crisper" look than 1.0 without aliasing.
+    return 1.0 - smoothstep(-0.75, 0.75, d);
 }
 
 float getStroke(float d, float thick) { 
-    float w = fwidth(d);
-    // Note: We use 1.5 * w to keep outlines slightly smoother than fills
-    return 1.0 - smoothstep(thick - w, thick + w, abs(d));
+    // No fwidth needed.
+    // Standard 1px AA on the stroke edges.
+    return 1.0 - smoothstep(thick - 0.75, thick + 0.75, abs(d));
 }
 
 // --- EFFECTS: STRESS LINES (BEZIER) ---

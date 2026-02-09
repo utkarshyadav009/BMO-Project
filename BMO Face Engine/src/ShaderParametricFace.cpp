@@ -316,7 +316,7 @@ struct MouthParams {
     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
     float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
     float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
-    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape;
+    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape; bool isDShape;
 };
 
 // --------------------------------------------------------
@@ -378,8 +378,8 @@ struct FaceSystem {
 
         // Canvas
         canvas = LoadRenderTexture(GetScreenHeight(), GetScreenHeight());
-        mouthFont = LoadFontEx("assets/Roboto-Regular.ttf",256,NULL,0);
-        SetTextureFilter(mouthFont.texture, TEXTURE_FILTER_BILINEAR);
+        mouthFont = LoadFontEx("assets/Roboto-Regular.ttf",512,NULL,0);
+        SetTextureFilter(mouthFont.texture, TEXTURE_FILTER_TRILINEAR);
 
         // Initialize Mouth Lists
         mouthCtrlPts.resize(16);
@@ -507,27 +507,41 @@ struct FaceSystem {
         float cy = MOUTH_GEO_SIZE * 0.5f;
         float baseRadius = 40.0f * MOUTH_SS; 
         float w = baseRadius * (0.5f + mCurrent.width);
+
+        float openFactor = mCurrent.open;
         float h = (mCurrent.open < 0.08f) ? 0.0f : (baseRadius * (0.2f + mCurrent.open * 1.5f));
 
         for (int i = 0; i < 16; i++) {
             float t = (float)i / 16.0f;
             float angle = t * PI * 2.0f + PI; 
-            float x = cosf(angle) * w;
+            
+            // --- PRE-CALCULATE SINE/COSINE ---
+            float rawCos = cosf(angle);
             float rawSin = sinf(angle);
+            
+            // --- CHANGE 2: APPLY SQUARENESS TO WIDTH (X) ---
+            // Just like you did for Y, we power the X component to push it to the edges.
+            float sqPower = 1.0f - (mCurrent.squareness * 0.99f);
+            
+            float xWave = std::abs(rawCos);
+            float shapedCos = std::pow(xWave, sqPower);
+            float xSign = (rawCos >= 0.0f) ? 1.0f : -1.0f;
+            float x = shapedCos * w * xSign; // New Squared X
+            
             bool isTop = (i <= 8); 
-
+            
             float flatness = 0.0f;
             if (mCurrent.asymmetry > 0.0f && isTop) flatness = mCurrent.asymmetry; 
             if (mCurrent.asymmetry < 0.0f && !isTop) flatness = -mCurrent.asymmetry;
-
+            
             float effectiveH = h;
             float wave = std::abs(rawSin);
             if (flatness > 0.01f) {
                 effectiveH *= (1.0f - flatness * 0.6f); 
                 wave = std::pow(wave, 1.0f - (flatness * 0.5f)); 
             }
-
-            float sqPower = 1.0f - (mCurrent.squareness * 0.99f);
+        
+            // Your existing Y Squareness logic
             float shapedSin = std::pow(wave, sqPower);
             float sign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
             float y = shapedSin * effectiveH * sign;
@@ -535,13 +549,12 @@ struct FaceSystem {
             float bendFactor = 15.0f * MOUTH_SS; 
             float normalizedX = x / (w + 1e-6f);
             float rawBend = 0.0f;
-            float curvePower = 2.0f + (mCurrent.squareness * 10.0f);
+            // Adjust curve power slightly so it doesn't deform the box too much
             rawBend = (normalizedX * normalizedX) * bendFactor * mCurrent.curve;
             
-
             float bendMult = (flatness > 0.0f) ? (1.0f - flatness) : 1.0f;
             y -= rawBend * bendMult; 
-
+        
             float activeSqueeze = isTop ? mCurrent.squeezeTop : mCurrent.squeezeBottom;
             float tX = Clamp(std::abs(x) / (w + 1e-6f), 0.0f, 1.0f);
             float u = tX / mCurrent.sigma;
@@ -549,48 +562,34 @@ struct FaceSystem {
             float maxLift = (h * mCurrent.maxLiftValue);
             float archSign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
             y -= activeSqueeze * influence * maxLift * archSign;
-
+        
             mouthCtrlPts[i] = { cx + x, cy + y };
-        }
+        }   
 
         mouthContour.clear();
 
-        // If nearly closed, avoid CatmullRom (it rounds the ends).
-        // if (mCurrent.open < 0.08f) {
-        //     // Mouth "line" thickness when closed (tweak to taste)
-        //     float lineH = std::max(2.0f * MOUTH_SS, baseRadius * 0.08f);
-        
-        //     float halfW = w;            // you already computed w
-        //     float halfH = lineH * 0.5f; // thin strip
-        
-        //     // squareness=0 -> rounded (capsule), squareness=1 -> sharp (rect)
-        //     float s = Clamp(mCurrent.squareness, 0.0f, 1.0f);
-        //     float roundness = powf(1.0f - s, 8.0f);   // 2..8 are good ranges
-        //     float radius = roundness * halfH;
-        
-        //     MathUtils::BuildRoundedRectContour(mouthContour, cx, cy, halfW, halfH, radius, 10);
-        // } 
-        // else {
-        //     // Normal open-mouth contour: CatmullRom is fine here
-        //     for (int i = 0; i < 16; i++) {
-        //         Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
-        //         Vector2 p1 = mouthCtrlPts[i];
-        //         Vector2 p2 = mouthCtrlPts[(i+1)%16];
-        //         Vector2 p3 = mouthCtrlPts[(i+2)%16];
-        //         for (int k = 0; k < 16; k++) { 
-        //             mouthContour.push_back(MathUtils::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
-        //         }
-        //     }
-        //     MathUtils::RemoveNearDuplicates(mouthContour);
-        // }
-        mouthContour.clear();
+        //Adding squared mouth stuff lol 
+        if(mCurrent.open<0.01 && mCurrent)
         for (int i = 0; i < 16; i++) {
             Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
             Vector2 p1 = mouthCtrlPts[i];
             Vector2 p2 = mouthCtrlPts[(i+1)%16];
             Vector2 p3 = mouthCtrlPts[(i+2)%16];
             for (int k = 0; k < 16; k++) { 
-                mouthContour.push_back(MathUtils::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
+                float t = (float)k/16.0f;
+                
+                // --- CHANGE 3: HYBRID INTERPOLATION ---
+                // CatmullRom is always round. Linear is always sharp.
+                // We blend between them based on squareness.
+                Vector2 posSpline = MathUtils::CatmullRom(p0, p1, p2, p3, t);
+                Vector2 posLinear = Vector2Lerp(p1, p2, t);
+                
+                // If squareness is > 0.5, start blending towards linear.
+                // Powering the factor makes the transition feel more natural.
+                float blend = sqrtf(mCurrent.squareness);
+                Vector2 finalPos = Vector2Lerp(posSpline, posLinear, blend);
+                
+                mouthContour.push_back(finalPos);
             }
         }
         MathUtils::RemoveNearDuplicates(mouthContour);
@@ -861,7 +860,6 @@ struct FaceSystem {
     void DrawMouthInternal(Vector2 centerPos) {
         if (mCurrent.isThreeShape) {
             const char* text = "3"; // Or ":3" if you want the full kitty face
-            
             // 1. Calculate Size
             // We scale the font size by your physics 'scale'
             // 'GlobalScaler.scale' ensures it resizes with the window
@@ -890,7 +888,42 @@ struct FaceSystem {
                 0.0f,       // Rotation (handled by parent matrix)
                 fontSize,
                 spacing,
-                colMouthLine // Use your existing mouth color!
+                BLACK // Use your existing mouth color!
+            );
+
+            // Return early so we don't draw the shader mouth on top
+            return;
+        }
+        if (mCurrent.isDShape) {
+            const char* text = "D";
+            // 1. Calculate Size
+            // We scale the font size by your physics 'scale'
+            // 'GlobalScaler.scale' ensures it resizes with the window
+            float fontSize = 150.0f * mCurrent.scale * GlobalScaler.scale;
+            float spacing = 2.0f;
+
+            // 2. Measure text to center it perfectly
+            Vector2 textSize = MeasureTextEx(mouthFont, text, fontSize, spacing);
+            Vector2 textOrigin = { textSize.x * 0.5f, textSize.y * 0.5f };
+
+            // 3. Offset Correction
+            // Apply your 'lookX/Y' physics offsets
+           Vector2 drawPos = {
+                roundf(centerPos.x + GlobalScaler.S(mCurrent.lookX)),
+                roundf(centerPos.y + GlobalScaler.S(mCurrent.lookY))
+            };
+            // 4. Draw it!
+            // Note: Rotation is 0.0f because you already apply rlRotatef 
+            // in the parent Draw() function before calling this.
+            DrawTextPro(
+                mouthFont,
+                text,
+                drawPos,
+                textOrigin, // Pivot point (center of text)
+                90.0f,       // Rotation (handled by parent matrix)
+                fontSize,
+                spacing,
+                BLACK // Use your existing mouth color!
             );
 
             // Return early so we don't draw the shader mouth on top
