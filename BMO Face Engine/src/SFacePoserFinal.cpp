@@ -72,6 +72,15 @@ struct FaceState {
         
         mouth = MouthParams(); // Defaults handled in struct definition or Init
     }
+
+    void reset()
+    {
+        eyes = EyeParams(); 
+        // Ensure defaults match preferred starting state
+        eyes.scaleX = 1.0f; eyes.scaleY = 1.0f; eyes.spacing = 200.0f;
+        
+        mouth = MouthParams(); // Defaults handled in struct definition or Init
+    }
 };
 
 // ---------------------------------------------------------
@@ -232,6 +241,12 @@ struct FaceDatabase {
                     if (v.size() > idx) mp.open = v[idx++];
                     if (v.size() > idx) mp.width = v[idx++];
                     if (v.size() > idx) mp.curve = v[idx++];
+                    // if (v.size() >= 62) {
+                    //     if (v.size() > idx) mp.mouthAngle = v[idx++]; 
+                    // } else {
+                    //     mp.mouthAngle = 0.0f; // Default for old database entries
+                    // }
+                    if (v.size() > idx) mp.mouthAngle = v[idx++];
                     if (v.size() > idx) mp.squeezeTop = v[idx++];
                     if (v.size() > idx) mp.squeezeBottom = v[idx++];
                     if (v.size() > idx) mp.teethY = v[idx++];
@@ -253,6 +268,8 @@ struct FaceDatabase {
                     if (v.size() > idx) mp.showInnerMouth = (bool)v[idx++];
                     if (v.size() > idx) mp.isThreeShape = (bool)v[idx++];
                     if (v.size() > idx) mp.isDShape = (bool)v[idx++];
+                    if (v.size() > idx) mp.isSlashShape = (bool)v[idx++];
+
 
                     entries.push_back(e);
                 }
@@ -293,11 +310,12 @@ struct FaceDatabase {
 
         // Mouth
         const MouthParams& m = s.mouth;
-        ss << m.open << "f, " << m.width << "f, " << m.curve << "f, " << m.squeezeTop << "f, " << m.squeezeBottom << "f, "
+        ss << m.open << "f, " << m.width << "f, " << m.curve << "f, " << m.mouthAngle << "f, " << m.squeezeTop << "f, " << m.squeezeBottom << "f, "
            << m.teethY << "f, " << m.tongueUp << "f, " << m.tongueX << "f, " << m.tongueWidth << "f, "
            << m.asymmetry << "f, " << m.squareness << "f, " << m.teethWidth << "f, " << m.teethGap << "f, "
            << m.scale << "f, " << m.outlineThickness << "f, " << m.sigma << "f, " << m.power << "f, " << m.maxLiftValue << "f, " 
-           << m.lookX << "f, " << m.lookY << "f, "<< m.stressLines << "f, " << (int)m.showInnerMouth << "f, "<< (int)m.isThreeShape << "f, "<< (int)m.isDShape << " };";
+           << m.lookX << "f, " << m.lookY << "f, "<< m.stressLines << "f, " << (int)m.showInnerMouth << "f, "<< (int)m.isThreeShape << "f, "<< (int)m.isDShape << "f, "
+           << (int)m.isSlashShape <<" };";
 
         std::string newLine = ss.str();
 
@@ -336,6 +354,7 @@ struct EditorState {
     float refOpacity = 0.5f;
     bool usePhysics = false;
     bool enableGUI = true;
+    bool showFace = true;
     bool debugBoxes = false;
     int tabIndex = 0; 
     
@@ -367,14 +386,14 @@ void DrawEyeControls(float& y, EyeParams& p) {
     UI::Slider("Bend", &p.bend, -2.0f, 2.0f, y);
     UI::Slider("Thickness", &p.eyeThickness, 1.0f, 30.0f, y);
     y += 5;
-    UI::Slider("Scale X", &p.scaleX, 0.1f, 10.0f, y);
-    UI::Slider("Scale Y", &p.scaleY, 0.1f, 10.0f, y);
+    UI::Slider("Scale X", &p.scaleX, 0.1f, 30.0f, y);
+    UI::Slider("Scale Y", &p.scaleY, 0.1f, 30.0f, y);
     UI::Slider("Spacing", &p.spacing, 0.0f, 1000.0f, y);
-    UI::Slider("Look X", &p.lookX, -300.0f, 300.0f, y);
-    UI::Slider("Look Y", &p.lookY, -300.0f, 300.0f, y);
+    UI::Slider("Look X", &p.lookX, -500.0f, 500.0f, y);
+    UI::Slider("Look Y", &p.lookY, -500.0f, 500.0f, y);
     UI::Slider("Angle", &p.angle, -180.0f, 180.0f, y);
     UI::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);
-    UI::Slider("Pixelation", &p.pixelation,1.0f, 8.0f, y);
+    UI::Slider("Pixelation", &p.pixelation,1.0f, 15.0f, y);
     y += 20.0f;
 
     GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "EYE FX"); y += 20.0f;
@@ -393,7 +412,7 @@ void DrawEyeControls(float& y, EyeParams& p) {
     if (p.showTears) { GuiLabel({UI::START_X+10, y, 200, 20}, "- TEAR SETTINGS -"); y+= 20; UI::Slider("Level", &p.tearsLevel, 0, 1, y); }
     if(p.showBlush) {
         GuiLabel({UI::START_X+10, y, 200, 20}, "- BLUSH SETTINGS -"); y+= 20;
-        UI::Slider("Scale", &p.blushScale, 0.5f, 3.0f, y); UI::Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
+        UI::Slider("Scale", &p.blushScale, 0.1f, 3.0f, y); UI::Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
         UI::Slider("Pos Y", &p.blushY, -10.0f, 10.0f, y); UI::Slider("Space", &p.blushSpacing, -100.0f, 100.0f, y);
         GuiLabel({UI::START_X+10, y, UI::LABEL_WIDTH, 20}, "Blush Mode");
         if(GuiButton({UI::START_X+10+UI::LABEL_WIDTH,  y, 80, 20}, p.blushMode == 0 ? "Pink" : (p.blushMode == 1 ? "Green" : "Yellow"))) p.blushMode = (p.blushMode + 1) % 3;
@@ -411,7 +430,7 @@ void DrawMouthControls(float& y, MouthParams& p) {
     UI::Slider("Look X", &p.lookX, -250.0f, 250.0f, y);
     UI::Slider("Look Y", &p.lookY, -250.0f, 250.0f, y);
     UI::Slider("Mouth Angle", &p.mouthAngle, -180.0f, 180.0f, y);
-    UI::Slider("Outline", &p.outlineThickness, 1.f, 10.0f, y); y += 10;
+    UI::Slider("Outline", &p.outlineThickness, 1.f, 30.0f, y); y += 10;
     UI::Slider("Open", &p.open, 0.0f, 1.2f, y); 
     UI::Slider("Width", &p.width, 0.1f, 1.5f, y);
     UI::Slider("Curve", &p.curve, -5.0f, 5.0f, y); y += 10;
@@ -426,7 +445,9 @@ void DrawMouthControls(float& y, MouthParams& p) {
     UI::Slider("Stress Lns", &p.stressLines, 0.0f, 1.0f, y);y+=10;
     UI::Checkbox("Show Inner Mouth", &p.showInnerMouth, 10, y); y+=20;
     UI::Checkbox("3 Shape", &p.isThreeShape, 10, y);y+=20;
-    UI::Checkbox("D Shape", &p.isDShape, 10, y);
+    UI::Checkbox("D Shape", &p.isDShape, 10, y);y+=20;
+    UI::Checkbox("- Shape", &p.isSlashShape, 10, y);
+
 }
 
 // ---------------------------------------------------------
@@ -439,7 +460,7 @@ int main() {
 
     // Style Setup
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
-    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(WHITE));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(BLACK));
     GuiSetStyle(SLIDER, BASE_COLOR_NORMAL, ColorToInt({ 60, 60, 60, 255 }));
     GuiSetStyle(SLIDER, BASE_COLOR_FOCUSED, ColorToInt({ 120, 180, 255, 255 }));
     GuiSetStyle(DROPDOWNBOX, BASE_COLOR_NORMAL, ColorToInt({ 40, 40, 40, 255 }));
@@ -493,7 +514,7 @@ int main() {
 
         // 2. Procedural Face Layer (Midground)
         // Note: Engine draws internally to a texture then presents it
-        engine.Draw(center, mouthPos, state.current.eyes, state.current.mouth, BLACK);
+        if(state.showFace) engine.Draw(center, mouthPos, state.current.eyes, state.current.mouth, BLACK);
 
         // 3. UI Layer (Foreground)
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
@@ -544,18 +565,16 @@ int main() {
             float panelW = 250.0f;
             float vx = screenW - panelW - 16;
             float vy = 16;
-
-            GuiGroupBox({ vx, vy, panelW, 120 }, "DATABASE LOAD");
-            if (GuiDropdownBox({ vx + 10, vy + 30, panelW - 20, 25 }, db.dropdownStr.c_str(), &state.dropdownActive, state.dropdownEditMode)) {
-                state.dropdownEditMode = !state.dropdownEditMode;
-            }
             
             if (GuiButton({ vx + 10, vy + 65, 160, 30 }, "LOAD SELECTED")) {
                 if (!db.entries.empty() && state.dropdownActive < (int)db.entries.size()) {
                     state.current = db.entries[state.dropdownActive].state;
                 }
             }
+
             if (GuiButton({ vx + panelW - 60, vy + 65, 50, 30 }, "RLD")) db.Load("face_database.txt");
+
+            
 
             // Viewport Settings
             float vyView = vy + 120 + 12.0f;
@@ -563,10 +582,20 @@ int main() {
             GuiCheckBox({ vx + 10, vyView + 25, 20, 20 }, "Show Ref", &state.showReference);
             GuiSliderBar({ vx + 80, vyView + 55, 100, 20 }, "Opac", nullptr, &state.refOpacity, 0.0f, 1.0f);
             GuiCheckBox({ vx + 10, vyView + 80, 20, 20 }, "Test Physics", &state.usePhysics);
+            GuiCheckBox({ vx + 10, vyView + 105, 20, 20 }, "Show Face", &state.showFace);
 
             // Bottom Right Toggles
             GuiCheckBox({screenW - 180, screenH - 40, 20, 20}, "Debug Boxes", &state.debugBoxes);
             GuiCheckBox({screenW - 180, screenH - 70, 20, 20}, "Enable GUI", &state.enableGUI);
+            if (GuiButton({screenW - 180, screenH - 120, 50, 20}, "Reset")) state.current.reset();
+
+
+            GuiGroupBox({ vx, vy, panelW, 120 }, "DATABASE LOAD");
+            if (GuiDropdownBox({ vx + 10, vy + 30, panelW - 20, 25 }, db.dropdownStr.c_str(), &state.dropdownActive, state.dropdownEditMode)) {
+                state.dropdownEditMode = !state.dropdownEditMode;
+            }
+
+            
         }
         else {
              // Minimal UI to re-enable

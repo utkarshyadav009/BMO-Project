@@ -316,7 +316,7 @@ struct MouthParams {
     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
     float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
     float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
-    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape; bool isDShape;
+    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape; bool isDShape; bool isSlashShape;
 };
 
 // --------------------------------------------------------
@@ -507,8 +507,6 @@ struct FaceSystem {
         float cy = MOUTH_GEO_SIZE * 0.5f;
         float baseRadius = 40.0f * MOUTH_SS; 
         float w = baseRadius * (0.5f + mCurrent.width);
-
-        float openFactor = mCurrent.open;
         float h = (mCurrent.open < 0.08f) ? 0.0f : (baseRadius * (0.2f + mCurrent.open * 1.5f));
 
         for (int i = 0; i < 16; i++) {
@@ -521,7 +519,7 @@ struct FaceSystem {
             
             // --- CHANGE 2: APPLY SQUARENESS TO WIDTH (X) ---
             // Just like you did for Y, we power the X component to push it to the edges.
-            float sqPower = 1.0f - (mCurrent.squareness * 0.99f);
+            float sqPower = 1.0f - (mCurrent.squareness * 0.75f);
             
             float xWave = std::abs(rawCos);
             float shapedCos = std::pow(xWave, sqPower);
@@ -569,7 +567,7 @@ struct FaceSystem {
         mouthContour.clear();
 
         //Adding squared mouth stuff lol 
-        if(mCurrent.open<0.01 && mCurrent)
+        //if(mCurrent.open<0.01 && mCurrent)
         for (int i = 0; i < 16; i++) {
             Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
             Vector2 p1 = mouthCtrlPts[i];
@@ -577,18 +575,7 @@ struct FaceSystem {
             Vector2 p3 = mouthCtrlPts[(i+2)%16];
             for (int k = 0; k < 16; k++) { 
                 float t = (float)k/16.0f;
-                
-                // --- CHANGE 3: HYBRID INTERPOLATION ---
-                // CatmullRom is always round. Linear is always sharp.
-                // We blend between them based on squareness.
-                Vector2 posSpline = MathUtils::CatmullRom(p0, p1, p2, p3, t);
-                Vector2 posLinear = Vector2Lerp(p1, p2, t);
-                
-                // If squareness is > 0.5, start blending towards linear.
-                // Powering the factor makes the transition feel more natural.
-                float blend = sqrtf(mCurrent.squareness);
-                Vector2 finalPos = Vector2Lerp(posSpline, posLinear, blend);
-                
+                Vector2 finalPos = MathUtils::CatmullRom(p0, p1, p2, p3, t);
                 mouthContour.push_back(finalPos);
             }
         }
@@ -771,7 +758,8 @@ struct FaceSystem {
         browRect.y = originalRect.y + GlobalScaler.S(sLookY.val) - (originalRect.height * 0.5f);
         browRect.x += (originalRect.width - browRect.width) * 0.5f;
         browRect.y += (originalRect.height - browRect.height) * 0.5f;
-        browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) + (GlobalScaler.S(p.eyebrowSpacing * 20.0f) * p.browSide);
+        browRect.x += GlobalScaler.S((p.eyebrowX * 20.0f) + (p.eyebrowSpacing * 20.0f * p.browSide));
+        //browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) + (GlobalScaler.S(p.eyebrowSpacing * 20.0f) * p.browSide);
         browRect.y += GlobalScaler.S(p.eyebrowY * 20.0f);
 
         rlSetTexture(0);
@@ -791,12 +779,12 @@ struct FaceSystem {
         if (p.useLowerBrow) {
              // Logic simplified for brevity but preserves original transform
             EyeParams lowerP = p; lowerP.eyebrowY = 0.0f; lowerP.bend = -p.bend;
-            lowerP.eyebrowLength = 1.37f; lowerP.eyebrowThickness = 7.15f;
+            lowerP.eyebrowLength = 0.6f; lowerP.eyebrowThickness = 7.15f;
             Rectangle lowerRect = eyeRect;
             lowerRect.width  = eyeRect.width * 2.5f * p.browScale * lowerP.eyebrowLength;
             lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
             lowerRect.x = eyeRect.x + (eyeRect.width - lowerRect.width) * 0.5f;
-            lowerRect.y = (eyeRect.y + eyeRect.height * 0.5f + eyeRect.height * 0.5f) - (lowerRect.height * 0.53f) - eyeRect.height * 0.3f;
+            lowerRect.y = (eyeRect.y + eyeRect.height * 0.5f + eyeRect.height * 0.5f) - (lowerRect.height * 0.53f) - eyeRect.height * 0.35f;
             lowerRect.x += GlobalScaler.S(48.6235f);
 
             rlSetTexture(0);
@@ -927,6 +915,23 @@ struct FaceSystem {
             );
 
             // Return early so we don't draw the shader mouth on top
+            return;
+        }
+
+        if (mCurrent.isSlashShape) {
+            float baseWeight = 4.0f;
+            float thickness = (baseWeight * mCurrent.outlineThickness) * mCurrent.scale * GlobalScaler.scale;
+            float length = (100.0f + (mCurrent.width * 300.0f)) * mCurrent.scale * GlobalScaler.scale;
+
+            Vector2 center = {
+                roundf(centerPos.x + GlobalScaler.S(mCurrent.lookX)),
+                roundf(centerPos.y + GlobalScaler.S(mCurrent.lookY))
+            };
+            Rectangle rect = { center.x, center.y, length, thickness };
+            Vector2 origin = { length * 0.5f, thickness * 0.5f }; // Pivot center
+
+            DrawRectanglePro(rect, origin, 0.0f, BLACK);
+
             return;
         }
         if (mouthContour.empty()) return;

@@ -54,9 +54,9 @@ float getTearShapeDist(vec2 p, float level, float t) {
 
     // MODE 1: POOL (Static Oval)
     if (level < 0.4) {
-        float yOffset = 130.0 * uScale;
+        float yOffset = 110.0 * uScale;
         vec2 poolPos = p - vec2(0.0, yOffset);
-        float radius = 55.0 * uScale;
+        float radius = 37.0 * uScale;
         // Squash Y (1.6) to make it a flat oval
         d = length(vec2(poolPos.x, poolPos.y * 1.6)) - radius;
     }
@@ -72,7 +72,7 @@ float getTearShapeDist(vec2 p, float level, float t) {
             float cycle = fract((t * speed) + offset);
             
             float yPos = (170.0 * uScale) + (cycle * fallDist);
-            float xPos = -(120.0 * uScale) * uSide; // Jitter X
+            float xPos = -(150.0 * uScale) * uSide; // Jitter X
 
             vec2 dropPos = p - vec2(xPos, yPos);
             dropPos.y = -dropPos.y; // Flip for triangle
@@ -116,7 +116,7 @@ vec4 getPoolStyle(vec2 p, float d) {
 
     // 3. Gradient Logic
     // Vertical radius derived from 55.0 radius / 1.6 squash
-    float verticalRadius = (55.0 * uScale) / 1.6;
+    float verticalRadius = (30.0 * uScale) / 1.6;
     float normY = center.y / verticalRadius;
 
     vec3 colTop = vec3(0.1, 0.6, 0.4); 
@@ -129,7 +129,7 @@ vec4 getPoolStyle(vec2 p, float d) {
     finalRGB += vec3(0.3, 0.5, 0.4) * rim * 0.8;
 
     // 5. Highlight Logic
-    vec2 hPos = center - vec2(-20.0 * uScale, -25.0 * uScale);
+    vec2 hPos = center - vec2(-10.0 * uScale, -35.0 * uScale);
     hPos = rotate2D(hPos, radians(25.0));
 
     // Highlight Shape (1.5 squash, 16.0 size)

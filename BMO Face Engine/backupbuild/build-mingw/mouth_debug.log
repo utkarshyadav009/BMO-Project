@@ -1,0 +1,2236 @@
+
+
+===== NEW SESSION =====
+=== FRAME 10 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0511 | Vel: -0.0111 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.26 px 
+----------------------------------------------
+=== FRAME 20 (dt: 0.0343) ===
+PHYSICS [Open]   Curr: 0.0499 | Vel: 0.0006 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 3.95 px 
+----------------------------------------------
+=== FRAME 30 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 40 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: -0.0001 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 50 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 60 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: -0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 70 (dt: 0.0262) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 4.00 px 
+----------------------------------------------
+=== FRAME 80 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 90 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 100 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 110 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 120 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 130 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 140 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 150 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 160 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 170 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 180 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 190 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 200 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 210 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 220 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 230 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 240 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 250 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 260 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 270 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 280 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 290 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 300 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 310 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 320 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 330 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 340 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 350 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 360 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 370 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 380 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 390 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 46.03 px 
+----------------------------------------------
+=== FRAME 400 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 50.73 px 
+----------------------------------------------
+=== FRAME 410 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 53.74 px 
+----------------------------------------------
+=== FRAME 420 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 53.28 px 
+----------------------------------------------
+=== FRAME 430 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 52.94 px 
+----------------------------------------------
+=== FRAME 440 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 48.74 px 
+----------------------------------------------
+=== FRAME 450 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.57 px 
+----------------------------------------------
+=== FRAME 460 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 470 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 480 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.00 px 
+----------------------------------------------
+=== FRAME 490 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 44.28 px 
+----------------------------------------------
+=== FRAME 500 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 47.70 px 
+----------------------------------------------
+=== FRAME 510 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 52.86 px 
+----------------------------------------------
+=== FRAME 520 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 58.49 px 
+----------------------------------------------
+=== FRAME 530 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 64.44 px 
+----------------------------------------------
+=== FRAME 540 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 70.63 px 
+----------------------------------------------
+=== FRAME 550 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 76.96 px 
+----------------------------------------------
+=== FRAME 560 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 83.35 px 
+----------------------------------------------
+=== FRAME 570 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 89.79 px 
+----------------------------------------------
+=== FRAME 580 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 96.33 px 
+----------------------------------------------
+=== FRAME 590 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 102.86 px 
+----------------------------------------------
+=== FRAME 600 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 109.40 px 
+----------------------------------------------
+=== FRAME 610 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.69 px 
+----------------------------------------------
+=== FRAME 620 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.24 px 
+----------------------------------------------
+=== FRAME 630 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.04 px 
+----------------------------------------------
+=== FRAME 640 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 650 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 660 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 670 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 680 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 690 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 700 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 710 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 720 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 730 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.0500 | Vel: 0.0000 | Tgt: 0.0500
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 113.11 px 
+----------------------------------------------
+=== FRAME 740 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1649 | Vel: 1.6481 | Tgt: 0.3167
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.00 px 
+----------------------------------------------
+=== FRAME 750 (dt: 0.0170) ===
+PHYSICS [Open]   Curr: 0.5225 | Vel: 2.2089 | Tgt: 0.6514
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 186.03 px 
+----------------------------------------------
+=== FRAME 760 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.7209 | Vel: 0.1551 | Tgt: 0.6847
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 221.50 px 
+----------------------------------------------
+=== FRAME 770 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6881 | Vel: -0.1876 | Tgt: 0.6847
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 215.39 px 
+----------------------------------------------
+=== FRAME 780 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6814 | Vel: 0.0299 | Tgt: 0.6847
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 214.17 px 
+----------------------------------------------
+=== FRAME 790 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6789 | Vel: -0.2659 | Tgt: 0.6179
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 213.72 px 
+----------------------------------------------
+=== FRAME 800 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4365 | Vel: -2.1521 | Tgt: 0.2846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 171.37 px 
+----------------------------------------------
+=== FRAME 810 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1588 | Vel: -0.6405 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 128.12 px 
+----------------------------------------------
+=== FRAME 820 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1726 | Vel: 0.2591 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 130.09 px 
+----------------------------------------------
+=== FRAME 830 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1890 | Vel: -0.0108 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 132.44 px 
+----------------------------------------------
+=== FRAME 840 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1845 | Vel: -0.0159 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.80 px 
+----------------------------------------------
+=== FRAME 850 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1843 | Vel: 0.0042 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.77 px 
+----------------------------------------------
+=== FRAME 860 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0002 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.82 px 
+----------------------------------------------
+=== FRAME 870 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: -0.0003 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 880 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0001 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0000 | Vel: 0.0000 | Tgt: 0.0000
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 890 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.0133 | Vel: 0.3662 | Tgt: 0.0667
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 900 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: -0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.1294 | Vel: 0.5051 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 910 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.1423 | Vel: -0.1026 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 920 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.1317 | Vel: -0.0132 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 930 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.1331 | Vel: 0.0100 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 940 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.1335 | Vel: -0.0012 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 950 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1846 | Vel: 0.0000 | Tgt: 0.1846
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0004 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 131.81 px 
+----------------------------------------------
+=== FRAME 960 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.2275 | Vel: 0.9822 | Tgt: 0.3513
+PHYSICS [TeethY] Curr: 0.1333 | Vel: 0.0002 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 138.11 px 
+----------------------------------------------
+=== FRAME 970 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.5298 | Vel: 1.7567 | Tgt: 0.5846
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 187.30 px 
+----------------------------------------------
+=== FRAME 980 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6149 | Vel: -0.1842 | Tgt: 0.5846
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 202.20 px 
+----------------------------------------------
+=== FRAME 990 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.5963 | Vel: 0.4061 | Tgt: 0.6846
+PHYSICS [TeethY] Curr: 0.1333 | Vel: 0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 198.86 px 
+----------------------------------------------
+=== FRAME 1000 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8619 | Vel: 1.9620 | Tgt: 0.9514
+PHYSICS [TeethY] Curr: 0.1333 | Vel: 0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 248.87 px 
+----------------------------------------------
+=== FRAME 1010 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9846 | Vel: -0.0869 | Tgt: 0.9514
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 274.40 px 
+----------------------------------------------
+=== FRAME 1020 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9771 | Vel: 0.6135 | Tgt: 1.0847
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 272.81 px 
+----------------------------------------------
+=== FRAME 1030 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.5911 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1040 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.1245 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1050 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0918 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1060 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0895 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1070 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.1333 | Vel: -0.0000 | Tgt: 0.1333
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1080 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.2060 | Vel: 0.9094 | Tgt: 0.2833
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1090 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.2980 | Vel: 0.1103 | Tgt: 0.2833
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1100 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.2856 | Vel: -0.0875 | Tgt: 0.2833
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1110 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.3393 | Vel: 0.8351 | Tgt: 0.4167
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1120 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.4623 | Vel: 0.3332 | Tgt: 0.4667
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1130 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5543 | Vel: 0.6743 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1140 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5948 | Vel: -0.0371 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1150 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5829 | Vel: -0.0393 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1160 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5827 | Vel: 0.0111 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1170 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5835 | Vel: 0.0004 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1180 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5834 | Vel: -0.0009 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1190 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5833 | Vel: 0.0002 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1200 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1210 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.0893 | Tgt: 1.2847
+PHYSICS [TeethY] Curr: 0.5834 | Vel: -0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1220 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 0.2967 | Tgt: 1.1514
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1230 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9798 | Vel: -2.2327 | Tgt: 0.8180
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 273.38 px 
+----------------------------------------------
+=== FRAME 1240 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6910 | Vel: -0.6626 | Tgt: 0.7180
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 215.93 px 
+----------------------------------------------
+=== FRAME 1250 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6994 | Vel: -0.0021 | Tgt: 0.6514
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 217.50 px 
+----------------------------------------------
+=== FRAME 1260 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4744 | Vel: -2.1599 | Tgt: 0.3180
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 177.72 px 
+----------------------------------------------
+=== FRAME 1270 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.2827 | Vel: -0.1471 | Tgt: 0.3180
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 146.44 px 
+----------------------------------------------
+=== FRAME 1280 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.3147 | Vel: 0.1832 | Tgt: 0.3180
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 151.49 px 
+----------------------------------------------
+=== FRAME 1290 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.3196 | Vel: -0.1291 | Tgt: 0.2847
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 152.27 px 
+----------------------------------------------
+=== FRAME 1300 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1052 | Vel: -2.0745 | Tgt: -0.0486
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 120.59 px 
+----------------------------------------------
+=== FRAME 1310 (dt: 0.0171) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9606 | Tgt: -0.1490
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1320 (dt: 0.0178) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9180 | Tgt: -0.1490
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1330 (dt: 0.0168) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9153 | Tgt: -0.1490
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1340 (dt: 0.0184) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9151 | Tgt: -0.1490
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1350 (dt: 0.0168) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9151 | Tgt: -0.1490
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1360 (dt: 0.0169) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9151 | Tgt: -0.1490
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1370 (dt: 0.0177) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -0.3808 | Tgt: 0.0580
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 90.00 px 
+----------------------------------------------
+=== FRAME 1380 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.2335 | Vel: 1.8087 | Tgt: 0.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 139.01 px 
+----------------------------------------------
+=== FRAME 1390 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.3371 | Vel: -0.1207 | Tgt: 0.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 155.06 px 
+----------------------------------------------
+=== FRAME 1400 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.3192 | Vel: 0.3888 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 152.20 px 
+----------------------------------------------
+=== FRAME 1410 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.5832 | Vel: 1.9611 | Tgt: 0.6730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 196.53 px 
+----------------------------------------------
+=== FRAME 1420 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.7205 | Vel: 0.4043 | Tgt: 0.7730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 221.44 px 
+----------------------------------------------
+=== FRAME 1430 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9305 | Vel: 1.3510 | Tgt: 0.9730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 263.02 px 
+----------------------------------------------
+=== FRAME 1440 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9963 | Vel: -0.1401 | Tgt: 0.9730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 276.85 px 
+----------------------------------------------
+=== FRAME 1450 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9710 | Vel: -0.0645 | Tgt: 0.9730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 271.53 px 
+----------------------------------------------
+=== FRAME 1460 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9780 | Vel: 0.2954 | Tgt: 1.0397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 273.01 px 
+----------------------------------------------
+=== FRAME 1470 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.8761 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1480 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.4029 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1490 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3697 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1500 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3673 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1510 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1520 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1530 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1540 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1550 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1560 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1570 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1580 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1590 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1600 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1610 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1620 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1630 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1640 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1650 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1660 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1670 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1680 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1690 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1700 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1710 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1720 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1730 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1740 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1750 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1760 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1770 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1780 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1790 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1800 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1810 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1820 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1830 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1840 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1850 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1860 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1870 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1880 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1890 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1900 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1910 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1920 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1930 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.03 px 
+----------------------------------------------
+=== FRAME 1940 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 321.59 px 
+----------------------------------------------
+=== FRAME 1950 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 322.49 px 
+----------------------------------------------
+=== FRAME 1960 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 322.62 px 
+----------------------------------------------
+=== FRAME 1970 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 324.28 px 
+----------------------------------------------
+=== FRAME 1980 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 324.37 px 
+----------------------------------------------
+=== FRAME 1990 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 324.23 px 
+----------------------------------------------
+=== FRAME 2000 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 324.25 px 
+----------------------------------------------
+=== FRAME 2010 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 324.26 px 
+----------------------------------------------
+=== FRAME 2020 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 1.3672 | Tgt: 1.3063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 324.26 px 
+----------------------------------------------
+=== FRAME 2030 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.1781 | Vel: -0.7921 | Tgt: 1.0397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 319.55 px 
+----------------------------------------------
+=== FRAME 2040 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8934 | Vel: -1.3711 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 260.81 px 
+----------------------------------------------
+=== FRAME 2050 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8489 | Vel: 0.2376 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 252.29 px 
+----------------------------------------------
+=== FRAME 2060 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8767 | Vel: 0.0451 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 257.59 px 
+----------------------------------------------
+=== FRAME 2070 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8739 | Vel: -0.0263 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 257.04 px 
+----------------------------------------------
+=== FRAME 2080 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8725 | Vel: 0.0025 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.78 px 
+----------------------------------------------
+=== FRAME 2090 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0013 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2100 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: -0.0005 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2110 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2120 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2130 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: -0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2140 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: -0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2150 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2160 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2170 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2180 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2190 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2200 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2210 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2220 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2230 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2240 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2250 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2260 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2270 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2280 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2290 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2300 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2310 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2320 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2330 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2340 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2350 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2360 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.87 px 
+----------------------------------------------
+=== FRAME 2370 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.69 px 
+----------------------------------------------
+=== FRAME 2380 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 253.69 px 
+----------------------------------------------
+=== FRAME 2390 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 252.93 px 
+----------------------------------------------
+=== FRAME 2400 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 253.25 px 
+----------------------------------------------
+=== FRAME 2410 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 253.39 px 
+----------------------------------------------
+=== FRAME 2420 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.14 px 
+----------------------------------------------
+=== FRAME 2430 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.72 px 
+----------------------------------------------
+=== FRAME 2440 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.42 px 
+----------------------------------------------
+=== FRAME 2450 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8730 | Vel: 0.0000 | Tgt: 0.8730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 256.44 px 
+----------------------------------------------
+=== FRAME 2460 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.7339 | Vel: -1.5470 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 230.63 px 
+----------------------------------------------
+=== FRAME 2470 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6140 | Vel: -0.0309 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 209.38 px 
+----------------------------------------------
+=== FRAME 2480 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6386 | Vel: 0.1152 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 213.64 px 
+----------------------------------------------
+=== FRAME 2490 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6417 | Vel: -0.0226 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 214.18 px 
+----------------------------------------------
+=== FRAME 2500 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6393 | Vel: -0.0032 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 213.76 px 
+----------------------------------------------
+=== FRAME 2510 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6396 | Vel: 0.0023 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 213.82 px 
+----------------------------------------------
+=== FRAME 2520 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6397 | Vel: -0.0003 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 213.83 px 
+----------------------------------------------
+=== FRAME 2530 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6397 | Vel: -0.0001 | Tgt: 0.6397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 213.83 px 
+----------------------------------------------
+=== FRAME 2540 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6253 | Vel: -0.4897 | Tgt: 0.5397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 211.34 px 
+----------------------------------------------
+=== FRAME 2550 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4181 | Vel: -0.9787 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 176.29 px 
+----------------------------------------------
+=== FRAME 2560 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.3891 | Vel: 0.1813 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 171.63 px 
+----------------------------------------------
+=== FRAME 2570 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4092 | Vel: 0.0296 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.83 px 
+----------------------------------------------
+=== FRAME 2580 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4069 | Vel: -0.0191 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.46 px 
+----------------------------------------------
+=== FRAME 2590 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4060 | Vel: 0.0020 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.32 px 
+----------------------------------------------
+=== FRAME 2600 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4064 | Vel: 0.0009 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2610 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: -0.0003 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2620 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2630 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2640 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: -0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2650 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: -0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2660 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2670 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2680 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2690 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2700 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2710 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2720 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2730 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2740 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2750 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2760 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2770 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2780 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2790 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2800 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2810 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2820 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2830 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2840 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2850 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2860 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 174.37 px 
+----------------------------------------------
+=== FRAME 2870 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 173.90 px 
+----------------------------------------------
+=== FRAME 2880 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 169.28 px 
+----------------------------------------------
+=== FRAME 2890 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 168.19 px 
+----------------------------------------------
+=== FRAME 2900 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 168.69 px 
+----------------------------------------------
+=== FRAME 2910 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 166.18 px 
+----------------------------------------------
+=== FRAME 2920 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 159.97 px 
+----------------------------------------------
+=== FRAME 2930 (dt: 0.0169) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 154.40 px 
+----------------------------------------------
+=== FRAME 2940 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 149.08 px 
+----------------------------------------------
+=== FRAME 2950 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 143.97 px 
+----------------------------------------------
+=== FRAME 2960 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 139.17 px 
+----------------------------------------------
+=== FRAME 2970 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 135.11 px 
+----------------------------------------------
+=== FRAME 2980 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 133.88 px 
+----------------------------------------------
+=== FRAME 2990 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 133.15 px 
+----------------------------------------------
+=== FRAME 3000 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 130.34 px 
+----------------------------------------------
+=== FRAME 3010 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.54 px 
+----------------------------------------------
+=== FRAME 3020 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3030 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3040 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3050 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3060 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3070 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3080 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3090 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3100 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3110 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3120 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3130 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3140 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3150 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3160 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3170 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3180 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3190 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3200 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3210 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3220 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3230 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3240 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3250 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3260 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3270 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3280 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3290 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3300 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3310 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3320 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3330 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3340 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3350 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4063 | Vel: 0.0000 | Tgt: 0.4063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 129.52 px 
+----------------------------------------------
+=== FRAME 3360 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4207 | Vel: 0.4897 | Tgt: 0.5063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 132.96 px 
+----------------------------------------------
+=== FRAME 3370 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.6912 | Vel: 2.2026 | Tgt: 0.8397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 197.89 px 
+----------------------------------------------
+=== FRAME 3380 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9905 | Vel: 0.8384 | Tgt: 0.9730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 269.73 px 
+----------------------------------------------
+=== FRAME 3390 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9250 | Vel: -1.4952 | Tgt: 0.7730
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 254.01 px 
+----------------------------------------------
+=== FRAME 3400 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.5715 | Vel: -2.2441 | Tgt: 0.4397
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 169.16 px 
+----------------------------------------------
+=== FRAME 3410 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.2244 | Vel: -1.9829 | Tgt: 0.1063
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 85.85 px 
+----------------------------------------------
+=== FRAME 3420 (dt: 0.0313) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9788 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 12.69 px 
+----------------------------------------------
+=== FRAME 3430 (dt: 0.0287) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9487 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 12.69 px 
+----------------------------------------------
+=== FRAME 3440 (dt: 0.0298) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9486 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 12.69 px 
+----------------------------------------------
+=== FRAME 3450 (dt: 0.0337) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9486 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 12.69 px 
+----------------------------------------------
+=== FRAME 3460 (dt: 0.0254) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9486 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 12.69 px 
+----------------------------------------------
+=== FRAME 3470 (dt: 0.0287) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9486 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 92
+BOUNDS: Height: 19.68 px 
+----------------------------------------------
+=== FRAME 3480 (dt: 0.0255) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9486 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 30.19 px 
+----------------------------------------------
+=== FRAME 3490 (dt: 0.0285) ===
+PHYSICS [Open]   Curr: 0.0000 | Vel: -1.9486 | Tgt: -0.1516
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 37.23 px 
+----------------------------------------------
+=== FRAME 3500 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.1058 | Vel: 1.6349 | Tgt: 0.2520
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 71.07 px 
+----------------------------------------------
+=== FRAME 3510 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.4561 | Vel: 2.1867 | Tgt: 0.5853
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 141.64 px 
+----------------------------------------------
+=== FRAME 3520 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.8000 | Vel: 1.9854 | Tgt: 0.9190
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 223.99 px 
+----------------------------------------------
+=== FRAME 3530 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9520 | Vel: 0.0313 | Tgt: 0.9190
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 260.48 px 
+----------------------------------------------
+=== FRAME 3540 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 0.9631 | Vel: 0.8358 | Tgt: 1.0856
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 263.15 px 
+----------------------------------------------
+=== FRAME 3550 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 2.3904 | Tgt: 1.4190
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3560 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.3126 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3570 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5144 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3580 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5285 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3590 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5295 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3600 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3610 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3620 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3630 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3640 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3650 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3660 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3670 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3680 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3690 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3700 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3710 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+=== FRAME 3720 (dt: 0.0167) ===
+PHYSICS [Open]   Curr: 1.2000 | Vel: 4.5296 | Tgt: 1.5523
+PHYSICS [TeethY] Curr: 0.5834 | Vel: 0.0000 | Tgt: 0.5834
+GEO: ControlPts: 16 | SmoothPts: 96
+BOUNDS: Height: 320.00 px 
+----------------------------------------------
+===== SESSION END =====

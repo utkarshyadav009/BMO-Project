@@ -227,7 +227,7 @@ float getEyeShape(vec2 p, float r, float th, float id, inout vec3 col, inout boo
     }
     else if (id < 12.5) { //12 : : eyes, with two colons 
         //Creating the :: eye shape by rendering two extra circles, under the main eye circle
-        float spacing = r * 2.5;
+        float spacing = r * 2.2;
 
         vec2 pTop = p- vec2(0.0, -spacing);
         float dTop = sdMorphShape(pTop, r);
@@ -251,19 +251,19 @@ float getStressLines(vec2 p, float r) {
     
     if (uStressLevel > 0.9) {
         if(uEyeSide == -1.0) { // Specific case for right eye level 3
-            vec2 anchor = vec2(outerDir * r * 0.8, r * 1.1);
+            vec2 anchor = vec2(outerDir * r * 1.25, r * 1.8);
             vec2 q = rotate2D(p - anchor - vec2(0.0, -r*0.2), radians(-61.0) * outerDir);
             float lx = q.x - (-r * 5.4 * outerDir);
             q.y += 0.5 * (lx * lx) / r;
-            d = sdCapsule(q, vec2(-r * 5.85*outerDir, r * 1.25), vec2(-r * 4.9*outerDir, r * 1.15), th);
+            d = sdCapsule(q, vec2(-r * 5.85*outerDir, r * 1.20), vec2(-r * 5.0*outerDir, r * 1.15), th);
         }
     }
     else if (uStressLevel > 0.6) {
-        vec2 anchor = vec2(outerDir * r * 0.8, r * 1.1);
+        vec2 anchor = vec2(outerDir * r * 0.9, r * 1.0);
         vec2 q = rotate2D(p - anchor, radians(-33.0) * outerDir);
-        float lx = q.x - (-r * 0.95 * outerDir);
+        float lx = q.x - (-r * 0.94 * outerDir);
         q.y += 0.2 * (lx * lx) / r;
-        d = sdCapsule(q, vec2(-r * 2.1*outerDir, r * 1.4), vec2(r * 0.01*outerDir, r * 1.1), th);
+        d = sdCapsule(q, vec2(-r * 2.1*outerDir, r * 1.4), vec2(-r * 0.2*outerDir, r * 1.0), th);
     }
     else if (uStressLevel > 0.3) {
         outerDir = uEyeSide;
@@ -288,8 +288,8 @@ float getStressLines(vec2 p, float r) {
 float getGloomLines(vec2 p, float r) {
     if (uEyeSide != 1.0) return 1e5; // Only left eye
     
-    vec2 q = p - vec2(-r * 1.0, -r * 1.3);
-    float th = r * 0.04;
+    vec2 q = p - vec2(-r * 0.95, -r * 1.35);
+    float th = r * 0.055;
     
     float d1 = sdCapsule(q, vec2(-r*1.07, -r*0.1), vec2(-r*1.07, r*1.5), th);
     float d2 = sdCapsule(q, vec2(-r*0.60, -r*0.1), vec2(-r*0.60, r*1.5), th);
