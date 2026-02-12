@@ -235,6 +235,51 @@ void DrawMouthControls(float& y, MouthParams& p) {
 }
 
 // ---------------------------------------------------------
+// COGNITIVE LAYER: KEYWORD EXTRACTION
+// ---------------------------------------------------------
+void AnalyzeText(char* text, EditorState& state) {
+    std::string s = text;
+    // Convert to lowercase for easier matching
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+
+    // 1. SURPRISE (Reflex)
+    if (s.find("!") != std::string::npos || s.find("wow") != std::string::npos || s.find("what") != std::string::npos) {
+        state.moodPhysics.target.novelty = 1.0f; // Spike!
+    }
+
+    // 2. HAPPINESS (High Valence)
+    if (s.find("happy") != std::string::npos || s.find("love") != std::string::npos || s.find("good") != std::string::npos || s.find("hi") != std::string::npos) {
+        state.moodPhysics.target.valence = 0.8f;
+        state.moodPhysics.target.arousal = 0.5f;
+        state.moodPhysics.target.control = 0.5f;
+        state.moodPhysics.target.obstruct = 0.0f;
+    }
+
+    // 3. ANGER (High Arousal, Neg Valence, HIGH CONTROL)
+    else if (s.find("hate") != std::string::npos || s.find("bad") != std::string::npos || s.find("stop") != std::string::npos || s.find("angry") != std::string::npos) {
+        state.moodPhysics.target.valence = -0.9f;
+        state.moodPhysics.target.arousal = 0.9f;
+        state.moodPhysics.target.control = 1.0f; 
+        state.moodPhysics.target.obstruct = 1.0f;
+    }
+
+    // 4. SADNESS (Low Arousal, Neg Valence, LOW CONTROL)
+    else if (s.find("sad") != std::string::npos || s.find("sorry") != std::string::npos || s.find("miss") != std::string::npos) {
+        state.moodPhysics.target.valence = -0.8f;
+        state.moodPhysics.target.arousal = 0.2f;
+        state.moodPhysics.target.control = 0.1f; // <--- Helplessness
+        state.moodPhysics.target.obstruct = 0.5f;
+    }
+    
+    // 5. FEAR (High Arousal, Neg Valence, LOW CONTROL)
+    else if (s.find("scared") != std::string::npos || s.find("help") != std::string::npos || s.find("no") != std::string::npos) {
+        state.moodPhysics.target.valence = -0.9f;
+        state.moodPhysics.target.arousal = 0.9f;
+        state.moodPhysics.target.control = 0.0f; // <--- The difference between Rage and Fear
+    }
+}
+
+// ---------------------------------------------------------
 // MAIN
 // ---------------------------------------------------------
 int main() {
@@ -267,6 +312,10 @@ int main() {
     AffectiveEngine brain;
     brain.LoadFromDB(db);
     brain.InitLogger(); 
+    
+
+    char textInput[256] = "Type here..."; 
+    bool textEditMode = false;
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
@@ -314,8 +363,23 @@ int main() {
         if (IsKeyPressed(KEY_LEFT)) {
             if (state.tabIndex == 0) state.CycleFace(atlas, -1);
         }
+        float screenW = (float)GetScreenWidth();
+        // auto DrawGhostSlider = [&](const char* label, float* target, float current, float y) {
+        //     GuiLabel({screenW - 260, y, 80, 20}, label);
 
+        //     // 1. Draw the "Ghost" (Current Physical State) as a thin colored line BEHIND the slider
+        //     // Map -1..1 to 0..140 (pixel width)
+        //     float normalized = (current + 1.0f) * 0.5f; 
+        //     if (std::string(label) == "Arousal" || std::string(label) == "Control" || std::string(label) == "Novelty" || std::string(label) == "Obstruct") {
+        //         normalized = current; // 0..1 range
+        //     }
+
+        //     DrawRectangle(screenW - 180, y + 5, (int)(140 * normalized), 10, Fade(BLUE, 0.5f));
         
+        //     // 2. Draw the Actual Slider (The User Target) on top
+        //     GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, target, 
+        //                  (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
+        // };
 
         // 2. LOGIC: AI vs Manual
         if (state.useAI) {
@@ -333,28 +397,50 @@ int main() {
             state.current = targetState;
         }
 
-        float screenW = (float)GetScreenWidth();
-        GuiGroupBox({screenW - 270, 300, 250, 200}, "COGNITIVE CORE");
+        GuiGroupBox({screenW - 270, 300, 250, 220}, "COGNITIVE CORE");
         
         GuiCheckBox({screenW - 260, 320, 20, 20}, "ACTIVATE AI BRAIN", &state.useAI);
         if (state.useAI) {
             float y = 350;
-            // The 5 Knobs of the Soul
-            GuiLabel({screenW - 260, y, 80, 20}, "Valence");
-            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.valence, -1.0f, 1.0f); y+=25;
             
-            GuiLabel({screenW - 260, y, 80, 20}, "Arousal");
-            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.arousal, 0.0f, 1.0f); y+=25;
             
-            GuiLabel({screenW - 260, y, 80, 20}, "Control");
-            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.control, 0.0f, 1.0f); y+=25;
+            // --- GHOST SLIDERS (Visualizes the Physics Lag) ---
+            auto DrawGhostSlider = [&](const char* label, float* target, float current, float yPos) {
+                GuiLabel({screenW - 260, yPos, 80, 20}, label);
+                
+                // Draw BLUE BAR (Where the face IS) behind the slider
+                float normalized = (current + 1.0f) * 0.5f; 
+                if (std::string(label) != "Valence") normalized = current;
+                DrawRectangle(screenW - 180, yPos + 5, (int)(140 * normalized), 10, Fade(BLUE, 0.4f));
+
+                // Draw SLIDER (Where you WANT it to be)
+                GuiSliderBar({screenW - 180, yPos, 140, 20}, NULL, NULL, target, 
+                             (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
+            };
+
+            DrawGhostSlider("Valence", &state.moodPhysics.target.valence, state.moodPhysics.current.valence, y); y+=25;
+            DrawGhostSlider("Arousal", &state.moodPhysics.target.arousal, state.moodPhysics.current.arousal, y); y+=25;
+            DrawGhostSlider("Control", &state.moodPhysics.target.control, state.moodPhysics.current.control, y); y+=25;
             
-            if (GuiButton({screenW - 180, y, 140, 20}, "TRIGGER SURPRISE")) {
-                state.moodPhysics.target.novelty = 1.0f; // Spike to max
+            // Surprise Decay Visualizer
+            GuiLabel({screenW - 260, y, 80, 20}, "Novelty");
+            float novPhys = state.moodPhysics.current.novelty;
+            DrawRectangle((int)screenW - 180.0f, y + 5.0f, (int)(140 * novPhys), 10, Fade(RED, 0.7f)); 
+            // Also allow manual trigger
+            if (GuiButton({screenW - 60, y, 20, 20}, "!")) state.moodPhysics.target.novelty = 1.0f;
+            y += 25;
+
+            DrawGhostSlider("Obstruct", &state.moodPhysics.target.obstruct, state.moodPhysics.current.obstruct, y);
+            y+=25;
+            // --- TEXT INPUT BOX ---
+            if (GuiTextBox({screenW - 260, y, 240, 30}, textInput, 256, textEditMode)) {
+                textEditMode = !textEditMode;
             }
-            y += 25;           
-            GuiLabel({screenW - 260, y, 80, 20}, "Obstruct");
-            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.obstruct, 0.0f, 1.0f);
+            // If user presses ENTER, analyze the text
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+                AnalyzeText(textInput, state);
+                textEditMode = false; // Unfocus
+            }
         }
 
         if (state.enableGUI) {
@@ -431,11 +517,11 @@ int main() {
         }
 
         // Global Save Shortcut
-        if (IsKeyPressed(KEY_ENTER)) {
-             std::string name = "custom";
-             if (state.tabIndex == 0 && !atlas.faceNames.empty()) name = atlas.faceNames[state.faceRefIdx];
-             db.Save("face_database.txt", name, state.current);
-        }
+        // if (IsKeyPressed(KEY_ENTER)) {
+        //      std::string name = "custom";
+        //      if (state.tabIndex == 0 && !atlas.faceNames.empty()) name = atlas.faceNames[state.faceRefIdx];
+        //      db.Save("face_database.txt", name, state.current);
+        // }
 
         EndDrawing();
     }

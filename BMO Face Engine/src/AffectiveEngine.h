@@ -42,11 +42,11 @@ struct AffectiveState {
     // Per-dimension physical properties
     // 0 = Instant, 1 = Heavy/Slow
     struct Mass {
-        float valence = 0.60f;   // Moods change slowly 
-        float arousal = 0.50f;   // Energy shifts moderately
-        float control = 0.60f;   // Confidence is sticky
-        float novelty = 0.10f;   // Surprise is fast! 
-        float obstruct = 0.60f;  // Frustration lingers
+        float valence = 0.25f;   // Moods change slowly 
+        float arousal = 0.20f;   // Energy shifts moderately
+        float control = 0.25f;   // Confidence is sticky
+        float novelty = 0.50f;   // Surprise is fast! 
+        float obstruct = 0.30f;  // Frustration lingers
     } mass;
 
     void Reset(AppraisalVector initial) {
@@ -64,7 +64,7 @@ struct AffectiveState {
 
         // 2. Spring-Damper Physics for Organic Movement
         // This replaces robotic linear interpolation.
-        const float omega = 25.0f;  // Stiffness
+        const float omega = 30.0f;  // Stiffness
         const float zeta = 0.75f;    // Damping (No jitter)
 
         auto UpdateChannel = [&](float& curr, float& vel, float tgt, float inertia) {
@@ -419,6 +419,27 @@ public:
                 minDistance = d;
                 bestIdx = (int)i;
             }
+        }
+
+        // 2. LOGGING (Simple Selector Version)
+        // We log every 15 frames to avoid spamming the file
+        static int logFrame = 0;
+        logFrame++;
+        if (logFile.is_open() && logFrame % 15 == 0) {
+            logFile << std::fixed << std::setprecision(2);
+            logFile << "[" << logFrame << "] Query: " 
+                    << query.valence << "," << query.arousal << "," << query.control
+                    << " | ";
+            
+            if (bestIdx != -1) {
+                logFile << "WINNER: " << trainingData[bestIdx].name 
+                        << " (Dist: " << minDistance << ")";
+            } else {
+                logFile << "WINNER: NONE";
+            }
+            
+            logFile << "\n";
+            logFile.flush(); 
         }
 
         // 2. Return the exact handcrafted pose
