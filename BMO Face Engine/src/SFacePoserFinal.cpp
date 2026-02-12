@@ -182,7 +182,7 @@ void DrawEyeControls(float& y, EyeParams& p) {
     UI::Slider("Pixelation", &p.pixelation,1.0f, 15.0f, y);
     y += 20.0f;
 
-    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "EYE FX"); y += 20.0f;
+    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "EYE FX"); y += 5;
     UI::Checkbox("Brows", &p.showBrow, 10, y);
     UI::Checkbox("Tears", &p.showTears, 90, y);
     UI::Checkbox("Blush", &p.showBlush, 170, y); y += 30.0f;
@@ -492,7 +492,7 @@ int main() {
 
             // Viewport Settings
             float vyView = vy + 120 + 12.0f;
-            GuiGroupBox({ vx, vyView, panelW, 110 }, "VIEWPORT");
+            GuiGroupBox({ vx, vyView, panelW, 130 }, "VIEWPORT");
             GuiCheckBox({ vx + 10, vyView + 25, 20, 20 }, "Show Ref", &state.showReference);
             GuiSliderBar({ vx + 80, vyView + 55, 100, 20 }, "Opac", nullptr, &state.refOpacity, 0.0f, 1.0f);
             GuiCheckBox({ vx + 10, vyView + 80, 20, 20 }, "Test Physics", &state.usePhysics);
