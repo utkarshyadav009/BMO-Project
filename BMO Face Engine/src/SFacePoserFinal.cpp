@@ -26,6 +26,8 @@
 // ---------------------------------------------------------
 // The authoritative unified shader backend
 #include "ShaderParametricFace.cpp" 
+#include "FaceData.h"
+#include "AffectiveEngine.h"
 
 using json = nlohmann::json;
 
@@ -55,33 +57,6 @@ namespace UI {
         return GuiCheckBox({START_X + xOffset, yPos, 20, 20}, text, var);
     }
 }
-
-// ---------------------------------------------------------
-// UNIFIED DATA STRUCTURES
-// ---------------------------------------------------------
-
-// Holds the complete state of the face for saving/loading
-struct FaceState {
-    EyeParams eyes;
-    MouthParams mouth;
-    
-    FaceState() {
-        eyes = EyeParams(); 
-        // Ensure defaults match preferred starting state
-        eyes.scaleX = 1.0f; eyes.scaleY = 1.0f; eyes.spacing = 200.0f;
-        
-        mouth = MouthParams(); // Defaults handled in struct definition or Init
-    }
-
-    void reset()
-    {
-        eyes = EyeParams(); 
-        // Ensure defaults match preferred starting state
-        eyes.scaleX = 1.0f; eyes.scaleY = 1.0f; eyes.spacing = 200.0f;
-        
-        mouth = MouthParams(); // Defaults handled in struct definition or Init
-    }
-};
 
 // ---------------------------------------------------------
 // 1. UNIFIED ATLAS LOADER
@@ -142,205 +117,6 @@ struct ReferenceAtlas {
 };
 
 // ---------------------------------------------------------
-// 2. UNIFIED DATABASE MANAGER
-// ---------------------------------------------------------
-struct FaceDatabase {
-    struct Entry {
-        std::string name;
-        FaceState state;
-    };
-    
-    std::vector<Entry> entries;
-    std::string dropdownStr;
-
-    // Helper: Parse all floats from a string regardless of delimiters
-    std::vector<float> ParseFloats(const std::string& line) {
-        std::vector<float> res;
-        std::string numStr;
-        for (char c : line) {
-            if (isdigit(c) || c == '.' || c == '-' || c == 'e') {
-                numStr += c;
-            } else {
-                if (!numStr.empty()) {
-                    try { res.push_back(std::stof(numStr)); } catch(...) {}
-                    numStr.clear();
-                }
-            }
-        }
-        if (!numStr.empty()) { try { res.push_back(std::stof(numStr)); } catch(...) {} }
-        return res;
-    }
-
-    void Load(const char* filename) {
-        entries.clear();
-        dropdownStr = "";
-        
-        std::ifstream in(filename);
-        if (!in.is_open()) return;
-
-        std::string line;
-        while (std::getline(in, line)) {
-            // Check for entry start: faces["name"] = { ... }
-            size_t namePos = line.find("faces[\"");
-            if (namePos != std::string::npos) {
-                size_t endPos = line.find("\"]");
-                if (endPos != std::string::npos) {
-                    Entry e;
-                    e.name = line.substr(namePos + 7, endPos - (namePos + 7));
-                    
-                    std::vector<float> v = ParseFloats(line);
-                    
-                    int idx = 0;
-                    auto& ep = e.state.eyes;
-                    auto& mp = e.state.mouth;
-
-                    // --- MAPPING EYES ---
-                    if (v.size() > idx) ep.eyeShapeID = v[idx++];
-                    if (v.size() > idx) ep.bend = v[idx++];
-                    if (v.size() > idx) ep.eyeThickness = v[idx++];
-                    if (v.size() > idx) ep.eyeSide = v[idx++];
-                    if (v.size() > idx) ep.scaleX = v[idx++];
-                    if (v.size() > idx) ep.scaleY = v[idx++];
-                    if (v.size() > idx) ep.angle = v[idx++];
-                    if (v.size() > idx) ep.spacing = v[idx++];
-                    if (v.size() > idx) ep.squareness = v[idx++];
-                    
-                    if (v.size() > idx) ep.stressLevel = v[idx++];
-                    if (v.size() > idx) ep.gloomLevel = v[idx++];
-                    if (v.size() > idx) ep.distortMode = (int)v[idx++];
-                    if (v.size() > idx) ep.spiralSpeed = v[idx++];
-                    
-                    if (v.size() > idx) ep.lookX = v[idx++];
-                    if (v.size() > idx) ep.lookY = v[idx++];
-                    
-                    if (v.size() > idx) ep.showBrow = (bool)v[idx++];
-                    if (v.size() > idx) ep.useLowerBrow = (bool)v[idx++];
-                    if (v.size() > idx) ep.eyebrowThickness = v[idx++];
-                    if (v.size() > idx) ep.eyebrowLength = v[idx++];
-                    if (v.size() > idx) ep.eyebrowSpacing = v[idx++];
-                    if (v.size() > idx) ep.eyebrowX = v[idx++];
-                    if (v.size() > idx) ep.eyebrowY = v[idx++];
-                    if (v.size() > idx) ep.browScale = v[idx++];
-                    if (v.size() > idx) ep.browSide = v[idx++];
-                    if (v.size() > idx) ep.browAngle = v[idx++];
-                    if (v.size() > idx) ep.browBend = v[idx++];
-                    if (v.size() > idx) ep.browBendOffset = v[idx++];
-                    
-                    if (v.size() > idx) ep.showTears = (bool)v[idx++];
-                    if (v.size() > idx) ep.showBlush = (bool)v[idx++];
-                    if (v.size() > idx) ep.tearsLevel = v[idx++];
-                    if (v.size() > idx) ep.blushMode = (int)v[idx++];
-                    if (v.size() > idx) ep.blushScale = v[idx++];
-                    if (v.size() > idx) ep.blushX = v[idx++];
-                    if (v.size() > idx) ep.blushY = v[idx++];
-                    if (v.size() > idx) ep.blushSpacing = v[idx++];
-                    
-                    if (v.size() > idx) ep.pixelation = v[idx++];
-
-                    // --- MAPPING MOUTH ---
-                    if (v.size() > idx) mp.open = v[idx++];
-                    if (v.size() > idx) mp.width = v[idx++];
-                    if (v.size() > idx) mp.curve = v[idx++];
-                    // if (v.size() >= 62) {
-                    //     if (v.size() > idx) mp.mouthAngle = v[idx++]; 
-                    // } else {
-                    //     mp.mouthAngle = 0.0f; // Default for old database entries
-                    // }
-                    if (v.size() > idx) mp.mouthAngle = v[idx++];
-                    if (v.size() > idx) mp.squeezeTop = v[idx++];
-                    if (v.size() > idx) mp.squeezeBottom = v[idx++];
-                    if (v.size() > idx) mp.teethY = v[idx++];
-                    if (v.size() > idx) mp.tongueUp = v[idx++];
-                    if (v.size() > idx) mp.tongueX = v[idx++];
-                    if (v.size() > idx) mp.tongueWidth = v[idx++];
-                    if (v.size() > idx) mp.asymmetry = v[idx++];
-                    if (v.size() > idx) mp.squareness = v[idx++];
-                    if (v.size() > idx) mp.teethWidth = v[idx++];
-                    if (v.size() > idx) mp.teethGap = v[idx++];
-                    if (v.size() > idx) mp.scale = v[idx++];
-                    if (v.size() > idx) mp.outlineThickness = v[idx++];
-                    if (v.size() > idx) mp.sigma = v[idx++];
-                    if (v.size() > idx) mp.power = v[idx++];
-                    if (v.size() > idx) mp.maxLiftValue = v[idx++];
-                    if (v.size() > idx) mp.lookX = v[idx++];
-                    if (v.size() > idx) mp.lookY = v[idx++];
-                    if (v.size() > idx) mp.stressLines = v[idx++];
-                    if (v.size() > idx) mp.showInnerMouth = (bool)v[idx++];
-                    if (v.size() > idx) mp.isThreeShape = (bool)v[idx++];
-                    if (v.size() > idx) mp.isDShape = (bool)v[idx++];
-                    if (v.size() > idx) mp.isSlashShape = (bool)v[idx++];
-
-
-                    entries.push_back(e);
-                }
-            }
-        }
-
-        // Rebuild Dropdown
-        for (size_t i = 0; i < entries.size(); i++) {
-            dropdownStr += entries[i].name;
-            if (i < entries.size() - 1) dropdownStr += ";";
-        }
-        std::cout << "[Database] Loaded " << entries.size() << " combined presets." << std::endl;
-    }
-
-    void Save(const char* filename, std::string name, const FaceState& s) {
-        // Read file to memory to handle replacement
-        std::ifstream infile(filename);
-        std::vector<std::string> lines;
-        std::string line;
-        bool found = false;
-        
-        // Prepare New Line
-        std::stringstream ss;
-        ss << "faces[\"" << name << "\"] = { ";
-        
-        // Eyes
-        const EyeParams& p = s.eyes;
-        ss << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, " << p.eyeSide << "f, "
-           << p.scaleX << "f, " << p.scaleY << "f, " << p.angle << "f, " << p.spacing << "f, " << p.squareness << "f, "
-           << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", " << p.spiralSpeed << "f, "
-           << p.lookX << "f, " << p.lookY << "f, "
-           << (int)p.showBrow << ", " << (int)p.useLowerBrow << ", " << p.eyebrowThickness << "f, " << p.eyebrowLength << "f, "
-           << p.eyebrowSpacing << "f, " << p.eyebrowX << "f, " << p.eyebrowY << "f, " << p.browScale << "f, " << p.browSide << "f, " 
-           << p.browAngle << "f, " << p.browBend << "f, " << p.browBendOffset << "f, "
-           << (int)p.showTears << ", " << (int)p.showBlush << ", " << p.tearsLevel << "f, " << p.blushMode << ", "
-           << p.blushScale << "f, " << p.blushX << "f, " << p.blushY << "f, " << p.blushSpacing << "f, " 
-           << p.pixelation << "f, ";
-
-        // Mouth
-        const MouthParams& m = s.mouth;
-        ss << m.open << "f, " << m.width << "f, " << m.curve << "f, " << m.mouthAngle << "f, " << m.squeezeTop << "f, " << m.squeezeBottom << "f, "
-           << m.teethY << "f, " << m.tongueUp << "f, " << m.tongueX << "f, " << m.tongueWidth << "f, "
-           << m.asymmetry << "f, " << m.squareness << "f, " << m.teethWidth << "f, " << m.teethGap << "f, "
-           << m.scale << "f, " << m.outlineThickness << "f, " << m.sigma << "f, " << m.power << "f, " << m.maxLiftValue << "f, " 
-           << m.lookX << "f, " << m.lookY << "f, "<< m.stressLines << "f, " << (int)m.showInnerMouth << "f, "<< (int)m.isThreeShape << "f, "<< (int)m.isDShape << "f, "
-           << (int)m.isSlashShape <<" };";
-
-        std::string newLine = ss.str();
-
-        if (infile.is_open()) {
-            while (std::getline(infile, line)) {
-                if (line.find("faces[\"" + name + "\"]") != std::string::npos) {
-                    lines.push_back(newLine);
-                    found = true;
-                } else {
-                    lines.push_back(line);
-                }
-            }
-            infile.close();
-        }
-        if (!found) lines.push_back(newLine);
-
-        std::ofstream outfile(filename);
-        for (const auto& l : lines) outfile << l << "\n";
-
-        std::cout << "[Database] Saved: " << name << std::endl;
-        Load(filename);
-    }
-};
-
-// ---------------------------------------------------------
 // EDITOR STATE
 // ---------------------------------------------------------
 struct EditorState {
@@ -368,7 +144,17 @@ struct EditorState {
 		if(faceRefIdx < 0) faceRefIdx = (int)atlas.faceNames.size() - 1;
 		if(faceRefIdx >= (int)atlas.faceNames.size()) faceRefIdx = 0;
 	}
+
+    AffectiveState moodPhysics;
+    bool useAI = false; //Toggle between manual sliders and AI brain 
+
+    EditorState() {
+        // Set default "Happy/Neutral" state
+        AppraisalVector start = { 0.8f, 0.4f, 0.8f, 0.0f, 0.0f };
+        moodPhysics.Reset(start);
+    }
 };
+
 
 // ---------------------------------------------------------
 // UI SUB-PANELS
@@ -420,8 +206,6 @@ void DrawEyeControls(float& y, EyeParams& p) {
     }
     GuiLabel({UI::START_X+10, y, UI::PANEL_WIDTH, 20}, "--- SURFACE FX ---"); y += 20;
     UI::Slider("Stress", &p.stressLevel, 0.0f, 1.0f, y); UI::Slider("Gloom", &p.gloomLevel, 0.0f, 1.0f, y);
-    bool distMode = (p.distortMode == 1);
-    if (UI::Checkbox("Squash/Stretch", &distMode, 10, y)) p.distortMode = distMode ? 1 : 0;
 }
 
 void DrawMouthControls(float& y, MouthParams& p) {
@@ -480,6 +264,10 @@ int main() {
 
     EditorState state;
 
+    AffectiveEngine brain;
+    brain.LoadFromDB(db);
+    brain.InitLogger(); 
+
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         // Assume GlobalScaler is available from utility.h as per environment
@@ -499,7 +287,7 @@ int main() {
         
         // Push state to engine
         engine.Update(dt, state.current.eyes, state.current.mouth);
-
+        state.moodPhysics.Update(dt);
         // -------------------------------------------------
         // DRAWING
         // -------------------------------------------------
@@ -525,6 +313,48 @@ int main() {
         }
         if (IsKeyPressed(KEY_LEFT)) {
             if (state.tabIndex == 0) state.CycleFace(atlas, -1);
+        }
+
+        
+
+        // 2. LOGIC: AI vs Manual
+        if (state.useAI) {
+            // Decay Novelty by 50% every second
+           state.moodPhysics.current.novelty = Lerp(state.moodPhysics.current.novelty, 0.0f, dt * 0.5f);
+            // A. Solve the Manifold
+            //FaceState targetState = brain.SolveDual(state.currentMood);
+            FaceState targetState = brain.Solve(state.moodPhysics.current);
+
+            //FaceState targetState = brain.SolveDual(state.moodPhysics.current);
+            // B. Apply Physics (Smooths the transition)
+            // We assign targetState to state.current, but physics engine will interpolate it
+            // If you want instant snap, just copy. If you want physics, set as target.
+            // For now, let's just copy to visualize the raw manifold output:
+            state.current = targetState;
+        }
+
+        float screenW = (float)GetScreenWidth();
+        GuiGroupBox({screenW - 270, 300, 250, 200}, "COGNITIVE CORE");
+        
+        GuiCheckBox({screenW - 260, 320, 20, 20}, "ACTIVATE AI BRAIN", &state.useAI);
+        if (state.useAI) {
+            float y = 350;
+            // The 5 Knobs of the Soul
+            GuiLabel({screenW - 260, y, 80, 20}, "Valence");
+            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.valence, -1.0f, 1.0f); y+=25;
+            
+            GuiLabel({screenW - 260, y, 80, 20}, "Arousal");
+            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.arousal, 0.0f, 1.0f); y+=25;
+            
+            GuiLabel({screenW - 260, y, 80, 20}, "Control");
+            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.control, 0.0f, 1.0f); y+=25;
+            
+            if (GuiButton({screenW - 180, y, 140, 20}, "TRIGGER SURPRISE")) {
+                state.moodPhysics.target.novelty = 1.0f; // Spike to max
+            }
+            y += 25;           
+            GuiLabel({screenW - 260, y, 80, 20}, "Obstruct");
+            GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, &state.moodPhysics.target.obstruct, 0.0f, 1.0f);
         }
 
         if (state.enableGUI) {
@@ -573,8 +403,6 @@ int main() {
             }
 
             if (GuiButton({ vx + panelW - 60, vy + 65, 50, 30 }, "RLD")) db.Load("face_database.txt");
-
-            
 
             // Viewport Settings
             float vyView = vy + 120 + 12.0f;

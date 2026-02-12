@@ -12,7 +12,7 @@
 #include <iostream>
 #include <algorithm>
 #include "utility.h"
-
+#include "FaceData.h"
 // --------------------------------------------------------
 // MATH UTILS (From Mouth Implementation)
 // --------------------------------------------------------
@@ -127,6 +127,9 @@ namespace MathUtils {
     static int ClampInt(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi) ? hi : v; }
     static Vector4 ColorNormalize(Color c) { return { c.r/255.0f, c.g/255.0f, c.b/255.0f, c.a/255.0f }; }
 
+    //Not using this function anymore, keeping it cause its cool 
+    //Wrote this function because I wanted to have sharp corners 
+    //but now I am using a built in raylib rect 
     static void BuildRoundedRectContour(std::vector<Vector2>& out, float cx, float cy,float halfW, float halfH, float radius, int arcSeg = 8)
     {
         out.clear();
@@ -277,47 +280,47 @@ struct ShaderAsset {
     void Unload() { UnloadShader(shader); }
 };
 
-// --------------------------------------------------------
-// PARAMETERS
-// --------------------------------------------------------
-struct EyeParams {
-    // Eye Shape
-    float eyeShapeID = 0.0f; float bend = 0.0f; float eyeThickness = 4.0f;
-    float eyeSide = 0.0f; float scaleX = 1.0f; float scaleY = 1.0f;
-    float angle = 0.0f; float spacing = 612.0f; float squareness = 0.0f;
+// // --------------------------------------------------------
+// // PARAMETERS
+// // --------------------------------------------------------
+// struct EyeParams {
+//     // Eye Shape
+//     float eyeShapeID = 0.0f; float bend = 0.0f; float eyeThickness = 4.0f;
+//     float eyeSide = 0.0f; float scaleX = 1.0f; float scaleY = 1.0f;
+//     float angle = 0.0f; float spacing = 612.0f; float squareness = 0.0f;
 
-    // FX
-    float stressLevel = 0.0f; float gloomLevel = 0.0f;
-    int distortMode = 0; float spiralSpeed = -1.2f;
+//     // FX
+//     float stressLevel = 0.0f; float gloomLevel = 0.0f;
+//     float spiralSpeed = -1.2f;
 
-    // Look
-    float lookX = 0.0f; float lookY = 62.50f;
+//     // Look
+//     float lookX = 0.0f; float lookY = 62.50f;
 
-    // Brow
-    bool showBrow = false; bool useLowerBrow = false;
-    float eyebrowThickness = 4.0f; float eyebrowLength = 1.0f;
-    float eyebrowSpacing = 0.0f; float eyebrowX = 0.0f; float eyebrowY = 0.0f;
-    float browScale = 1.0f; float browSide = 1.0f; float browAngle = 0.0f;
-    float browBend = 0.0f; float browBendOffset = 0.85f;
+//     // Brow
+//     bool showBrow = false; bool useLowerBrow = false;
+//     float eyebrowThickness = 4.0f; float eyebrowLength = 1.0f;
+//     float eyebrowSpacing = 0.0f; float eyebrowX = 0.0f; float eyebrowY = 0.0f;
+//     float browScale = 1.0f; float browSide = 1.0f; float browAngle = 0.0f;
+//     float browBend = 0.0f; float browBendOffset = 0.85f;
 
-    // Tears/Blush
-    bool showTears = false; bool showBlush = false;
-    float tearsLevel = 0.0f; int blushMode = 0; float blushScale = 1.0f;
-    float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
+//     // Tears/Blush
+//     bool showTears = false; bool showBlush = false;
+//     float tearsLevel = 0.0f; int blushMode = 0; float blushScale = 1.0f;
+//     float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
 
-    // Global
-    float pixelation = 1.0f; 
-};
+//     // Global
+//     float pixelation = 1.0f; 
+// };
 
-struct MouthParams {
-    float open = 0.05f; float width = 0.5f; float curve = 0.0f; float mouthAngle = 0.0f; 
-    float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
-    float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
-    float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
-    float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
-    float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
-    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape; bool isDShape; bool isSlashShape;
-};
+// struct MouthParams {
+//     float open = 0.05f; float width = 0.5f; float curve = 0.0f; float mouthAngle = 0.0f; 
+//     float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
+//     float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
+//     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
+//     float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
+//     float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
+//     float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape; bool isDShape; bool isSlashShape;
+// };
 
 // --------------------------------------------------------
 // FACE SYSTEM (UNIFIED)
@@ -498,7 +501,9 @@ struct FaceSystem {
         Upd(mCurrent.lookY, mVelocity.lookY, target.lookY);
         Upd(mCurrent.stressLines, mVelocity.stressLines, target.stressLines);
         mCurrent.showInnerMouth = target.showInnerMouth;
-        
+        mCurrent.isThreeShape   = target.isThreeShape;   
+        mCurrent.isDShape       = target.isDShape;       
+        mCurrent.isSlashShape   = target.isSlashShape;
         GenerateMouthGeometry();
     }
 
@@ -740,7 +745,6 @@ struct FaceSystem {
         SetShaderValue(shEye.shader, shEye.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.spiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(shEye.shader, shEye.locs.distort, &p.distortMode, SHADER_UNIFORM_INT);
         SetShaderValue(shEye.shader, shEye.locs.stress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.gloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.squareness, &p.squareness, SHADER_UNIFORM_FLOAT);
@@ -1060,7 +1064,6 @@ struct FaceSystem {
         shEye.locs.thickness = GetShaderLocation(shEye.shader, "uThickness");
         shEye.locs.side = GetShaderLocation(shEye.shader, "uEyeSide");
         shEye.locs.spiral = GetShaderLocation(shEye.shader, "uSpiralSpeed");
-        shEye.locs.distort = GetShaderLocation(shEye.shader, "uDistortMode");
         shEye.locs.stress = GetShaderLocation(shEye.shader, "uStressLevel");
         shEye.locs.gloom = GetShaderLocation(shEye.shader, "uGloomLevel");
         shEye.locs.squareness = GetShaderLocation(shEye.shader, "uSquareness");

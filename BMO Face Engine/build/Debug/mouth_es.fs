@@ -177,7 +177,7 @@ float getStressLines(vec2 p, float r) {
     // MODE 1: DIMPLES (The "Parentheses" look)
     // Position: Next to mouth corners
     // Bend: 0.25 (Outward curve)
-    vec2  m1_pos  = vec2(r * 0.47, -r * 0.08); 
+    vec2  m1_pos  = vec2(r * 0.45, -r * 0.08); 
     float m1_size = 0.55;
     float m1_bend = -0.28;
     float m1_len  = 0.30; // Standard
@@ -195,11 +195,11 @@ float getStressLines(vec2 p, float r) {
     // MODE 3: STRESS TICK (Frustration Mark)
     // Position: Higher up on forehead
     // Bend: -0.3 (Inward "Tick" shape)
-    vec2  m3_pos  = vec2(r * 0.45, r * 0.25); 
-    float m3_size = 0.35;
-    float m3_bend = -0.60; 
-    float m3_len  = 0.50; // Long
-    float m3_ang = -9.0;
+    vec2  m3_pos  = vec2(r * 0.34, r * 0.22); 
+    float m3_size = 0.30;
+    float m3_bend = -0.52; 
+    float m3_len  = 0.45; // Long
+    float m3_ang = 2.4;
 
     // ---------------------------------------------------------
     // --- SELECTION LOGIC ---

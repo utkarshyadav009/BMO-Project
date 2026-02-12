@@ -23,7 +23,6 @@ uniform float uSquareness;
 // Surface Effects
 uniform float uStressLevel;  // 0-1: Angry lines
 uniform float uGloomLevel;   // 0-1: Shocked vertical lines
-uniform int uDistortMode;    // 1: Squash/Stretch
 
 // ---------------------------
 // CONSTANTS
@@ -311,14 +310,8 @@ void main() {
     // STABLE PIXEL WIDTH: Calculate this BEFORE any distortion or loops
     // This represents the size of one pixel in your 'p' coordinate space.
     float pixelWidth = fwidth(p.x);
-    
-    // 2. Domain Distortion (Squash/Stretch)
-    if (uDistortMode == 1) { 
-        float nx = p.x / r; 
-        p.y += (nx * nx) * (uBend * 0.5) * r;
-    }
 
-    // 3. Calculate Main Shape
+    // 2. Calculate Main Shape
     // Pass useSafeAA by reference so getEyeShape can toggle it for the spiral
     float d = getEyeShape(p, r, th, uShapeID, col, useSafeAA);
 
