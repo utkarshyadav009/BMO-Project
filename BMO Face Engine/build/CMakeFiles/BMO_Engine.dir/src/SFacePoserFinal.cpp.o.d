@@ -247,4 +247,6 @@ CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o: \
  /home/bmo/BMO-Project/BMO\ Face\ Engine/src/utility.h \
  /home/bmo/BMO-Project/BMO\ Face\ Engine/src/ShaderParametricFace.cpp \
  /home/bmo/BMO-Project/BMO\ Face\ Engine/build/_deps/raylib-src/src/rlgl.h \
- /home/bmo/BMO-Project/BMO\ Face\ Engine/build/_deps/raylib-src/src/raymath.h
+ /home/bmo/BMO-Project/BMO\ Face\ Engine/build/_deps/raylib-src/src/raymath.h \
+ /home/bmo/BMO-Project/BMO\ Face\ Engine/src/FaceData.h \
+ /home/bmo/BMO-Project/BMO\ Face\ Engine/src/AffectiveEngine.h

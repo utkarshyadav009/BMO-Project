@@ -116,16 +116,18 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 }
 
 // Anti-aliasing helpers
+// Anti-aliasing helpers
 float getAlpha(float d) { 
-    // Calculate the change in distance across one screen pixel
-    float w = fwidth(d); 
-    return 1.0 - smoothstep(-w, w, d);
+    // Since 'd' is already in screen pixels, we use a fixed 1-pixel feather.
+    // 0.0 to 1.0 is a 1px transition. -0.5 to 0.5 is also 1px but centered.
+    // Using 0.75 gives a slightly "crisper" look than 1.0 without aliasing.
+    return 1.0 - smoothstep(-0.75, 0.75, d);
 }
 
 float getStroke(float d, float thick) { 
-    float w = fwidth(d);
-    // Note: We use 1.5 * w to keep outlines slightly smoother than fills
-    return 1.0 - smoothstep(thick - w, thick + w, abs(d));
+    // No fwidth needed.
+    // Standard 1px AA on the stroke edges.
+    return 1.0 - smoothstep(thick - 0.75, thick + 0.75, abs(d));
 }
 
 // --- EFFECTS: STRESS LINES (BEZIER) ---
@@ -176,7 +178,7 @@ float getStressLines(vec2 p, float r) {
     // MODE 1: DIMPLES (The "Parentheses" look)
     // Position: Next to mouth corners
     // Bend: 0.25 (Outward curve)
-    vec2  m1_pos  = vec2(r * 0.47, -r * 0.08); 
+    vec2  m1_pos  = vec2(r * 0.45, -r * 0.08); 
     float m1_size = 0.55;
     float m1_bend = -0.28;
     float m1_len  = 0.30; // Standard
@@ -194,11 +196,11 @@ float getStressLines(vec2 p, float r) {
     // MODE 3: STRESS TICK (Frustration Mark)
     // Position: Higher up on forehead
     // Bend: -0.3 (Inward "Tick" shape)
-    vec2  m3_pos  = vec2(r * 0.45, r * 0.25); 
-    float m3_size = 0.35;
-    float m3_bend = -0.60; 
-    float m3_len  = 0.50; // Long
-    float m3_ang = -9.0;
+    vec2  m3_pos  = vec2(r * 0.34, r * 0.22); 
+    float m3_size = 0.30;
+    float m3_bend = -0.52; 
+    float m3_len  = 0.45; // Long
+    float m3_ang = 2.4;
 
     // ---------------------------------------------------------
     // --- SELECTION LOGIC ---

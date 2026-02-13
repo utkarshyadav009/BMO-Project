@@ -26,6 +26,8 @@
 // ---------------------------------------------------------
 // The authoritative unified shader backend
 #include "ShaderParametricFace.cpp" 
+#include "FaceData.h"
+#include "AffectiveEngine.h"
 
 using json = nlohmann::json;
 
@@ -55,24 +57,6 @@ namespace UI {
         return GuiCheckBox({START_X + xOffset, yPos, 20, 20}, text, var);
     }
 }
-
-// ---------------------------------------------------------
-// UNIFIED DATA STRUCTURES
-// ---------------------------------------------------------
-
-// Holds the complete state of the face for saving/loading
-struct FaceState {
-    EyeParams eyes;
-    MouthParams mouth;
-    
-    FaceState() {
-        eyes = EyeParams(); 
-        // Ensure defaults match preferred starting state
-        eyes.scaleX = 1.0f; eyes.scaleY = 1.0f; eyes.spacing = 200.0f;
-        
-        mouth = MouthParams(); // Defaults handled in struct definition or Init
-    }
-};
 
 // ---------------------------------------------------------
 // 1. UNIFIED ATLAS LOADER
@@ -133,195 +117,6 @@ struct ReferenceAtlas {
 };
 
 // ---------------------------------------------------------
-// 2. UNIFIED DATABASE MANAGER
-// ---------------------------------------------------------
-struct FaceDatabase {
-    struct Entry {
-        std::string name;
-        FaceState state;
-    };
-    
-    std::vector<Entry> entries;
-    std::string dropdownStr;
-
-    // Helper: Parse all floats from a string regardless of delimiters
-    std::vector<float> ParseFloats(const std::string& line) {
-        std::vector<float> res;
-        std::string numStr;
-        for (char c : line) {
-            if (isdigit(c) || c == '.' || c == '-' || c == 'e') {
-                numStr += c;
-            } else {
-                if (!numStr.empty()) {
-                    try { res.push_back(std::stof(numStr)); } catch(...) {}
-                    numStr.clear();
-                }
-            }
-        }
-        if (!numStr.empty()) { try { res.push_back(std::stof(numStr)); } catch(...) {} }
-        return res;
-    }
-
-    void Load(const char* filename) {
-        entries.clear();
-        dropdownStr = "";
-        
-        std::ifstream in(filename);
-        if (!in.is_open()) return;
-
-        std::string line;
-        while (std::getline(in, line)) {
-            // Check for entry start: faces["name"] = { ... }
-            size_t namePos = line.find("faces[\"");
-            if (namePos != std::string::npos) {
-                size_t endPos = line.find("\"]");
-                if (endPos != std::string::npos) {
-                    Entry e;
-                    e.name = line.substr(namePos + 7, endPos - (namePos + 7));
-                    
-                    std::vector<float> v = ParseFloats(line);
-                    
-                    int idx = 0;
-                    auto& ep = e.state.eyes;
-                    auto& mp = e.state.mouth;
-
-                    // --- MAPPING EYES ---
-                    if (v.size() > idx) ep.eyeShapeID = v[idx++];
-                    if (v.size() > idx) ep.bend = v[idx++];
-                    if (v.size() > idx) ep.eyeThickness = v[idx++];
-                    if (v.size() > idx) ep.eyeSide = v[idx++];
-                    if (v.size() > idx) ep.scaleX = v[idx++];
-                    if (v.size() > idx) ep.scaleY = v[idx++];
-                    if (v.size() > idx) ep.angle = v[idx++];
-                    if (v.size() > idx) ep.spacing = v[idx++];
-                    if (v.size() > idx) ep.squareness = v[idx++];
-                    
-                    if (v.size() > idx) ep.stressLevel = v[idx++];
-                    if (v.size() > idx) ep.gloomLevel = v[idx++];
-                    if (v.size() > idx) ep.distortMode = (int)v[idx++];
-                    if (v.size() > idx) ep.spiralSpeed = v[idx++];
-                    
-                    if (v.size() > idx) ep.lookX = v[idx++];
-                    if (v.size() > idx) ep.lookY = v[idx++];
-                    
-                    if (v.size() > idx) ep.showBrow = (bool)v[idx++];
-                    if (v.size() > idx) ep.useLowerBrow = (bool)v[idx++];
-                    if (v.size() > idx) ep.eyebrowThickness = v[idx++];
-                    if (v.size() > idx) ep.eyebrowLength = v[idx++];
-                    if (v.size() > idx) ep.eyebrowSpacing = v[idx++];
-                    if (v.size() > idx) ep.eyebrowX = v[idx++];
-                    if (v.size() > idx) ep.eyebrowY = v[idx++];
-                    if (v.size() > idx) ep.browScale = v[idx++];
-                    if (v.size() > idx) ep.browSide = v[idx++];
-                    if (v.size() > idx) ep.browAngle = v[idx++];
-                    if (v.size() > idx) ep.browBend = v[idx++];
-                    if (v.size() > idx) ep.browBendOffset = v[idx++];
-                    
-                    if (v.size() > idx) ep.showTears = (bool)v[idx++];
-                    if (v.size() > idx) ep.showBlush = (bool)v[idx++];
-                    if (v.size() > idx) ep.tearsLevel = v[idx++];
-                    if (v.size() > idx) ep.blushMode = (int)v[idx++];
-                    if (v.size() > idx) ep.blushScale = v[idx++];
-                    if (v.size() > idx) ep.blushX = v[idx++];
-                    if (v.size() > idx) ep.blushY = v[idx++];
-                    if (v.size() > idx) ep.blushSpacing = v[idx++];
-                    
-                    if (v.size() > idx) ep.pixelation = v[idx++];
-
-                    // --- MAPPING MOUTH ---
-                    if (v.size() > idx) mp.open = v[idx++];
-                    if (v.size() > idx) mp.width = v[idx++];
-                    if (v.size() > idx) mp.curve = v[idx++];
-                    if (v.size() > idx) mp.squeezeTop = v[idx++];
-                    if (v.size() > idx) mp.squeezeBottom = v[idx++];
-                    if (v.size() > idx) mp.teethY = v[idx++];
-                    if (v.size() > idx) mp.tongueUp = v[idx++];
-                    if (v.size() > idx) mp.tongueX = v[idx++];
-                    if (v.size() > idx) mp.tongueWidth = v[idx++];
-                    if (v.size() > idx) mp.asymmetry = v[idx++];
-                    if (v.size() > idx) mp.squareness = v[idx++];
-                    if (v.size() > idx) mp.teethWidth = v[idx++];
-                    if (v.size() > idx) mp.teethGap = v[idx++];
-                    if (v.size() > idx) mp.scale = v[idx++];
-                    if (v.size() > idx) mp.outlineThickness = v[idx++];
-                    if (v.size() > idx) mp.sigma = v[idx++];
-                    if (v.size() > idx) mp.power = v[idx++];
-                    if (v.size() > idx) mp.maxLiftValue = v[idx++];
-                    if (v.size() > idx) mp.lookX = v[idx++];
-                    if (v.size() > idx) mp.lookY = v[idx++];
-                    if (v.size() > idx) mp.stressLines = v[idx++];
-                    if (v.size() > idx) mp.showInnerMouth = (bool)v[idx++];
-                    if (v.size() > idx) mp.isThreeShape = (bool)v[idx++];
-
-                    entries.push_back(e);
-                }
-            }
-        }
-
-        // Rebuild Dropdown
-        for (size_t i = 0; i < entries.size(); i++) {
-            dropdownStr += entries[i].name;
-            if (i < entries.size() - 1) dropdownStr += ";";
-        }
-        std::cout << "[Database] Loaded " << entries.size() << " combined presets." << std::endl;
-    }
-
-    void Save(const char* filename, std::string name, const FaceState& s) {
-        // Read file to memory to handle replacement
-        std::ifstream infile(filename);
-        std::vector<std::string> lines;
-        std::string line;
-        bool found = false;
-        
-        // Prepare New Line
-        std::stringstream ss;
-        ss << "faces[\"" << name << "\"] = { ";
-        
-        // Eyes
-        const EyeParams& p = s.eyes;
-        ss << p.eyeShapeID << "f, " << p.bend << "f, " << p.eyeThickness << "f, " << p.eyeSide << "f, "
-           << p.scaleX << "f, " << p.scaleY << "f, " << p.angle << "f, " << p.spacing << "f, " << p.squareness << "f, "
-           << p.stressLevel << "f, " << p.gloomLevel << "f, " << p.distortMode << ", " << p.spiralSpeed << "f, "
-           << p.lookX << "f, " << p.lookY << "f, "
-           << (int)p.showBrow << ", " << (int)p.useLowerBrow << ", " << p.eyebrowThickness << "f, " << p.eyebrowLength << "f, "
-           << p.eyebrowSpacing << "f, " << p.eyebrowX << "f, " << p.eyebrowY << "f, " << p.browScale << "f, " << p.browSide << "f, " 
-           << p.browAngle << "f, " << p.browBend << "f, " << p.browBendOffset << "f, "
-           << (int)p.showTears << ", " << (int)p.showBlush << ", " << p.tearsLevel << "f, " << p.blushMode << ", "
-           << p.blushScale << "f, " << p.blushX << "f, " << p.blushY << "f, " << p.blushSpacing << "f, " 
-           << p.pixelation << "f, ";
-
-        // Mouth
-        const MouthParams& m = s.mouth;
-        ss << m.open << "f, " << m.width << "f, " << m.curve << "f, " << m.squeezeTop << "f, " << m.squeezeBottom << "f, "
-           << m.teethY << "f, " << m.tongueUp << "f, " << m.tongueX << "f, " << m.tongueWidth << "f, "
-           << m.asymmetry << "f, " << m.squareness << "f, " << m.teethWidth << "f, " << m.teethGap << "f, "
-           << m.scale << "f, " << m.outlineThickness << "f, " << m.sigma << "f, " << m.power << "f, " << m.maxLiftValue << "f, " 
-           << m.lookX << "f, " << m.lookY << "f, "<< m.stressLines << "f, " << (int)m.showInnerMouth << "f, "<< (int)m.isThreeShape << " };";
-
-        std::string newLine = ss.str();
-
-        if (infile.is_open()) {
-            while (std::getline(infile, line)) {
-                if (line.find("faces[\"" + name + "\"]") != std::string::npos) {
-                    lines.push_back(newLine);
-                    found = true;
-                } else {
-                    lines.push_back(line);
-                }
-            }
-            infile.close();
-        }
-        if (!found) lines.push_back(newLine);
-
-        std::ofstream outfile(filename);
-        for (const auto& l : lines) outfile << l << "\n";
-
-        std::cout << "[Database] Saved: " << name << std::endl;
-        Load(filename);
-    }
-};
-
-// ---------------------------------------------------------
 // EDITOR STATE
 // ---------------------------------------------------------
 struct EditorState {
@@ -335,6 +130,7 @@ struct EditorState {
     float refOpacity = 0.5f;
     bool usePhysics = false;
     bool enableGUI = true;
+    bool showFace = true;
     bool debugBoxes = false;
     int tabIndex = 0; 
     
@@ -348,7 +144,17 @@ struct EditorState {
 		if(faceRefIdx < 0) faceRefIdx = (int)atlas.faceNames.size() - 1;
 		if(faceRefIdx >= (int)atlas.faceNames.size()) faceRefIdx = 0;
 	}
+
+    AffectiveState moodPhysics;
+    bool useAI = false; //Toggle between manual sliders and AI brain 
+
+    EditorState() {
+        // Set default "Happy/Neutral" state
+        AppraisalVector start = { 0.8f, 0.4f, 0.8f, 0.0f, 0.0f };
+        moodPhysics.Reset(start);
+    }
 };
+
 
 // ---------------------------------------------------------
 // UI SUB-PANELS
@@ -366,17 +172,17 @@ void DrawEyeControls(float& y, EyeParams& p) {
     UI::Slider("Bend", &p.bend, -2.0f, 2.0f, y);
     UI::Slider("Thickness", &p.eyeThickness, 1.0f, 30.0f, y);
     y += 5;
-    UI::Slider("Scale X", &p.scaleX, 0.1f, 10.0f, y);
-    UI::Slider("Scale Y", &p.scaleY, 0.1f, 10.0f, y);
+    UI::Slider("Scale X", &p.scaleX, 0.1f, 30.0f, y);
+    UI::Slider("Scale Y", &p.scaleY, 0.1f, 30.0f, y);
     UI::Slider("Spacing", &p.spacing, 0.0f, 1000.0f, y);
-    UI::Slider("Look X", &p.lookX, -300.0f, 300.0f, y);
-    UI::Slider("Look Y", &p.lookY, -300.0f, 300.0f, y);
+    UI::Slider("Look X", &p.lookX, -500.0f, 500.0f, y);
+    UI::Slider("Look Y", &p.lookY, -500.0f, 500.0f, y);
     UI::Slider("Angle", &p.angle, -180.0f, 180.0f, y);
     UI::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);
-    UI::Slider("Pixelation", &p.pixelation,1.0f, 8.0f, y);
+    UI::Slider("Pixelation", &p.pixelation,1.0f, 15.0f, y);
     y += 20.0f;
 
-    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "EYE FX"); y += 20.0f;
+    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "EYE FX"); y += 5;
     UI::Checkbox("Brows", &p.showBrow, 10, y);
     UI::Checkbox("Tears", &p.showTears, 90, y);
     UI::Checkbox("Blush", &p.showBlush, 170, y); y += 30.0f;
@@ -392,7 +198,7 @@ void DrawEyeControls(float& y, EyeParams& p) {
     if (p.showTears) { GuiLabel({UI::START_X+10, y, 200, 20}, "- TEAR SETTINGS -"); y+= 20; UI::Slider("Level", &p.tearsLevel, 0, 1, y); }
     if(p.showBlush) {
         GuiLabel({UI::START_X+10, y, 200, 20}, "- BLUSH SETTINGS -"); y+= 20;
-        UI::Slider("Scale", &p.blushScale, 0.5f, 3.0f, y); UI::Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
+        UI::Slider("Scale", &p.blushScale, 0.1f, 3.0f, y); UI::Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
         UI::Slider("Pos Y", &p.blushY, -10.0f, 10.0f, y); UI::Slider("Space", &p.blushSpacing, -100.0f, 100.0f, y);
         GuiLabel({UI::START_X+10, y, UI::LABEL_WIDTH, 20}, "Blush Mode");
         if(GuiButton({UI::START_X+10+UI::LABEL_WIDTH,  y, 80, 20}, p.blushMode == 0 ? "Pink" : (p.blushMode == 1 ? "Green" : "Yellow"))) p.blushMode = (p.blushMode + 1) % 3;
@@ -400,8 +206,6 @@ void DrawEyeControls(float& y, EyeParams& p) {
     }
     GuiLabel({UI::START_X+10, y, UI::PANEL_WIDTH, 20}, "--- SURFACE FX ---"); y += 20;
     UI::Slider("Stress", &p.stressLevel, 0.0f, 1.0f, y); UI::Slider("Gloom", &p.gloomLevel, 0.0f, 1.0f, y);
-    bool distMode = (p.distortMode == 1);
-    if (UI::Checkbox("Squash/Stretch", &distMode, 10, y)) p.distortMode = distMode ? 1 : 0;
 }
 
 void DrawMouthControls(float& y, MouthParams& p) {
@@ -410,7 +214,7 @@ void DrawMouthControls(float& y, MouthParams& p) {
     UI::Slider("Look X", &p.lookX, -250.0f, 250.0f, y);
     UI::Slider("Look Y", &p.lookY, -250.0f, 250.0f, y);
     UI::Slider("Mouth Angle", &p.mouthAngle, -180.0f, 180.0f, y);
-    UI::Slider("Outline", &p.outlineThickness, 1.f, 10.0f, y); y += 10;
+    UI::Slider("Outline", &p.outlineThickness, 1.f, 30.0f, y); y += 10;
     UI::Slider("Open", &p.open, 0.0f, 1.2f, y); 
     UI::Slider("Width", &p.width, 0.1f, 1.5f, y);
     UI::Slider("Curve", &p.curve, -5.0f, 5.0f, y); y += 10;
@@ -424,7 +228,55 @@ void DrawMouthControls(float& y, MouthParams& p) {
     UI::Slider("Asymmetry", &p.asymmetry, -1.0f, 1.0f, y); UI::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);y+=10;
     UI::Slider("Stress Lns", &p.stressLines, 0.0f, 1.0f, y);y+=10;
     UI::Checkbox("Show Inner Mouth", &p.showInnerMouth, 10, y); y+=20;
-    UI::Checkbox("3 Shape", &p.isThreeShape, 10, y);
+    UI::Checkbox("3 Shape", &p.isThreeShape, 10, y);y+=20;
+    UI::Checkbox("D Shape", &p.isDShape, 10, y);y+=20;
+    UI::Checkbox("- Shape", &p.isSlashShape, 10, y);
+
+}
+
+// ---------------------------------------------------------
+// COGNITIVE LAYER: KEYWORD EXTRACTION
+// ---------------------------------------------------------
+void AnalyzeText(char* text, EditorState& state) {
+    std::string s = text;
+    // Convert to lowercase for easier matching
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+
+    // 1. SURPRISE (Reflex)
+    if (s.find("!") != std::string::npos || s.find("wow") != std::string::npos || s.find("what") != std::string::npos) {
+        state.moodPhysics.target.novelty = 1.0f; // Spike!
+    }
+
+    // 2. HAPPINESS (High Valence)
+    if (s.find("happy") != std::string::npos || s.find("love") != std::string::npos || s.find("good") != std::string::npos || s.find("hi") != std::string::npos) {
+        state.moodPhysics.target.valence = 0.8f;
+        state.moodPhysics.target.arousal = 0.5f;
+        state.moodPhysics.target.control = 0.5f;
+        state.moodPhysics.target.obstruct = 0.0f;
+    }
+
+    // 3. ANGER (High Arousal, Neg Valence, HIGH CONTROL)
+    else if (s.find("hate") != std::string::npos || s.find("bad") != std::string::npos || s.find("stop") != std::string::npos || s.find("angry") != std::string::npos) {
+        state.moodPhysics.target.valence = -0.9f;
+        state.moodPhysics.target.arousal = 0.9f;
+        state.moodPhysics.target.control = 1.0f; 
+        state.moodPhysics.target.obstruct = 1.0f;
+    }
+
+    // 4. SADNESS (Low Arousal, Neg Valence, LOW CONTROL)
+    else if (s.find("sad") != std::string::npos || s.find("sorry") != std::string::npos || s.find("miss") != std::string::npos) {
+        state.moodPhysics.target.valence = -0.8f;
+        state.moodPhysics.target.arousal = 0.2f;
+        state.moodPhysics.target.control = 0.1f; // <--- Helplessness
+        state.moodPhysics.target.obstruct = 0.5f;
+    }
+    
+    // 5. FEAR (High Arousal, Neg Valence, LOW CONTROL)
+    else if (s.find("scared") != std::string::npos || s.find("help") != std::string::npos || s.find("no") != std::string::npos) {
+        state.moodPhysics.target.valence = -0.9f;
+        state.moodPhysics.target.arousal = 0.9f;
+        state.moodPhysics.target.control = 0.0f; // <--- The difference between Rage and Fear
+    }
 }
 
 // ---------------------------------------------------------
@@ -437,7 +289,7 @@ int main() {
 
     // Style Setup
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
-    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(WHITE));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(BLACK));
     GuiSetStyle(SLIDER, BASE_COLOR_NORMAL, ColorToInt({ 60, 60, 60, 255 }));
     GuiSetStyle(SLIDER, BASE_COLOR_FOCUSED, ColorToInt({ 120, 180, 255, 255 }));
     GuiSetStyle(DROPDOWNBOX, BASE_COLOR_NORMAL, ColorToInt({ 40, 40, 40, 255 }));
@@ -456,6 +308,14 @@ int main() {
     db.Load("face_database.txt");
 
     EditorState state;
+
+    AffectiveEngine brain;
+    brain.LoadFromDB(db);
+    brain.InitLogger(); 
+    
+
+    char textInput[256] = "Type here..."; 
+    bool textEditMode = false;
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
@@ -476,7 +336,7 @@ int main() {
         
         // Push state to engine
         engine.Update(dt, state.current.eyes, state.current.mouth);
-
+        state.moodPhysics.Update(dt);
         // -------------------------------------------------
         // DRAWING
         // -------------------------------------------------
@@ -491,7 +351,7 @@ int main() {
 
         // 2. Procedural Face Layer (Midground)
         // Note: Engine draws internally to a texture then presents it
-        engine.Draw(center, mouthPos, state.current.eyes, state.current.mouth, BLACK);
+        if(state.showFace) engine.Draw(center, mouthPos, state.current.eyes, state.current.mouth, BLACK);
 
         // 3. UI Layer (Foreground)
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
@@ -502,6 +362,85 @@ int main() {
         }
         if (IsKeyPressed(KEY_LEFT)) {
             if (state.tabIndex == 0) state.CycleFace(atlas, -1);
+        }
+        float screenW = (float)GetScreenWidth();
+        // auto DrawGhostSlider = [&](const char* label, float* target, float current, float y) {
+        //     GuiLabel({screenW - 260, y, 80, 20}, label);
+
+        //     // 1. Draw the "Ghost" (Current Physical State) as a thin colored line BEHIND the slider
+        //     // Map -1..1 to 0..140 (pixel width)
+        //     float normalized = (current + 1.0f) * 0.5f; 
+        //     if (std::string(label) == "Arousal" || std::string(label) == "Control" || std::string(label) == "Novelty" || std::string(label) == "Obstruct") {
+        //         normalized = current; // 0..1 range
+        //     }
+
+        //     DrawRectangle(screenW - 180, y + 5, (int)(140 * normalized), 10, Fade(BLUE, 0.5f));
+        
+        //     // 2. Draw the Actual Slider (The User Target) on top
+        //     GuiSliderBar({screenW - 180, y, 140, 20}, NULL, NULL, target, 
+        //                  (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
+        // };
+
+        // 2. LOGIC: AI vs Manual
+        if (state.useAI) {
+            // Decay Novelty by 50% every second
+           state.moodPhysics.current.novelty = Lerp(state.moodPhysics.current.novelty, 0.0f, dt * 0.5f);
+            // A. Solve the Manifold
+            //FaceState targetState = brain.SolveDual(state.currentMood);
+            FaceState targetState = brain.Solve(state.moodPhysics.current);
+
+            //FaceState targetState = brain.SolveDual(state.moodPhysics.current);
+            // B. Apply Physics (Smooths the transition)
+            // We assign targetState to state.current, but physics engine will interpolate it
+            // If you want instant snap, just copy. If you want physics, set as target.
+            // For now, let's just copy to visualize the raw manifold output:
+            state.current = targetState;
+        }
+
+        GuiGroupBox({screenW - 270, 300, 250, 220}, "COGNITIVE CORE");
+        
+        GuiCheckBox({screenW - 260, 320, 20, 20}, "ACTIVATE AI BRAIN", &state.useAI);
+        if (state.useAI) {
+            float y = 350;
+            
+            
+            // --- GHOST SLIDERS (Visualizes the Physics Lag) ---
+            auto DrawGhostSlider = [&](const char* label, float* target, float current, float yPos) {
+                GuiLabel({screenW - 260, yPos, 80, 20}, label);
+                
+                // Draw BLUE BAR (Where the face IS) behind the slider
+                float normalized = (current + 1.0f) * 0.5f; 
+                if (std::string(label) != "Valence") normalized = current;
+                DrawRectangle(screenW - 180, yPos + 5, (int)(140 * normalized), 10, Fade(BLUE, 0.4f));
+
+                // Draw SLIDER (Where you WANT it to be)
+                GuiSliderBar({screenW - 180, yPos, 140, 20}, NULL, NULL, target, 
+                             (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
+            };
+
+            DrawGhostSlider("Valence", &state.moodPhysics.target.valence, state.moodPhysics.current.valence, y); y+=25;
+            DrawGhostSlider("Arousal", &state.moodPhysics.target.arousal, state.moodPhysics.current.arousal, y); y+=25;
+            DrawGhostSlider("Control", &state.moodPhysics.target.control, state.moodPhysics.current.control, y); y+=25;
+            
+            // Surprise Decay Visualizer
+            GuiLabel({screenW - 260, y, 80, 20}, "Novelty");
+            float novPhys = state.moodPhysics.current.novelty;
+            DrawRectangle((int)screenW - 180.0f, y + 5.0f, (int)(140 * novPhys), 10, Fade(RED, 0.7f)); 
+            // Also allow manual trigger
+            if (GuiButton({screenW - 60, y, 20, 20}, "!")) state.moodPhysics.target.novelty = 1.0f;
+            y += 25;
+
+            DrawGhostSlider("Obstruct", &state.moodPhysics.target.obstruct, state.moodPhysics.current.obstruct, y);
+            y+=25;
+            // --- TEXT INPUT BOX ---
+            if (GuiTextBox({screenW - 260, y, 240, 30}, textInput, 256, textEditMode)) {
+                textEditMode = !textEditMode;
+            }
+            // If user presses ENTER, analyze the text
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+                AnalyzeText(textInput, state);
+                textEditMode = false; // Unfocus
+            }
         }
 
         if (state.enableGUI) {
@@ -542,29 +481,35 @@ int main() {
             float panelW = 250.0f;
             float vx = screenW - panelW - 16;
             float vy = 16;
-
-            GuiGroupBox({ vx, vy, panelW, 120 }, "DATABASE LOAD");
-            if (GuiDropdownBox({ vx + 10, vy + 30, panelW - 20, 25 }, db.dropdownStr.c_str(), &state.dropdownActive, state.dropdownEditMode)) {
-                state.dropdownEditMode = !state.dropdownEditMode;
-            }
             
             if (GuiButton({ vx + 10, vy + 65, 160, 30 }, "LOAD SELECTED")) {
                 if (!db.entries.empty() && state.dropdownActive < (int)db.entries.size()) {
                     state.current = db.entries[state.dropdownActive].state;
                 }
             }
+
             if (GuiButton({ vx + panelW - 60, vy + 65, 50, 30 }, "RLD")) db.Load("face_database.txt");
 
             // Viewport Settings
             float vyView = vy + 120 + 12.0f;
-            GuiGroupBox({ vx, vyView, panelW, 110 }, "VIEWPORT");
+            GuiGroupBox({ vx, vyView, panelW, 130 }, "VIEWPORT");
             GuiCheckBox({ vx + 10, vyView + 25, 20, 20 }, "Show Ref", &state.showReference);
             GuiSliderBar({ vx + 80, vyView + 55, 100, 20 }, "Opac", nullptr, &state.refOpacity, 0.0f, 1.0f);
             GuiCheckBox({ vx + 10, vyView + 80, 20, 20 }, "Test Physics", &state.usePhysics);
+            GuiCheckBox({ vx + 10, vyView + 105, 20, 20 }, "Show Face", &state.showFace);
 
             // Bottom Right Toggles
             GuiCheckBox({screenW - 180, screenH - 40, 20, 20}, "Debug Boxes", &state.debugBoxes);
             GuiCheckBox({screenW - 180, screenH - 70, 20, 20}, "Enable GUI", &state.enableGUI);
+            if (GuiButton({screenW - 180, screenH - 120, 50, 20}, "Reset")) state.current.reset();
+
+
+            GuiGroupBox({ vx, vy, panelW, 120 }, "DATABASE LOAD");
+            if (GuiDropdownBox({ vx + 10, vy + 30, panelW - 20, 25 }, db.dropdownStr.c_str(), &state.dropdownActive, state.dropdownEditMode)) {
+                state.dropdownEditMode = !state.dropdownEditMode;
+            }
+
+            
         }
         else {
              // Minimal UI to re-enable
@@ -572,11 +517,11 @@ int main() {
         }
 
         // Global Save Shortcut
-        if (IsKeyPressed(KEY_ENTER)) {
-             std::string name = "custom";
-             if (state.tabIndex == 0 && !atlas.faceNames.empty()) name = atlas.faceNames[state.faceRefIdx];
-             db.Save("face_database.txt", name, state.current);
-        }
+        // if (IsKeyPressed(KEY_ENTER)) {
+        //      std::string name = "custom";
+        //      if (state.tabIndex == 0 && !atlas.faceNames.empty()) name = atlas.faceNames[state.faceRefIdx];
+        //      db.Save("face_database.txt", name, state.current);
+        // }
 
         EndDrawing();
     }

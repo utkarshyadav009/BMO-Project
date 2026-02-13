@@ -12,7 +12,7 @@
 #include <iostream>
 #include <algorithm>
 #include "utility.h"
-
+#include "FaceData.h"
 // --------------------------------------------------------
 // MATH UTILS (From Mouth Implementation)
 // --------------------------------------------------------
@@ -127,6 +127,9 @@ namespace MathUtils {
     static int ClampInt(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi) ? hi : v; }
     static Vector4 ColorNormalize(Color c) { return { c.r/255.0f, c.g/255.0f, c.b/255.0f, c.a/255.0f }; }
 
+    //Not using this function anymore, keeping it cause its cool 
+    //Wrote this function because I wanted to have sharp corners 
+    //but now I am using a built in raylib rect 
     static void BuildRoundedRectContour(std::vector<Vector2>& out, float cx, float cy,float halfW, float halfH, float radius, int arcSeg = 8)
     {
         out.clear();
@@ -277,47 +280,47 @@ struct ShaderAsset {
     void Unload() { UnloadShader(shader); }
 };
 
-// --------------------------------------------------------
-// PARAMETERS
-// --------------------------------------------------------
-struct EyeParams {
-    // Eye Shape
-    float eyeShapeID = 0.0f; float bend = 0.0f; float eyeThickness = 4.0f;
-    float eyeSide = 0.0f; float scaleX = 1.0f; float scaleY = 1.0f;
-    float angle = 0.0f; float spacing = 612.0f; float squareness = 0.0f;
+// // --------------------------------------------------------
+// // PARAMETERS
+// // --------------------------------------------------------
+// struct EyeParams {
+//     // Eye Shape
+//     float eyeShapeID = 0.0f; float bend = 0.0f; float eyeThickness = 4.0f;
+//     float eyeSide = 0.0f; float scaleX = 1.0f; float scaleY = 1.0f;
+//     float angle = 0.0f; float spacing = 612.0f; float squareness = 0.0f;
 
-    // FX
-    float stressLevel = 0.0f; float gloomLevel = 0.0f;
-    int distortMode = 0; float spiralSpeed = -1.2f;
+//     // FX
+//     float stressLevel = 0.0f; float gloomLevel = 0.0f;
+//     float spiralSpeed = -1.2f;
 
-    // Look
-    float lookX = 0.0f; float lookY = 62.50f;
+//     // Look
+//     float lookX = 0.0f; float lookY = 62.50f;
 
-    // Brow
-    bool showBrow = false; bool useLowerBrow = false;
-    float eyebrowThickness = 4.0f; float eyebrowLength = 1.0f;
-    float eyebrowSpacing = 0.0f; float eyebrowX = 0.0f; float eyebrowY = 0.0f;
-    float browScale = 1.0f; float browSide = 1.0f; float browAngle = 0.0f;
-    float browBend = 0.0f; float browBendOffset = 0.85f;
+//     // Brow
+//     bool showBrow = false; bool useLowerBrow = false;
+//     float eyebrowThickness = 4.0f; float eyebrowLength = 1.0f;
+//     float eyebrowSpacing = 0.0f; float eyebrowX = 0.0f; float eyebrowY = 0.0f;
+//     float browScale = 1.0f; float browSide = 1.0f; float browAngle = 0.0f;
+//     float browBend = 0.0f; float browBendOffset = 0.85f;
 
-    // Tears/Blush
-    bool showTears = false; bool showBlush = false;
-    float tearsLevel = 0.0f; int blushMode = 0; float blushScale = 1.0f;
-    float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
+//     // Tears/Blush
+//     bool showTears = false; bool showBlush = false;
+//     float tearsLevel = 0.0f; int blushMode = 0; float blushScale = 1.0f;
+//     float blushX = 0.0f; float blushY = 0.0f; float blushSpacing = 0.0f;
 
-    // Global
-    float pixelation = 1.0f; 
-};
+//     // Global
+//     float pixelation = 1.0f; 
+// };
 
-struct MouthParams {
-    float open = 0.05f; float width = 0.5f; float curve = 0.0f; float mouthAngle = 0.0f; 
-    float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
-    float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
-    float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
-    float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
-    float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
-    float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape;
-};
+// struct MouthParams {
+//     float open = 0.05f; float width = 0.5f; float curve = 0.0f; float mouthAngle = 0.0f; 
+//     float squeezeTop = 0.0f; float squeezeBottom = 0.0f; 
+//     float teethY = 0.0f; float tongueUp = 0.0f; float tongueX = 0.0f;
+//     float tongueWidth = 0.65f; float asymmetry = 0.0f; float squareness = 0.0f;
+//     float teethWidth = 0.50f; float teethGap = 45.0f; float scale = 1.0f; float outlineThickness = 1.5f;
+//     float sigma = 0.45f; float power = 6.0f; float maxLiftValue = 0.55f;
+//     float lookX = 0.0f; float lookY = 0.0f; float stressLines = 0.0f; bool showInnerMouth =true; bool isThreeShape; bool isDShape; bool isSlashShape;
+// };
 
 // --------------------------------------------------------
 // FACE SYSTEM (UNIFIED)
@@ -378,8 +381,8 @@ struct FaceSystem {
 
         // Canvas
         canvas = LoadRenderTexture(GetScreenHeight(), GetScreenHeight());
-        mouthFont = LoadFontEx("assets/Roboto-Regular.ttf",256,NULL,0);
-        SetTextureFilter(mouthFont.texture, TEXTURE_FILTER_BILINEAR);
+        mouthFont = LoadFontEx("assets/Roboto-Regular.ttf",512,NULL,0);
+        SetTextureFilter(mouthFont.texture, TEXTURE_FILTER_TRILINEAR);
 
         // Initialize Mouth Lists
         mouthCtrlPts.resize(16);
@@ -498,7 +501,9 @@ struct FaceSystem {
         Upd(mCurrent.lookY, mVelocity.lookY, target.lookY);
         Upd(mCurrent.stressLines, mVelocity.stressLines, target.stressLines);
         mCurrent.showInnerMouth = target.showInnerMouth;
-        
+        mCurrent.isThreeShape   = target.isThreeShape;   
+        mCurrent.isDShape       = target.isDShape;       
+        mCurrent.isSlashShape   = target.isSlashShape;
         GenerateMouthGeometry();
     }
 
@@ -512,22 +517,34 @@ struct FaceSystem {
         for (int i = 0; i < 16; i++) {
             float t = (float)i / 16.0f;
             float angle = t * PI * 2.0f + PI; 
-            float x = cosf(angle) * w;
+            
+            // --- PRE-CALCULATE SINE/COSINE ---
+            float rawCos = cosf(angle);
             float rawSin = sinf(angle);
+            
+            // --- CHANGE 2: APPLY SQUARENESS TO WIDTH (X) ---
+            // Just like you did for Y, we power the X component to push it to the edges.
+            float sqPower = 1.0f - (mCurrent.squareness * 0.75f);
+            
+            float xWave = std::abs(rawCos);
+            float shapedCos = std::pow(xWave, sqPower);
+            float xSign = (rawCos >= 0.0f) ? 1.0f : -1.0f;
+            float x = shapedCos * w * xSign; // New Squared X
+            
             bool isTop = (i <= 8); 
-
+            
             float flatness = 0.0f;
             if (mCurrent.asymmetry > 0.0f && isTop) flatness = mCurrent.asymmetry; 
             if (mCurrent.asymmetry < 0.0f && !isTop) flatness = -mCurrent.asymmetry;
-
+            
             float effectiveH = h;
             float wave = std::abs(rawSin);
             if (flatness > 0.01f) {
                 effectiveH *= (1.0f - flatness * 0.6f); 
                 wave = std::pow(wave, 1.0f - (flatness * 0.5f)); 
             }
-
-            float sqPower = 1.0f - (mCurrent.squareness * 0.99f);
+        
+            // Your existing Y Squareness logic
             float shapedSin = std::pow(wave, sqPower);
             float sign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
             float y = shapedSin * effectiveH * sign;
@@ -535,13 +552,12 @@ struct FaceSystem {
             float bendFactor = 15.0f * MOUTH_SS; 
             float normalizedX = x / (w + 1e-6f);
             float rawBend = 0.0f;
-            float curvePower = 2.0f + (mCurrent.squareness * 10.0f);
+            // Adjust curve power slightly so it doesn't deform the box too much
             rawBend = (normalizedX * normalizedX) * bendFactor * mCurrent.curve;
             
-
             float bendMult = (flatness > 0.0f) ? (1.0f - flatness) : 1.0f;
             y -= rawBend * bendMult; 
-
+        
             float activeSqueeze = isTop ? mCurrent.squeezeTop : mCurrent.squeezeBottom;
             float tX = Clamp(std::abs(x) / (w + 1e-6f), 0.0f, 1.0f);
             float u = tX / mCurrent.sigma;
@@ -549,48 +565,23 @@ struct FaceSystem {
             float maxLift = (h * mCurrent.maxLiftValue);
             float archSign = (rawSin >= 0.0f) ? 1.0f : -1.0f;
             y -= activeSqueeze * influence * maxLift * archSign;
-
+        
             mouthCtrlPts[i] = { cx + x, cy + y };
-        }
+        }   
 
         mouthContour.clear();
 
-        // If nearly closed, avoid CatmullRom (it rounds the ends).
-        // if (mCurrent.open < 0.08f) {
-        //     // Mouth "line" thickness when closed (tweak to taste)
-        //     float lineH = std::max(2.0f * MOUTH_SS, baseRadius * 0.08f);
-        
-        //     float halfW = w;            // you already computed w
-        //     float halfH = lineH * 0.5f; // thin strip
-        
-        //     // squareness=0 -> rounded (capsule), squareness=1 -> sharp (rect)
-        //     float s = Clamp(mCurrent.squareness, 0.0f, 1.0f);
-        //     float roundness = powf(1.0f - s, 8.0f);   // 2..8 are good ranges
-        //     float radius = roundness * halfH;
-        
-        //     MathUtils::BuildRoundedRectContour(mouthContour, cx, cy, halfW, halfH, radius, 10);
-        // } 
-        // else {
-        //     // Normal open-mouth contour: CatmullRom is fine here
-        //     for (int i = 0; i < 16; i++) {
-        //         Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
-        //         Vector2 p1 = mouthCtrlPts[i];
-        //         Vector2 p2 = mouthCtrlPts[(i+1)%16];
-        //         Vector2 p3 = mouthCtrlPts[(i+2)%16];
-        //         for (int k = 0; k < 16; k++) { 
-        //             mouthContour.push_back(MathUtils::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
-        //         }
-        //     }
-        //     MathUtils::RemoveNearDuplicates(mouthContour);
-        // }
-        mouthContour.clear();
+        //Adding squared mouth stuff lol 
+        //if(mCurrent.open<0.01 && mCurrent)
         for (int i = 0; i < 16; i++) {
             Vector2 p0 = mouthCtrlPts[(i-1+16)%16];
             Vector2 p1 = mouthCtrlPts[i];
             Vector2 p2 = mouthCtrlPts[(i+1)%16];
             Vector2 p3 = mouthCtrlPts[(i+2)%16];
             for (int k = 0; k < 16; k++) { 
-                mouthContour.push_back(MathUtils::CatmullRom(p0, p1, p2, p3, (float)k/16.0f));
+                float t = (float)k/16.0f;
+                Vector2 finalPos = MathUtils::CatmullRom(p0, p1, p2, p3, t);
+                mouthContour.push_back(finalPos);
             }
         }
         MathUtils::RemoveNearDuplicates(mouthContour);
@@ -754,7 +745,6 @@ struct FaceSystem {
         SetShaderValue(shEye.shader, shEye.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.spiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(shEye.shader, shEye.locs.distort, &p.distortMode, SHADER_UNIFORM_INT);
         SetShaderValue(shEye.shader, shEye.locs.stress, &p.stressLevel, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.gloom, &p.gloomLevel, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.squareness, &p.squareness, SHADER_UNIFORM_FLOAT);
@@ -772,7 +762,8 @@ struct FaceSystem {
         browRect.y = originalRect.y + GlobalScaler.S(sLookY.val) - (originalRect.height * 0.5f);
         browRect.x += (originalRect.width - browRect.width) * 0.5f;
         browRect.y += (originalRect.height - browRect.height) * 0.5f;
-        browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) + (GlobalScaler.S(p.eyebrowSpacing * 20.0f) * p.browSide);
+        browRect.x += GlobalScaler.S((p.eyebrowX * 20.0f) + (p.eyebrowSpacing * 20.0f * p.browSide));
+        //browRect.x += GlobalScaler.S(p.eyebrowX * 20.0f) + (GlobalScaler.S(p.eyebrowSpacing * 20.0f) * p.browSide);
         browRect.y += GlobalScaler.S(p.eyebrowY * 20.0f);
 
         rlSetTexture(0);
@@ -792,12 +783,12 @@ struct FaceSystem {
         if (p.useLowerBrow) {
              // Logic simplified for brevity but preserves original transform
             EyeParams lowerP = p; lowerP.eyebrowY = 0.0f; lowerP.bend = -p.bend;
-            lowerP.eyebrowLength = 1.37f; lowerP.eyebrowThickness = 7.15f;
+            lowerP.eyebrowLength = 0.6f; lowerP.eyebrowThickness = 7.15f;
             Rectangle lowerRect = eyeRect;
             lowerRect.width  = eyeRect.width * 2.5f * p.browScale * lowerP.eyebrowLength;
             lowerRect.height = eyeRect.height * (1.0f + fabsf(p.bend));
             lowerRect.x = eyeRect.x + (eyeRect.width - lowerRect.width) * 0.5f;
-            lowerRect.y = (eyeRect.y + eyeRect.height * 0.5f + eyeRect.height * 0.5f) - (lowerRect.height * 0.53f) - eyeRect.height * 0.3f;
+            lowerRect.y = (eyeRect.y + eyeRect.height * 0.5f + eyeRect.height * 0.5f) - (lowerRect.height * 0.53f) - eyeRect.height * 0.35f;
             lowerRect.x += GlobalScaler.S(48.6235f);
 
             rlSetTexture(0);
@@ -861,7 +852,6 @@ struct FaceSystem {
     void DrawMouthInternal(Vector2 centerPos) {
         if (mCurrent.isThreeShape) {
             const char* text = "3"; // Or ":3" if you want the full kitty face
-            
             // 1. Calculate Size
             // We scale the font size by your physics 'scale'
             // 'GlobalScaler.scale' ensures it resizes with the window
@@ -890,10 +880,62 @@ struct FaceSystem {
                 0.0f,       // Rotation (handled by parent matrix)
                 fontSize,
                 spacing,
-                colMouthLine // Use your existing mouth color!
+                BLACK // Use your existing mouth color!
             );
 
             // Return early so we don't draw the shader mouth on top
+            return;
+        }
+        if (mCurrent.isDShape) {
+            const char* text = "D";
+            // 1. Calculate Size
+            // We scale the font size by your physics 'scale'
+            // 'GlobalScaler.scale' ensures it resizes with the window
+            float fontSize = 150.0f * mCurrent.scale * GlobalScaler.scale;
+            float spacing = 2.0f;
+
+            // 2. Measure text to center it perfectly
+            Vector2 textSize = MeasureTextEx(mouthFont, text, fontSize, spacing);
+            Vector2 textOrigin = { textSize.x * 0.5f, textSize.y * 0.5f };
+
+            // 3. Offset Correction
+            // Apply your 'lookX/Y' physics offsets
+           Vector2 drawPos = {
+                roundf(centerPos.x + GlobalScaler.S(mCurrent.lookX)),
+                roundf(centerPos.y + GlobalScaler.S(mCurrent.lookY))
+            };
+            // 4. Draw it!
+            // Note: Rotation is 0.0f because you already apply rlRotatef 
+            // in the parent Draw() function before calling this.
+            DrawTextPro(
+                mouthFont,
+                text,
+                drawPos,
+                textOrigin, // Pivot point (center of text)
+                90.0f,       // Rotation (handled by parent matrix)
+                fontSize,
+                spacing,
+                BLACK // Use your existing mouth color!
+            );
+
+            // Return early so we don't draw the shader mouth on top
+            return;
+        }
+
+        if (mCurrent.isSlashShape) {
+            float baseWeight = 4.0f;
+            float thickness = (baseWeight * mCurrent.outlineThickness) * mCurrent.scale * GlobalScaler.scale;
+            float length = (100.0f + (mCurrent.width * 300.0f)) * mCurrent.scale * GlobalScaler.scale;
+
+            Vector2 center = {
+                roundf(centerPos.x + GlobalScaler.S(mCurrent.lookX)),
+                roundf(centerPos.y + GlobalScaler.S(mCurrent.lookY))
+            };
+            Rectangle rect = { center.x, center.y, length, thickness };
+            Vector2 origin = { length * 0.5f, thickness * 0.5f }; // Pivot center
+
+            DrawRectanglePro(rect, origin, 0.0f, BLACK);
+
             return;
         }
         if (mouthContour.empty()) return;
@@ -1022,7 +1064,6 @@ struct FaceSystem {
         shEye.locs.thickness = GetShaderLocation(shEye.shader, "uThickness");
         shEye.locs.side = GetShaderLocation(shEye.shader, "uEyeSide");
         shEye.locs.spiral = GetShaderLocation(shEye.shader, "uSpiralSpeed");
-        shEye.locs.distort = GetShaderLocation(shEye.shader, "uDistortMode");
         shEye.locs.stress = GetShaderLocation(shEye.shader, "uStressLevel");
         shEye.locs.gloom = GetShaderLocation(shEye.shader, "uGloomLevel");
         shEye.locs.squareness = GetShaderLocation(shEye.shader, "uSquareness");

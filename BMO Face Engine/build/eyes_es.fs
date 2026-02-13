@@ -276,8 +276,8 @@ float getStressLines(vec2 p, float r) {
         float d1 = sdCapsule(q1, vec2(-r*0.55, r*0.50), vec2(r*0.55, r*0.50), th);
         
         // Mark 2
-        vec2 q2 = rotate2D(baseQ - vec2(0.0, -r*0.05), radians(-34.0) * outerDir);
-        q2.x -= 0.9 * ((q2.y - (-r*3.00)) * (q2.y - (-r*3.25)) / r) * -outerDir;
+        vec2 q2 = rotate2D(baseQ - vec2(0.0, -r*0.2), radians(-30.0) * outerDir);
+        q2.x -= 0.9 * ((q2.y - (-r*3.25)) * (q2.y - (-r*3.25)) / r) * -outerDir;
         float d2 = sdCapsule(q2, vec2(r*0.7*outerDir, -r*3.3), vec2(r*0.7*outerDir, -r*2.9), th);
         
         d = min(d1, d2);
