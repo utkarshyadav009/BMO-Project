@@ -156,11 +156,11 @@
 	[
 		{
 			"backtrace" : 3,
-			"id" : "raylib::@4dc3a4644cf4ded08c01"
+			"id" : "glfw::@9de86fbe87260ae8e66c"
 		},
 		{
 			"backtrace" : 3,
-			"id" : "glfw::@9de86fbe87260ae8e66c"
+			"id" : "raylib::@4dc3a4644cf4ded08c01"
 		}
 	],
 	"id" : "BMO_Engine::@6890427a1f51a3e7e1df",
