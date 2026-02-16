@@ -5,14 +5,14 @@ import glob
 
 # ================= CONFIGURATION =================
 # 1. Path where your episodes are currently located
-SOURCE_FOLDER = r"D:\Steam\BMO Episodes"
+SOURCE_FOLDER = r"D:\LocalWorkDir\2509362\BMO_Episodes"
 
 # 2. Path where you want the final Cleaned Vocals to go
-OUTPUT_FOLDER = r"D:\Steam\BMO Episodes\Cleaned_Vocals"
+OUTPUT_FOLDER = r"D:\LocalWorkDir\2509362\BMO_Episodes\Cleaned_Vocals"
 
 # 3. SAFETY SWITCH: Set to True to DELETE the original video files after processing.
 # (As you requested to save space)
-DELETE_ORIGINAL_VIDEO = True 
+DELETE_ORIGINAL_VIDEO = False 
 
 # 4. Demucs Model (htdemucs is the high-quality Hybrid Transformer model)
 DEMUCS_MODEL = "htdemucs"
@@ -33,8 +33,9 @@ def process_episode(video_path):
     # We use -n to specify the model and -o for output path
     cmd = [
         "python", "-m", "demucs", 
-        "-n", DEMUCS_MODEL, 
-        "-o", "temp_demucs_out",  # Temporary folder for raw separation
+        "-n", DEMUCS_MODEL,
+        "--two-stems", "vocals",  # <--- ADD THIS LINE (Speeds up processing)
+        "-o", "temp_demucs_out",
         video_path
     ]
     
