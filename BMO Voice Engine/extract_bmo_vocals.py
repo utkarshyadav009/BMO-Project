@@ -1,15 +1,19 @@
 import os
+os.environ["PATH"] = r"C:\Users\2509362\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin" + os.pathsep + os.environ["PATH"]
 import shutil
 import subprocess
 import torch
 from audio_separator.separator import Separator
 from tqdm import tqdm
 
+FFMPEG_PATH = r"C:\Users\2509362\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
+
+
 # ================= CONFIGURATION =================
 # 1. Paths
-SOURCE_FOLDER = r"D:\LocalWorkDir\2509362\BMO_Episodes"
-OUTPUT_FOLDER = r"D:\LocalWorkDir\2509362\BMO_Episodes\extracted_Vocals"
-TEMP_FOLDER = r"D:\LocalWorkDir\2509362\BMO_Episodes\Temp_Work"
+SOURCE_FOLDER = r"D:\LocalWorkDir\2509362\BMO Episodes"
+OUTPUT_FOLDER = r"D:\LocalWorkDir\2509362\BMO Episodes\extracted_Vocals"
+TEMP_FOLDER = r"D:\LocalWorkDir\2509362\BMO Episodes\Temp_Work"
 
 # 2. SEPARATION MODEL (Stage 1)
 # The one you liked. Good for loudness and body.
@@ -39,7 +43,7 @@ def convert_to_wav(video_path):
     if os.path.exists(wav_path): return wav_path
 
     cmd = [
-        "ffmpeg", "-i", video_path,
+        FFMPEG_PATH, "-i", video_path,
         "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
         "-y", wav_path
     ]
@@ -76,7 +80,8 @@ def main():
         print("⚠️ WARNING: Running on CPU! This will be very slow.")
 
     # Find files
-    files = [f for f in os.listdir(SOURCE_FOLDER) if f.lower().endswith(VIDEO_EXTS)]
+    # Find files
+    files = sorted([f for f in os.listdir(SOURCE_FOLDER) if f.lower().endswith(VIDEO_EXTS)], reverse=True)
     print(f"Found {len(files)} episodes to process.")
 
     for file in tqdm(files, desc="Processing Episodes"):

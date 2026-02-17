@@ -13,6 +13,7 @@ DEST_ROOT = r"D:\Steam\BMO Episodes"
 # Example: (1, 6) means Season 1, Episode 6.
 bmo_episodes = [
     # --- Season 1 ---
+    (0,1),    # adventure time short all's well the rats swell
     (1, 8),   # "Business Time" (Debut)
     (1, 9),   # "My Two Favorite People"
     (1, 12),  # "Evicted!"
