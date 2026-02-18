@@ -16,14 +16,14 @@ from tqdm import tqdm
 HF_TOKEN = "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"
 
 # 2. Paths
-INPUT_FOLDER   = r"D:\LocalWorkDir\2509362\BMO_Episodes\Cleaned_Vocals"
-OUTPUT_DATASET = r"D:\LocalWorkDir\2509362\BMO_Episodes\Final_Dataset"
+INPUT_FOLDER   = r"D:\LocalWorkDir\2509362\BMO Episodes\Cleaned_Vocals"
+OUTPUT_DATASET = r"D:\LocalWorkDir\2509362\BMO Episodes\Final_Dataset"
 REFERENCE_FILE = r"reference_bmo.wav"   # 5-10s of clean BMO speech, no music
 LOG_FILE       = "processed_episodes.txt"
 
 # 3. Tuning
 BATCH_SIZE           = 16    # Lower to 8 or 4 if you get OOM errors
-SIMILARITY_THRESHOLD = 0.65  # 0.0-1.0 — raise if getting too many false positives
+SIMILARITY_THRESHOLD = 0.50  # 0.0-1.0 — raise if getting too many false positives
 MIN_CLIP_LENGTH      = 1.0   # Seconds — filters out breaths/noise
 MAX_CLIP_LENGTH      = 12.0  # Seconds — keeps clips TTS-friendly
 # =================================================
