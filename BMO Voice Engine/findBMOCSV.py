@@ -4,8 +4,8 @@ import csv
 
 # === USER SETTINGS ===
 csv_file = r"bmo_metadata.csv"
-source_folder = r"D:\LocalWorkDir\2509362\BMO Episodes\PlanB_Dataset"
-destination_folder = r"D:\LocalWorkDir\2509362\BMO Episodes\FinalFinalDataset"
+source_folder = r"D:\LocalWorkDir\u521785\BMO Episodes\PlanB_Dataset"
+destination_folder = r"D:\LocalWorkDir\u521785\BMO Episodes\FinalFinalDataset"
 # =====================
 
 # Read filenames from CSV (pipe-delimited)
