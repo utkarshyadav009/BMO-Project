@@ -1,0 +1,37 @@
+_deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o: \
+  /home/bmo/BMO-Project/BMO\ Speech\ Engine/build_web/_deps/raylib-src/src/utils.c \
+  /home/bmo/BMO-Project/BMO\ Speech\ Engine/build_web/_deps/raylib-src/src/raylib.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/compat/stdarg.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/stdarg.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/stdarg.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stdarg_header_macro.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stdarg___gnuc_va_list.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stdarg_va_list.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stdarg_va_arg.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stdarg___va_copy.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stdarg_va_copy.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/stdbool.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/stdbool.h \
+  /home/bmo/BMO-Project/BMO\ Speech\ Engine/build_web/_deps/raylib-src/src/config.h \
+  /home/bmo/BMO-Project/BMO\ Speech\ Engine/build_web/_deps/raylib-src/src/utils.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/compat/stdlib.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/stdlib.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/features.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/bits/alltypes.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/alloca.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/stdio.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/wasi/api.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/stddef.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/stddef.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stddef_header_macro.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stddef_ptrdiff_t.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stddef_size_t.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stddef_wchar_t.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stddef_null.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/__stddef_offsetof.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/lib/clang/23/include/stdint.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/stdint.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/bits/stdint.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/compat/string.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/string.h \
+  /home/bmo/BMO-Project/BMO\ Face\ Engine/emsdk/upstream/emscripten/cache/sysroot/include/strings.h

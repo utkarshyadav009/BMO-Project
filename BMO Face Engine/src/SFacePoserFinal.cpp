@@ -4,6 +4,10 @@
 
 #include "raylib.h"
 
+//#if defined(__EMSCRIPTEN__)
+//    #include <emscripten/emscripten.h>
+//#endif
+
 // 1. SETUP RAYGUI
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
@@ -283,10 +287,25 @@ void AnalyzeText(char* text, EditorState& state) {
 // MAIN
 // ---------------------------------------------------------
 int main() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-    InitWindow(1280, 950, "BMO Face Poser: Final");
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
+    InitWindow(1920, 1080, "BMO Face Poser: Final");
     SetTargetFPS(60);
-
+//#if defined(__EMSCRIPTEN__)
+//    EM_ASM({
+//        Object.defineProperty(navigator, 'getGamepads', {
+//            value: function() { return []; },
+//            configurable: true
+//        });
+//        var canvas = document.getElementById("canvas");
+//        if (canvas) {
+//            canvas.style.width = "1920px";
+//            canvas.style.height = "1080px";
+//            canvas.style.padding = "0px";
+//            canvas.style.margin = "0px auto";
+//            canvas.style.display = "block";
+//        }
+//    });
+//#endif
     // Style Setup
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(BLACK));
@@ -313,7 +332,10 @@ int main() {
     brain.LoadFromDB(db);
     brain.InitLogger(); 
     
-
+    state.showReference = false;
+    state.useAI = true;
+    state.enableGUI = false;
+    state.usePhysics = true;
     char textInput[256] = "Type here..."; 
     bool textEditMode = false;
 

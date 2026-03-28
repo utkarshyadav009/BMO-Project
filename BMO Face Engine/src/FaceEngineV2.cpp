@@ -22,21 +22,29 @@ static std::vector<float> ParseFloats(std::string line) {
     std::vector<float> res;
     std::string numStr;
     for (char c : line) {
-        // Allow digits, dots, minus signs, and scientific notation 'e'
         if (isdigit(c) || c == '.' || c == '-' || c == 'e') {
             numStr += c;
-        } 
-        else {
+        } else {
             if (!numStr.empty()) {
-                try { res.push_back(std::stof(numStr)); } catch(...) {}
+                // Only try stof if string contains at least one digit
+                bool hasDigit = false;
+                for (char ch : numStr) if (isdigit(ch)) { hasDigit = true; break; }
+                if (hasDigit) {
+                    try { res.push_back(std::stof(numStr)); } catch(...) {}
+                }
                 numStr.clear();
             }
         }
     }
-    if (!numStr.empty()) { try { res.push_back(std::stof(numStr)); } catch(...) {} }
+    if (!numStr.empty()) {
+        bool hasDigit = false;
+        for (char ch : numStr) if (isdigit(ch)) { hasDigit = true; break; }
+        if (hasDigit) {
+            try { res.push_back(std::stof(numStr)); } catch(...) {}
+        }
+    }
     return res;
 }
-
 // ---------------------------------------------------------
 // 2. VISEME DATABASE (Text File Loader)
 // ---------------------------------------------------------
@@ -315,8 +323,8 @@ struct BMO {
 // MAIN
 // ---------------------------------------------------------
 int main() {
-    const int W = 1280, H = 720;
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    const int W = 1920, H = 1080;
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
     InitWindow(W, H, "BMO Engine: Data-Driven");
     InitAudioDevice();
     SetTargetFPS(60);

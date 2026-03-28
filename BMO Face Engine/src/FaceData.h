@@ -80,16 +80,23 @@ struct FaceDatabase {
         std::vector<float> res;
         std::string numStr;
         for (char c : line) {
-            if (isdigit(c) || c == '.' || c == '-' || c == 'e') {
+            if (isdigit((unsigned char)c) || c == '.' || c == '-' || c == 'e') {
                 numStr += c;
             } else {
                 if (!numStr.empty()) {
-                    try { res.push_back(std::stof(numStr)); } catch(...) {}
+                   // Use strtof instead of stof - no exceptions thrown
+                    char* end;
+                    float val = strtof(numStr.c_str(), &end);
+                    if (end != numStr.c_str()) res.push_back(val);
                     numStr.clear();
                 }
             }
         }
-        if (!numStr.empty()) { try { res.push_back(std::stof(numStr)); } catch(...) {} }
+        if (!numStr.empty()) {
+            char* end;
+            float val = strtof(numStr.c_str(), &end);
+            if (end != numStr.c_str()) res.push_back(val);
+        }
         return res;
     }
 

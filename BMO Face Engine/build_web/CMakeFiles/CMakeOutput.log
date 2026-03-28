@@ -1,0 +1,17 @@
+The target system is: Emscripten - 1 - x86
+The host system is: Linux - 5.15.148-tegra - aarch64
+Performing C SOURCE FILE Test COMPILER_HAS_THOSE_TOGGLES succeeded with the following output:
+Change Dir: /home/bmo/BMO-Project/BMO Face Engine/build_web/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/gmake -f Makefile cmTC_65db2/fast && /usr/bin/gmake  -f CMakeFiles/cmTC_65db2.dir/build.make CMakeFiles/cmTC_65db2.dir/build
+gmake[1]: Entering directory '/home/bmo/BMO-Project/BMO Face Engine/build_web/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_65db2.dir/src.c.o
+"/home/bmo/BMO-Project/BMO Face Engine/emsdk/upstream/emscripten/emcc" -DCOMPILER_HAS_THOSE_TOGGLES  -Werror=pointer-arith -MD -MT CMakeFiles/cmTC_65db2.dir/src.c.o -MF CMakeFiles/cmTC_65db2.dir/src.c.o.d -o CMakeFiles/cmTC_65db2.dir/src.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build_web/CMakeFiles/CMakeTmp/src.c"
+Linking C executable cmTC_65db2.js
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_65db2.dir/link.txt --verbose=1
+"/home/bmo/BMO-Project/BMO Face Engine/emsdk/upstream/emscripten/emcc" CMakeFiles/cmTC_65db2.dir/src.c.o -o cmTC_65db2.js 
+gmake[1]: Leaving directory '/home/bmo/BMO-Project/BMO Face Engine/build_web/CMakeFiles/CMakeTmp'
+
+
+Source file was:
+int main(void) { return 0; }

@@ -115,11 +115,14 @@ public:
 
     void InitLogger()
     {
+       #ifndef __EMSCRIPTEN__
         logFile.open("brain_debug.log", std::ios::out | std::ios::trunc);
         if (logFile.is_open()) {
             logFile << "TIMESTAMP | MOOD QUERY (V,A,C,N,O) | NEIGHBOR 1 (Dist) | NEIGHBOR 2 (Dist) | WEIGHTS | CRITICAL PARAMS\n";
             logFile << "---------------------------------------------------------------------------------------------------\n";
         }
+       #endif
+
     }
 
 
