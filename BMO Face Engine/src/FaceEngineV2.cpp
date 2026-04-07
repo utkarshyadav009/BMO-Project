@@ -9,11 +9,12 @@
 #include <cmath>
 #include <algorithm>
 #include <cctype>
-
+#include <cstdlib> 
 // INCLUDE THE SHADER ENGINE
 #include "ShaderParametricMouth.cpp"
-
+#include "utility.h"
 using json = nlohmann::json;
+
 
 // ---------------------------------------------------------
 // 1. HELPER FUNCTIONS (For Parsing)
@@ -21,30 +22,35 @@ using json = nlohmann::json;
 static std::vector<float> ParseFloats(std::string line) {
     std::vector<float> res;
     std::string numStr;
+    
     for (char c : line) {
+        // Allow digits, dots, minus signs, and scientific notation 'e'
         if (isdigit(c) || c == '.' || c == '-' || c == 'e') {
             numStr += c;
-        } else {
+        } 
+        else {
             if (!numStr.empty()) {
-                // Only try stof if string contains at least one digit
-                bool hasDigit = false;
-                for (char ch : numStr) if (isdigit(ch)) { hasDigit = true; break; }
-                if (hasDigit) {
-                    try { res.push_back(std::stof(numStr)); } catch(...) {}
+                char* end;
+                float val = std::strtof(numStr.c_str(), &end);
+                // If end moved, it successfully found a number
+                if (end != numStr.c_str()) { 
+                    res.push_back(val); 
                 }
                 numStr.clear();
             }
         }
     }
-    if (!numStr.empty()) {
-        bool hasDigit = false;
-        for (char ch : numStr) if (isdigit(ch)) { hasDigit = true; break; }
-        if (hasDigit) {
-            try { res.push_back(std::stof(numStr)); } catch(...) {}
+    
+    if (!numStr.empty()) { 
+        char* end;
+        float val = std::strtof(numStr.c_str(), &end);
+        if (end != numStr.c_str()) {
+            res.push_back(val);
         }
     }
     return res;
 }
+
 // ---------------------------------------------------------
 // 2. VISEME DATABASE (Text File Loader)
 // ---------------------------------------------------------
@@ -152,19 +158,22 @@ struct SpriteAtlas {
         }
     }
 
-    void DrawFrame(const std::string& name, int x, int y, int screenW, int screenH, Vector2 offset, Vector2 scale, Color tint) {
+    void DrawFrame(const std::string& name, Vector2 pos, Vector2 scale, Color tint) {
         if (frames.find(name) == frames.end()) return;
         Rectangle src = frames[name];
         
-        float destW = screenW * scale.x;
-        float destH = screenH * scale.y;
-        
-        Rectangle dest = {
-            (float)x + (screenW - destW) / 2.0f + offset.x, 
-            (float)y + (screenH - destH) / 2.0f + offset.y, 
-            destW, destH
+        // Scale the native sprite dimensions by the combined scale
+        Rectangle dest = { 
+            pos.x, 
+            pos.y, 
+            src.width * scale.x, 
+            src.height * scale.y 
         };
-        DrawTexturePro(texture, src, dest, {0,0}, 0.0f, tint);
+
+        // Set the origin to the center of the scaled sprite
+        Vector2 origin = { dest.width / 2.0f, dest.height / 2.0f };
+
+        DrawTexturePro(texture, src, dest, origin, 0.0f, tint);
     }
     void Unload() { UnloadTexture(texture); }
 };
@@ -295,7 +304,10 @@ struct BMO {
         rig.target = db.Get(targetName);
 
         // Apply Position Shake
-        Vector2 basePos = { (float)GetScreenWidth()/2.0f, (float)GetScreenHeight()/2.0f + 100.0f };
+        Vector2 basePos = {
+            (float)GetScreenWidth()  / 2.0f,
+            (float)GetScreenHeight() / 2.0f + GlobalScaler.S(100.0f)
+        };
         rig.centerPos = { basePos.x + shakeOffset.x, basePos.y + shakeOffset.y };
         
         // Apply Physics & Generate
@@ -303,11 +315,22 @@ struct BMO {
         rig.GenerateGeometry();
     }
 
-    void Draw(int W, int H) {
+    // Change: Remove W and H parameters
+    void Draw() {
         // Draw Eyes (Sprite)
         std::string eyesTex = isBlinking ? "face_happy_closed_eyes_eyes" : currentMood + "_eyes";
-        Vector2 finalScale = { pulseScale, pulseScale };
-        atlas.DrawFrame(eyesTex, 0, 0, W, H, shakeOffset, finalScale, WHITE);
+
+        // Combine procedural pulse with the global scaler
+        Vector2 finalScale = { pulseScale * GlobalScaler.scale, pulseScale * GlobalScaler.scale };
+
+        // Calculate dynamic screen center + procedural shake
+        Vector2 eyePos = {
+            (float)GetScreenWidth() / 2.0f + shakeOffset.x,
+            (float)GetScreenHeight() / 2.0f + shakeOffset.y
+        };
+
+        // Pass the calculated position and scale
+        atlas.DrawFrame(eyesTex, eyePos, finalScale, WHITE);
 
         // Draw Mouth (Shader)
         rig.Draw();
@@ -323,7 +346,7 @@ struct BMO {
 // MAIN
 // ---------------------------------------------------------
 int main() {
-    const int W = 1920, H = 1080;
+    const int W = 1280, H = 720;
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
     InitWindow(W, H, "BMO Engine: Data-Driven");
     InitAudioDevice();
@@ -337,6 +360,8 @@ int main() {
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
+        GlobalScaler.Update();
+
         UpdateMusicStream(voice);
 
         // --- INPUT ---
@@ -371,7 +396,7 @@ int main() {
         ClearBackground({201, 228, 195, 255}); // BMO Face Color
 
         
-        bmo.Draw(W, H);
+       bmo.Draw();
         
         DrawText("SPACE: Audio | R: Reload Database", 20, 20, 20, DARKGRAY);
         DrawText("H,S,A,W,C,E,K,Z,X for Moods", 20, 50, 20, DARKGRAY);

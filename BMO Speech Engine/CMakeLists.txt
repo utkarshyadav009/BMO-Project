@@ -60,7 +60,7 @@ if(EMSCRIPTEN)
         -sASYNCIFY_STACK_SIZE=65536
         -sENVIRONMENT=web
         -sASSERTIONS=1
-        -sEXPORTED_RUNTIME_METHODS=['HEAPF32','ccall','cwrap']
+        "-sEXPORTED_RUNTIME_METHODS=['HEAPF32','ccall','cwrap','setCanvasSize','requestFullscreen']"
         "SHELL:--shell-file /tmp/bmo_speech_shell.html"
         "SHELL:--pre-js /tmp/gamepad_fix.js"
         "SHELL:--preload-file ${ASSET_STAGING}/assets@assets"

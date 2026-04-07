@@ -9,7 +9,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream> 
-
+#include "utility.h"
 // ------------------------------
 // Math & Geometry Helpers
 // ------------------------------
@@ -497,7 +497,7 @@ struct ParametricMouth {
         if (smoothContour.empty()) return;
 
         const float paddingPx = 8.0f; 
-        float unitScale = (256.0f / GEO_SIZE) * current.scale;
+        float unitScale = (256.0f / GEO_SIZE) * current.scale* GlobalScaler.scale;
         if (unitScale < 0.0001f) unitScale = 0.0001f;
 
         Rectangle boundsPhys = GetBoundingBox(smoothContour);
@@ -545,7 +545,8 @@ struct ParametricMouth {
             SetShaderValue(sdfShader, locRes, res, SHADER_UNIFORM_VEC2);
             SetShaderValue(sdfShader, locPadding, &paddingPx, SHADER_UNIFORM_FLOAT);
             // [NEW] Send current scale to Shader for outline correction
-            SetShaderValue(sdfShader, locScale, &current.scale, SHADER_UNIFORM_FLOAT);
+            float combinedScale = current.scale * GlobalScaler.scale;
+            SetShaderValue(sdfShader, locScale, &combinedScale, SHADER_UNIFORM_FLOAT);
             SetShaderValue(sdfShader, locOutlineThickness, &current.outlineThickness, SHADER_UNIFORM_FLOAT);
             
             Vector4 cBg = ColorNormalize(colBg);

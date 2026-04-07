@@ -106,6 +106,7 @@ if(EMSCRIPTEN)
         -sENVIRONMENT=web
         -sASSERTIONS=1
         -sDISABLE_EXCEPTION_CATCHING=0
+        "-sEXPORTED_RUNTIME_METHODS=['setCanvasSize', 'requestFullscreen']"
         "SHELL:--shell-file /tmp/bmo_shell.html"
         "--pre-js" "${CMAKE_CURRENT_SOURCE_DIR}/gamepad_fix.js"
         "SHELL:--preload-file ${ASSET_STAGING}/assets@assets"

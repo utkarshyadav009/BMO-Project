@@ -4,10 +4,6 @@
 
 #include "raylib.h"
 
-//#if defined(__EMSCRIPTEN__)
-//    #include <emscripten/emscripten.h>
-//#endif
-
 // 1. SETUP RAYGUI
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
@@ -39,26 +35,29 @@ using json = nlohmann::json;
 // UI CONSTANTS & HELPERS
 // ---------------------------------------------------------
 namespace UI {
-    const float START_X = 20.0f;
-    const float START_Y = 60.0f; // Shifted down for Tab Bar
-    const float PANEL_WIDTH = 340.0f;
-    const float LABEL_WIDTH = 90.0f;
-    const float VAL_WIDTH = 40.0f;
-    const float ROW_HEIGHT = 25.0f;
+    // Helper to shorten the syntax
+    float S(float v) { return GlobalScaler.S(v); }
+
+    float START_X() { return S(20.0f); }
+    float START_Y() { return S(60.0f); }
+    float PANEL_WIDTH() { return S(340.0f); }
+    float LABEL_WIDTH() { return S(90.0f); }
+    float VAL_WIDTH() { return S(40.0f); }
+    float ROW_HEIGHT() { return S(25.0f); }
     
     float GetSliderWidth() {
-        return PANEL_WIDTH - LABEL_WIDTH - VAL_WIDTH - 30.0f;
+        return PANEL_WIDTH() - LABEL_WIDTH() - VAL_WIDTH() - S(30.0f);
     }
 
     void Slider(const char* text, float* var, float min, float max, float& yPos) {
-        GuiLabel({START_X + 10, yPos, LABEL_WIDTH, 20}, text);
-        GuiSliderBar({START_X + 10 + LABEL_WIDTH, yPos, GetSliderWidth(), 20}, NULL, NULL, var, min, max);
-        GuiLabel({START_X + 10 + LABEL_WIDTH + GetSliderWidth() + 5, yPos, VAL_WIDTH, 20}, TextFormat("%.2f", *var));
-        yPos += ROW_HEIGHT;
+        GuiLabel({START_X() + S(10.0f), yPos, LABEL_WIDTH(), S(20.0f)}, text);
+        GuiSliderBar({START_X() + S(10.0f) + LABEL_WIDTH(), yPos, GetSliderWidth(), S(20.0f)}, NULL, NULL, var, min, max);
+        GuiLabel({START_X() + S(15.0f) + LABEL_WIDTH() + GetSliderWidth(), yPos, VAL_WIDTH(), S(20.0f)}, TextFormat("%.2f", *var));
+        yPos += ROW_HEIGHT();
     }
 
     bool Checkbox(const char* text, bool* var, float xOffset, float yPos) {
-        return GuiCheckBox({START_X + xOffset, yPos, 20, 20}, text, var);
+        return GuiCheckBox({START_X() + S(xOffset), yPos, S(20.0f), S(20.0f)}, text, var);
     }
 }
 
@@ -164,80 +163,78 @@ struct EditorState {
 // UI SUB-PANELS
 // ---------------------------------------------------------
 void DrawEyeControls(float& y, EyeParams& p) {
-    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 350}, "EYE SHAPE"); y += 20.0f;
+    using namespace UI;
+    GuiGroupBox({START_X(), y, PANEL_WIDTH(), S(350.0f)}, "EYE SHAPE"); y += S(20.0f);
 
     int shapeInt = (int)p.eyeShapeID;
-    UI::Slider("Shape ID", &p.eyeShapeID, 0.0f, 12.0f, y);
+    Slider("Shape ID", &p.eyeShapeID, 0.0f, 12.0f, y);
     const char* shapeNames[] = { "Dot", "Line", "Arc", "Cross", "Star", "Heart", "Spiral", "Chevron", "Shuriken", "Kawaii", "Shocked", "Teary", "Colon Eyes" };
-    if(shapeInt >= 0 && shapeInt <= 12) GuiLabel({UI::START_X + 10 + UI::LABEL_WIDTH, y - 25, UI::GetSliderWidth(), 20}, shapeNames[shapeInt]);
+    if(shapeInt >= 0 && shapeInt <= 12) GuiLabel({START_X() + S(10.0f) + LABEL_WIDTH(), y - S(25.0f), GetSliderWidth(), S(20.0f)}, shapeNames[shapeInt]);
 
-    if(p.eyeShapeID > 5.5f && p.eyeShapeID < 6.5f) UI::Slider("Spiral Spd", &p.spiralSpeed, -10.0f, 10.0f, y);
+    if(p.eyeShapeID > 5.5f && p.eyeShapeID < 6.5f) Slider("Spiral Spd", &p.spiralSpeed, -10.0f, 10.0f, y);
 
-    UI::Slider("Bend", &p.bend, -2.0f, 2.0f, y);
-    UI::Slider("Thickness", &p.eyeThickness, 1.0f, 30.0f, y);
-    y += 5;
-    UI::Slider("Scale X", &p.scaleX, 0.1f, 30.0f, y);
-    UI::Slider("Scale Y", &p.scaleY, 0.1f, 30.0f, y);
-    UI::Slider("Spacing", &p.spacing, 0.0f, 1000.0f, y);
-    UI::Slider("Look X", &p.lookX, -500.0f, 500.0f, y);
-    UI::Slider("Look Y", &p.lookY, -500.0f, 500.0f, y);
-    UI::Slider("Angle", &p.angle, -180.0f, 180.0f, y);
-    UI::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);
-    UI::Slider("Pixelation", &p.pixelation,1.0f, 15.0f, y);
-    y += 20.0f;
+    Slider("Bend", &p.bend, -2.0f, 2.0f, y);
+    Slider("Thickness", &p.eyeThickness, 1.0f, 30.0f, y); y += S(5.0f);
+    Slider("Scale X", &p.scaleX, 0.1f, 30.0f, y);
+    Slider("Scale Y", &p.scaleY, 0.1f, 30.0f, y);
+    Slider("Spacing", &p.spacing, 0.0f, 1000.0f, y);
+    Slider("Look X", &p.lookX, -500.0f, 500.0f, y);
+    Slider("Look Y", &p.lookY, -500.0f, 500.0f, y);
+    Slider("Angle", &p.angle, -180.0f, 180.0f, y);
+    Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);
+    Slider("Pixelation", &p.pixelation,1.0f, 15.0f, y); y += S(20.0f);
 
-    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "EYE FX"); y += 5;
-    UI::Checkbox("Brows", &p.showBrow, 10, y);
-    UI::Checkbox("Tears", &p.showTears, 90, y);
-    UI::Checkbox("Blush", &p.showBlush, 170, y); y += 30.0f;
+    GuiGroupBox({START_X(), y, PANEL_WIDTH(), S(480.0f)}, "EYE FX"); y += S(5.0f);
+    Checkbox("Brows", &p.showBrow, 10.0f, y);
+    Checkbox("Tears", &p.showTears, 90.0f, y);
+    Checkbox("Blush", &p.showBlush, 170.0f, y); y += S(30.0f);
 
     if (p.showBrow) {
-        GuiLabel({UI::START_X+10, y, 200, 20}, "- BROW SETTINGS -"); y+= 20;
-        UI::Slider("Thick", &p.eyebrowThickness, 1, 20, y); UI::Slider("Len", &p.eyebrowLength, 0.5f, 2.0f, y);
-        UI::Slider("Spacing", &p.eyebrowSpacing, -100.0f, 100.0f, y); UI::Slider("Pos X", &p.eyebrowX, -10, 10, y);
-        UI::Slider("Pos Y", &p.eyebrowY, -10, 10, y); UI::Slider("Scale", &p.browScale, 0.5f, 2.0f, y);
-        UI::Slider("Angle", &p.browAngle, -45.0f, 45.0f, y); UI::Slider("Bend", &p.browBend, -2.0f, 2.0f, y);
-        UI::Slider("Bend Off", &p.browBendOffset, 0.0f, 0.99f, y); UI::Checkbox("Use Lower Brow", &p.useLowerBrow, 10, y); y += 35;
+        GuiLabel({START_X() + S(10.0f), y, S(200.0f), S(20.0f)}, "- BROW SETTINGS -"); y+= S(20.0f);
+        Slider("Thick", &p.eyebrowThickness, 1, 20, y); Slider("Len", &p.eyebrowLength, 0.5f, 2.0f, y);
+        Slider("Spacing", &p.eyebrowSpacing, -100.0f, 100.0f, y); Slider("Pos X", &p.eyebrowX, -10, 10, y);
+        Slider("Pos Y", &p.eyebrowY, -10, 10, y); Slider("Scale", &p.browScale, 0.5f, 2.0f, y);
+        Slider("Angle", &p.browAngle, -45.0f, 45.0f, y); Slider("Bend", &p.browBend, -2.0f, 2.0f, y);
+        Slider("Bend Off", &p.browBendOffset, 0.0f, 0.99f, y); Checkbox("Use Lower Brow", &p.useLowerBrow, 10.0f, y); y += S(35.0f);
     }
-    if (p.showTears) { GuiLabel({UI::START_X+10, y, 200, 20}, "- TEAR SETTINGS -"); y+= 20; UI::Slider("Level", &p.tearsLevel, 0, 1, y); }
+    if (p.showTears) { GuiLabel({START_X() + S(10.0f), y, S(200.0f), S(20.0f)}, "- TEAR SETTINGS -"); y+= S(20.0f); Slider("Level", &p.tearsLevel, 0, 1, y); }
     if(p.showBlush) {
-        GuiLabel({UI::START_X+10, y, 200, 20}, "- BLUSH SETTINGS -"); y+= 20;
-        UI::Slider("Scale", &p.blushScale, 0.1f, 3.0f, y); UI::Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
-        UI::Slider("Pos Y", &p.blushY, -10.0f, 10.0f, y); UI::Slider("Space", &p.blushSpacing, -100.0f, 100.0f, y);
-        GuiLabel({UI::START_X+10, y, UI::LABEL_WIDTH, 20}, "Blush Mode");
-        if(GuiButton({UI::START_X+10+UI::LABEL_WIDTH,  y, 80, 20}, p.blushMode == 0 ? "Pink" : (p.blushMode == 1 ? "Green" : "Yellow"))) p.blushMode = (p.blushMode + 1) % 3;
-        y += 35;
+        GuiLabel({START_X() + S(10.0f), y, S(200.0f), S(20.0f)}, "- BLUSH SETTINGS -"); y+= S(20.0f);
+        Slider("Scale", &p.blushScale, 0.1f, 3.0f, y); Slider("Pos X", &p.blushX, -10.0f, 10.0f, y);
+        Slider("Pos Y", &p.blushY, -10.0f, 10.0f, y); Slider("Space", &p.blushSpacing, -100.0f, 100.0f, y);
+        GuiLabel({START_X() + S(10.0f), y, LABEL_WIDTH(), S(20.0f)}, "Blush Mode");
+        if(GuiButton({START_X() + S(10.0f) + LABEL_WIDTH(), y, S(80.0f), S(20.0f)}, p.blushMode == 0 ? "Pink" : (p.blushMode == 1 ? "Green" : "Yellow"))) p.blushMode = (p.blushMode + 1) % 3;
+        y += S(35.0f);
     }
-    GuiLabel({UI::START_X+10, y, UI::PANEL_WIDTH, 20}, "--- SURFACE FX ---"); y += 20;
-    UI::Slider("Stress", &p.stressLevel, 0.0f, 1.0f, y); UI::Slider("Gloom", &p.gloomLevel, 0.0f, 1.0f, y);
+    GuiLabel({START_X() + S(10.0f), y, PANEL_WIDTH(), S(20.0f)}, "--- SURFACE FX ---"); y += S(20.0f);
+    Slider("Stress", &p.stressLevel, 0.0f, 1.0f, y); Slider("Gloom", &p.gloomLevel, 0.0f, 1.0f, y);
 }
 
 void DrawMouthControls(float& y, MouthParams& p) {
-    GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 480}, "MOUTH SETTINGS"); y += 20.0f;
-    UI::Slider("Scale", &p.scale, 0.5f, 10.0f, y);
-    UI::Slider("Look X", &p.lookX, -250.0f, 250.0f, y);
-    UI::Slider("Look Y", &p.lookY, -250.0f, 250.0f, y);
-    UI::Slider("Mouth Angle", &p.mouthAngle, -180.0f, 180.0f, y);
-    UI::Slider("Outline", &p.outlineThickness, 1.f, 30.0f, y); y += 10;
-    UI::Slider("Open", &p.open, 0.0f, 1.2f, y); 
-    UI::Slider("Width", &p.width, 0.1f, 1.5f, y);
-    UI::Slider("Curve", &p.curve, -5.0f, 5.0f, y); y += 10;
-    UI::Slider("Sqze Top", &p.squeezeTop, -1.0f, 1.0f, y); UI::Slider("Sqze Bot", &p.squeezeBottom, -1.0, 1.0f, y); y += 10;
-    UI::Slider("Sqze Sigma", &p.sigma, 0.0f, 1.0f, y); UI::Slider("Sqze Pow", &p.power, 0.0f, 10.0f, y);
-    UI::Slider("Sqze Lift", &p.maxLiftValue, 0.0f, 1.0f, y); y += 10;
-    UI::Slider("Teeth Y", &p.teethY, -1.0f, 1.0f, y); UI::Slider("Teeth W", &p.teethWidth, 0.1f, 1.0f, y);
-    UI::Slider("Teeth Gap",&p.teethGap, 0.0f, 100.0f, y); y += 10;
-    UI::Slider("Tongue Up", &p.tongueUp, 0.0f, 1.0f, y); UI::Slider("Tongue W", &p.tongueWidth, 0.3f, 1.0f, y);
-    UI::Slider("Tongue X", &p.tongueX, -1.0f, 1.0f, y); y += 10;
-    UI::Slider("Asymmetry", &p.asymmetry, -1.0f, 1.0f, y); UI::Slider("Squareness", &p.squareness, 0.0f, 1.0f, y);y+=10;
-    UI::Slider("Stress Lns", &p.stressLines, 0.0f, 1.0f, y);y+=10;
-    UI::Checkbox("Show Inner Mouth", &p.showInnerMouth, 10, y); y+=20;
-    UI::Checkbox("3 Shape", &p.isThreeShape, 10, y);y+=20;
-    UI::Checkbox("D Shape", &p.isDShape, 10, y);y+=20;
-    UI::Checkbox("- Shape", &p.isSlashShape, 10, y);
-
+    using namespace UI;
+    GuiGroupBox({START_X(), y, PANEL_WIDTH(), S(480.0f)}, "MOUTH SETTINGS"); y += S(20.0f);
+    Slider("Scale", &p.scale, 0.5f, 10.0f, y);
+    Slider("Look X", &p.lookX, -250.0f, 250.0f, y);
+    Slider("Look Y", &p.lookY, -250.0f, 250.0f, y);
+    Slider("Mouth Angle", &p.mouthAngle, -180.0f, 180.0f, y);
+    Slider("Outline", &p.outlineThickness, 1.f, 30.0f, y); y += S(10.0f);
+    Slider("Open", &p.open, 0.0f, 1.2f, y); 
+    Slider("Width", &p.width, 0.1f, 1.5f, y);
+    Slider("Curve", &p.curve, -5.0f, 5.0f, y); y += S(10.0f);
+    Slider("Sqze Top", &p.squeezeTop, -1.0f, 1.0f, y); Slider("Sqze Bot", &p.squeezeBottom, -1.0, 1.0f, y); y += S(10.0f);
+    Slider("Sqze Sigma", &p.sigma, 0.0f, 1.0f, y); Slider("Sqze Pow", &p.power, 0.0f, 10.0f, y);
+    Slider("Sqze Lift", &p.maxLiftValue, 0.0f, 1.0f, y); y += S(10.0f);
+    Slider("Teeth Y", &p.teethY, -1.0f, 1.0f, y); Slider("Teeth W", &p.teethWidth, 0.1f, 1.0f, y);
+    Slider("Teeth Gap",&p.teethGap, 0.0f, 100.0f, y); y += S(10.0f);
+    Slider("Tongue Up", &p.tongueUp, 0.0f, 1.0f, y); Slider("Tongue W", &p.tongueWidth, 0.3f, 1.0f, y);
+    Slider("Tongue X", &p.tongueX, -1.0f, 1.0f, y); y += S(10.0f);
+    Slider("Asymmetry", &p.asymmetry, -1.0f, 1.0f, y); Slider("Squareness", &p.squareness, 0.0f, 1.0f, y); y += S(10.0f);
+    Slider("Stress Lns", &p.stressLines, 0.0f, 1.0f, y); y += S(10.0f);
+    Checkbox("Show Inner Mouth", &p.showInnerMouth, 10.0f, y); y += S(20.0f);
+    Checkbox("3 Shape", &p.isThreeShape, 10.0f, y); y += S(20.0f);
+    Checkbox("D Shape", &p.isDShape, 10.0f, y); y += S(20.0f);
+    Checkbox("- Shape", &p.isSlashShape, 10.0f, y);
 }
-
 // ---------------------------------------------------------
 // COGNITIVE LAYER: KEYWORD EXTRACTION
 // ---------------------------------------------------------
@@ -287,25 +284,10 @@ void AnalyzeText(char* text, EditorState& state) {
 // MAIN
 // ---------------------------------------------------------
 int main() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(1920, 1080, "BMO Face Poser: Final");
     SetTargetFPS(60);
-//#if defined(__EMSCRIPTEN__)
-//    EM_ASM({
-//        Object.defineProperty(navigator, 'getGamepads', {
-//            value: function() { return []; },
-//            configurable: true
-//        });
-//        var canvas = document.getElementById("canvas");
-//        if (canvas) {
-//            canvas.style.width = "1920px";
-//            canvas.style.height = "1080px";
-//            canvas.style.padding = "0px";
-//            canvas.style.margin = "0px auto";
-//            canvas.style.display = "block";
-//        }
-//    });
-//#endif
+
     // Style Setup
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(BLACK));
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, ColorToInt(BLACK));
@@ -331,7 +313,6 @@ int main() {
     AffectiveEngine brain;
     brain.LoadFromDB(db);
     brain.InitLogger(); 
-    
     state.showReference = false;
     state.useAI = true;
     state.enableGUI = false;
@@ -466,29 +447,30 @@ int main() {
         }
 
         if (state.enableGUI) {
-            float y = UI::START_Y;
+            // FIX: Added parentheses to START_Y()
+            float y = UI::START_Y();
 
             // Tab Bar
-            GuiToggleGroup({UI::START_X, 20, 120, 30}, "EYES;MOUTH", &state.tabIndex);
+            // FIX: Added parentheses to START_X() and scaled the box sizes
+            GuiToggleGroup({UI::START_X(), GlobalScaler.S(20.0f), GlobalScaler.S(120.0f), GlobalScaler.S(30.0f)}, "EYES;MOUTH", &state.tabIndex);
 
             // -- LEFT COLUMN: REFERENCE --
-            GuiGroupBox({UI::START_X, y, UI::PANEL_WIDTH, 110}, "SPRITE REFERENCE");
-            if (GuiButton({UI::START_X + 10, y + 30, 40, 30}, "<")) {
+            // FIX: Added parentheses to START_X() and PANEL_WIDTH()
+            GuiGroupBox({UI::START_X(), y, UI::PANEL_WIDTH(), GlobalScaler.S(110.0f)}, "SPRITE REFERENCE");
+            if (GuiButton({UI::START_X() + GlobalScaler.S(10.0f), y + GlobalScaler.S(30.0f), GlobalScaler.S(40.0f), GlobalScaler.S(30.0f)}, "<")) {
                 if (state.tabIndex == 0) state.CycleFace(atlas, -1);
             }
-            if (GuiButton({UI::START_X + 270, y + 30, 40, 30}, ">")) {
+            if (GuiButton({UI::START_X() + GlobalScaler.S(270.0f), y + GlobalScaler.S(30.0f), GlobalScaler.S(40.0f), GlobalScaler.S(30.0f)}, ">")) {
                 if (state.tabIndex == 0) state.CycleFace(atlas, 1);
             }
 
             std::string refLabel = atlas.faceNames.empty() ? "NONE" : atlas.faceNames[state.faceRefIdx];
-			GuiLabel({UI::START_X + 60, y + 30, 200, 30}, refLabel.c_str());
+            GuiLabel({UI::START_X() + GlobalScaler.S(60.0f), y + GlobalScaler.S(30.0f), GlobalScaler.S(200.0f), GlobalScaler.S(30.0f)}, refLabel.c_str());
             
-            GuiLabel({UI::START_X + 60, y + 30, 200, 30}, refLabel.c_str());
-
-            if (GuiButton({UI::START_X + 10, y + 70, UI::PANEL_WIDTH - 20, 30}, "SAVE PRESET (Enter)")) {
+            if (GuiButton({UI::START_X() + GlobalScaler.S(10.0f), y + GlobalScaler.S(70.0f), UI::PANEL_WIDTH() - GlobalScaler.S(20.0f), GlobalScaler.S(30.0f)}, "SAVE PRESET (Enter)")) {
                 db.Save("face_database.txt", refLabel, state.current);
             }
-            y += 120.0f;
+            y += GlobalScaler.S(120.0f);
 
             // -- LEFT COLUMN: PARAMETER CONTROLS --
             if (state.tabIndex == 0) {
