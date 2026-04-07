@@ -1,6 +1,6 @@
 # BMO Project — Embodied AI Companion
 
-bmo-project.co.uk 
+#L bmo-project.co.uk  
 
 > *"BMO, we need you to be our friend forever."*
 
