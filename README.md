@@ -1,5 +1,7 @@
 # BMO Project — Embodied AI Companion
 
+bmo-project.co.uk 
+
 > *"BMO, we need you to be our friend forever."*
 
 BMO is an attempt to build a genuinely **alive** AI companion — not a chatbot in a box, but an agent with internal drives, temporal awareness, and a persistent identity that deepens over time. It runs entirely locally on an **NVIDIA Jetson Orin Nano 8GB**, inspired by the Adventure Time character of the same name.
