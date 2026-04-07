@@ -1,6 +1,7 @@
 # BMO Project — Embodied AI Companion
 
-[![BMO Hub](https://shields.io)](https://bmo-project.co.uk/)
+[![BMO Hub](https://shields.io)](https://bmo-project.co.uk)
+
 
 > *"BMO, we need you to be our friend forever."*
 
