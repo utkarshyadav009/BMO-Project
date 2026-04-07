@@ -1,6 +1,8 @@
 # BMO Project — Embodied AI Companion
 
-[![BMO Hub](https://shields.io)](https://bmo-project.co.uk)
+> [!TIP]
+> ### [Explore the BMO Hub →](https://bmo-project.co.uk/)
+> Documentation, hardware builds, and the latest Face Engine updates.
 
 
 > *"BMO, we need you to be our friend forever."*
