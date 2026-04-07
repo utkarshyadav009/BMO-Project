@@ -410,6 +410,7 @@ struct FaceSystem {
     // ----------------------------------------------------
     void Update(float dt, const EyeParams& eParams, const MouthParams& mParams) {
         currentGlobalScale = GlobalScaler.scale;
+        
 
         // Hot Reload
         hotReloadTimer += dt;
