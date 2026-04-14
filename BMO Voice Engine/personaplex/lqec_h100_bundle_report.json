@@ -1,0 +1,20 @@
+{
+  "bundle": "D:\\LocalWorkDir\\u521785\\BMO-Project\\BMO Voice Engine\\personaplex\\lqec_h100_bundle.zip",
+  "included_count": 12,
+  "missing_count": 0,
+  "included": [
+    "train_lqec.py",
+    "generate_lqec_manifest.py",
+    "lqec_manifest.json",
+    "bmo_temporal_int4_base.pt",
+    "v5_step1500.safetensors",
+    "tokenizer_spm_32k_3.model",
+    "tokenizer-e351c8d8-checkpoint125.safetensors",
+    "tellmeajoke_padded.wav",
+    "bmo_config.json",
+    "test_rtx_edge.py",
+    "apply_awq_scales.py",
+    "extract_awq_scales.py"
+  ],
+  "missing": []
+}
