@@ -224,6 +224,7 @@ def main():
     input_wav = (root / args.input_wav).resolve()
     out_path = (root / args.out).resolve()
     log_json_path = (root / args.log_json).resolve()
+    best_out_path = out_path.with_name(f"{out_path.stem}_best{out_path.suffix}")
 
     for p in [teacher_path, student_path, mimi_weight, tokenizer_path, input_wav]:
         if not p.exists():
@@ -282,6 +283,10 @@ def main():
         logit_losses = []
         hidden_losses = []
 
+        best_logit = float("inf")
+        best_step = -1
+        best_state = None
+
         for step in range(args.steps):
             optimizer.zero_grad(set_to_none=True)
 
@@ -326,6 +331,11 @@ def main():
             logit_losses.append(llv)
             hidden_losses.append(hlv)
 
+            if llv < best_logit:
+                best_logit = llv
+                best_step = step + 1
+                best_state = extract_lora_state(student)
+
             print(
                 f"[STEP {step+1:03d}/{args.steps}] "
                 f"loss={lv:.6f} logit={llv:.6f} hidden={hlv:.6f}"
@@ -349,6 +359,32 @@ def main():
             "lora_state_dict": extract_lora_state(student),
         }
         torch.save(save_obj, out_path)
+
+        if best_state is not None:
+            best_obj = {
+                "rank": args.rank,
+                "alpha": args.alpha,
+                "steps": args.steps,
+                "best_step": best_step,
+                "best_logit_loss": best_logit,
+                "lr": args.lr,
+                "lambda_logit": args.lambda_logit,
+                "lambda_hidden": args.lambda_hidden,
+                "teacher_device": teacher_device,
+                "student_device": student_device,
+                "teacher": str(teacher_path),
+                "student": str(student_path),
+                "wrapped_modules": wrapped,
+                "losses": losses,
+                "logit_losses": logit_losses,
+                "hidden_losses": hidden_losses,
+                "lora_state_dict": best_state,
+            }
+            torch.save(best_obj, best_out_path)
+            print(
+                f"[INFO] Saved BEST LoRA checkpoint: {best_out_path} "
+                f"(step={best_step}, best_logit_loss={best_logit:.6f})"
+            )
 
         with open(log_json_path, "w", encoding="utf-8") as f:
             json.dump(
