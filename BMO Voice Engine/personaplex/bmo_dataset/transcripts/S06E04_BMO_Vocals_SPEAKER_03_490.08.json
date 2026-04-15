@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Hey Jake, where is Finn?",
+      "start": 0.0,
+      "end": 4.8
+    }
+  ],
+  "duration": 4.884,
+  "transcript": "Hey, Jake, where... Where is Finn?",
+  "clip_type": "speech_only"
+}

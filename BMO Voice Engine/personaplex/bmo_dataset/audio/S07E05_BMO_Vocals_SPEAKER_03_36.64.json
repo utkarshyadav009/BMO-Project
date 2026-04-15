@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "say",
+      [
+        0.24,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "things",
+      [
+        0.32,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.64,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.88,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mean.",
+      [
+        1.2,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.501,
+  "transcript": "I dont say things I dont mean."
+}

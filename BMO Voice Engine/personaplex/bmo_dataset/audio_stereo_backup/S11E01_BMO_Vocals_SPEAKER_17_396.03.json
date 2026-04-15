@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "There's",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "nothing",
+      [
+        0.12,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.38,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cry",
+      [
+        0.58,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "about.",
+      [
+        0.8,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.36,
+  "transcript": "That's nothing to cry about."
+}

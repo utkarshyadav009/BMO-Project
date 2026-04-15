@@ -1,0 +1,47 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Some people say that space is lonely.",
+      "start": 0.0,
+      "end": 2.56
+    },
+    {
+      "word": "people",
+      "start": 2.56,
+      "end": 2.66
+    },
+    {
+      "word": "say",
+      "start": 2.66,
+      "end": 2.7600000000000002
+    },
+    {
+      "word": "that",
+      "start": 2.7600000000000002,
+      "end": 2.8600000000000003
+    },
+    {
+      "word": "space",
+      "start": 2.8600000000000003,
+      "end": 2.9600000000000004
+    },
+    {
+      "word": "is",
+      "start": 2.9600000000000004,
+      "end": 3.0600000000000005
+    },
+    {
+      "word": "lonely.,,,,",
+      "start": 3.0600000000000005,
+      "end": 3.1600000000000006
+    }
+  ],
+  "duration": 3.362,
+  "transcript": "[sing] Some people say that space is lonely.",
+  "clip_type": "tag_plus_speech"
+}

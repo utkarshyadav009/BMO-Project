@@ -1,0 +1,27 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "terraforming Martian soil",
+      "start": 0.0,
+      "end": 4.16
+    },
+    {
+      "word": "Martian",
+      "start": 4.16,
+      "end": 4.26
+    },
+    {
+      "word": "soil.,,,,",
+      "start": 4.26,
+      "end": 4.359999999999999
+    }
+  ],
+  "duration": 2.381,
+  "transcript": "[sing] Terraforming Martian soil.",
+  "clip_type": "tag_plus_speech"
+}

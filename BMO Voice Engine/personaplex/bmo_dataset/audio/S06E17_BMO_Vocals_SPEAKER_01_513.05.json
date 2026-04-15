@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Jake",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.24,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.56,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.78,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "radical",
+      [
+        0.9,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "option.",
+      [
+        1.26,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.961,
+  "transcript": "Jake, I have a radical option."
+}

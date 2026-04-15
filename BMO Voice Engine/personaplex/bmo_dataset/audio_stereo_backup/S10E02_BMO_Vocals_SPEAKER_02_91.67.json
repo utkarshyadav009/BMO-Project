@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "There'll",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.14,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "four",
+      [
+        0.3,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doubloons.",
+      [
+        0.54,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.381,
+  "transcript": "There'll be four doubloons."
+}

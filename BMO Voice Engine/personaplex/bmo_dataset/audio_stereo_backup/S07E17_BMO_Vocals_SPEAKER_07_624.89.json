@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "No!",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "You",
+      [
+        0.2,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "heard",
+      [
+        0.36,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        0.64,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "incorrectly!",
+      [
+        0.76,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.682,
+  "transcript": "No, you heard it incorrectly!"
+}

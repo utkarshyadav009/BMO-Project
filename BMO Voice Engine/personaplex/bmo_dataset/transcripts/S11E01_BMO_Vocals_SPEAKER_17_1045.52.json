@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "This station is trash",
+      "start": 0.0,
+      "end": 2.0
+    }
+  ],
+  "duration": 2.021,
+  "transcript": "Louie, this station is trash.",
+  "clip_type": "speech_only"
+}

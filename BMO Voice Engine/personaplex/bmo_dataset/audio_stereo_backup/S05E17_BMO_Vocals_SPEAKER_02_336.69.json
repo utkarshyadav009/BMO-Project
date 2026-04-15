@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Good",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "morning",
+      [
+        0.08,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "everyone.",
+      [
+        0.48,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.221,
+  "transcript": "Good morning, everyone."
+}

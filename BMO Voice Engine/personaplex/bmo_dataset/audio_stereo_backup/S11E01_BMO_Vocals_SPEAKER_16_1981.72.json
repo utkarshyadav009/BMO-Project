@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.1,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.2,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.5,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.8,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cute",
+      [
+        1.0,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sidekick.",
+      [
+        1.26,
+        1.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.081,
+  "transcript": "You were always just a cute sidekick."
+}

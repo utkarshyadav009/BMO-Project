@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Calm",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "down",
+      [
+        0.22,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "big",
+      [
+        0.52,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guy.",
+      [
+        0.68,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.201,
+  "transcript": "Calm down, big guy."
+}

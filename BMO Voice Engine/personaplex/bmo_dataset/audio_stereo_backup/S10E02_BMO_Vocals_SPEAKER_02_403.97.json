@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "velvet",
+      [
+        0.18,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bag.",
+      [
+        0.54,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.121,
+  "transcript": "This velvet bag."
+}

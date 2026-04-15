@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you've",
+      [
+        0.34,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "been",
+      [
+        0.88,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "through",
+      [
+        1.24,
+        1.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.321,
+  "transcript": "[sing] All that you've been through."
+}

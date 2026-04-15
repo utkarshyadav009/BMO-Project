@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "learned",
+      [
+        0.08,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        0.26,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "out",
+      [
+        0.4,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.56,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.7,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "magazine.",
+      [
+        0.76,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.4,
+  "transcript": "I learned it out of a magazine."
+}

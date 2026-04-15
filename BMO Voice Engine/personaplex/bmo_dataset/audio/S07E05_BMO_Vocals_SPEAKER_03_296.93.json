@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I'm",
+      [
+        0.16,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.56,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo!",
+      [
+        0.64,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "No, I'm not BMO."
+}

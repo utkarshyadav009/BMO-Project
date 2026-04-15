@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.62,
+        0.67
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "God.",
+      [
+        0.62,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.541,
+  "transcript": "(BMO crying)"
+}

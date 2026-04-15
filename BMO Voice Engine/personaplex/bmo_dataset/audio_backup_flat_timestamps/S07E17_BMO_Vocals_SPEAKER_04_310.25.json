@@ -1,0 +1,70 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Somebody has to protect the piglet",
+      [
+        0.0,
+        6.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "somebody",
+      [
+        6.16,
+        6.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "has",
+      [
+        6.26,
+        6.359999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        6.359999999999999,
+        6.459999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "protect",
+      [
+        6.459999999999999,
+        6.559999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        6.559999999999999,
+        6.659999999999998
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "piglets.,,,,",
+      [
+        6.659999999999998,
+        6.759999999999998
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 6.183,
+  "transcript": "[sing] But somebody has to protect the piglets."
+}

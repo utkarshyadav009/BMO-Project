@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Bimo",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.14,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.36,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "good.",
+      [
+        0.66,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.52,
+  "transcript": "Beemo is so good."
+}

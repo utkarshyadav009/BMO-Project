@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Will",
+      [
+        0.0,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.72,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "still",
+      [
+        1.0,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "love",
+      [
+        1.26,
+        1.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "them?",
+      [
+        1.68,
+        1.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.021,
+  "transcript": "Will I still love them?"
+}

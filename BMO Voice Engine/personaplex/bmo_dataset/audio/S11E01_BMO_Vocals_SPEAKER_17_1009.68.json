@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Also",
+      [
+        0.0,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "his",
+      [
+        0.58,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "name",
+      [
+        0.7,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.86,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ricky!",
+      [
+        1.02,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.641,
+  "transcript": "ALSO, HIS NAME IS RICKY!"
+}

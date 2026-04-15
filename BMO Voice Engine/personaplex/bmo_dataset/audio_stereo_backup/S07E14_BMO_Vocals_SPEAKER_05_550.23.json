@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "It",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doesn't",
+      [
+        0.1,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "seem",
+      [
+        0.36,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.48,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it.",
+      [
+        0.82,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.12,
+  "transcript": "It doesn't seem like it."
+}

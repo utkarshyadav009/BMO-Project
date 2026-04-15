@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Then",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "he",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pinned",
+      [
+        0.22,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.58,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "rep",
+      [
+        0.78,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        1.06,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me.",
+      [
+        1.28,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.581,
+  "transcript": "Then he pinned the wrap on me."
+}

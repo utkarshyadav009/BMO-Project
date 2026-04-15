@@ -1,0 +1,47 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "And it will happen again and again",
+      "start": 0.0,
+      "end": 3.1
+    },
+    {
+      "word": "we",
+      "start": 3.1,
+      "end": 3.2
+    },
+    {
+      "word": "will",
+      "start": 3.2,
+      "end": 3.3000000000000003
+    },
+    {
+      "word": "happen",
+      "start": 3.3000000000000003,
+      "end": 3.4000000000000004
+    },
+    {
+      "word": "again",
+      "start": 3.4000000000000004,
+      "end": 3.5000000000000004
+    },
+    {
+      "word": "and",
+      "start": 3.5000000000000004,
+      "end": 3.6000000000000005
+    },
+    {
+      "word": "again.,,,,",
+      "start": 3.6000000000000005,
+      "end": 3.7000000000000006
+    }
+  ],
+  "duration": 3.122,
+  "transcript": "[sing] And we will happen again and again.",
+  "clip_type": "tag_plus_speech"
+}

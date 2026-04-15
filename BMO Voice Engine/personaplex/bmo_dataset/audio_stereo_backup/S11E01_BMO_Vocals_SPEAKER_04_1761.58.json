@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Lucky",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.18,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hole",
+      [
+        0.34,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        0.64,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here.",
+      [
+        0.88,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.3,
+  "transcript": "Lucky this hole was here."
+}

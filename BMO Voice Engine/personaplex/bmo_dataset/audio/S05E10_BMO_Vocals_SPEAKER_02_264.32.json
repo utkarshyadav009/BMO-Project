@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guys",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "should",
+      [
+        0.24,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "get",
+      [
+        0.44,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ready",
+      [
+        0.74,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        1.0,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bed.",
+      [
+        1.24,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.641,
+  "transcript": "You guys should get ready for bed."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.16,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.6,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it.",
+      [
+        0.86,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.12,
+  "transcript": "No, not Fred."
+}

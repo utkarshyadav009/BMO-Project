@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "What's",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.2,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.22,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ruckus",
+      [
+        0.46,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "out",
+      [
+        0.88,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "there?",
+      [
+        1.08,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.502,
+  "transcript": "What's all the ruckus out there?"
+}

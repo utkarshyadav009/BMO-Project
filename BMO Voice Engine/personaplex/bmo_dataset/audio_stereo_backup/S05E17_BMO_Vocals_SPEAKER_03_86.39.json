@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "now",
+      [
+        0.2,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "easy",
+      [
+        0.82,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "does",
+      [
+        1.32,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it.",
+      [
+        1.54,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.84,
+  "transcript": "Okay, now Izzy does it."
+}

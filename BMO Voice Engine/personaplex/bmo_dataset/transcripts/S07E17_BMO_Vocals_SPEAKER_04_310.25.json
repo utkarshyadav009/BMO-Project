@@ -1,0 +1,47 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Somebody has to protect the piglet",
+      "start": 0.0,
+      "end": 6.16
+    },
+    {
+      "word": "somebody",
+      "start": 6.16,
+      "end": 6.26
+    },
+    {
+      "word": "has",
+      "start": 6.26,
+      "end": 6.359999999999999
+    },
+    {
+      "word": "to",
+      "start": 6.359999999999999,
+      "end": 6.459999999999999
+    },
+    {
+      "word": "protect",
+      "start": 6.459999999999999,
+      "end": 6.559999999999999
+    },
+    {
+      "word": "the",
+      "start": 6.559999999999999,
+      "end": 6.659999999999998
+    },
+    {
+      "word": "piglets.,,,,",
+      "start": 6.659999999999998,
+      "end": 6.759999999999998
+    }
+  ],
+  "duration": 6.183,
+  "transcript": "[sing] But somebody has to protect the piglets.",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,57 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "That is an interesting response.",
+      "start": 0.0,
+      "end": 3.3200000000000003
+    },
+    {
+      "word": "Better low, shut down.",
+      "start": 3.72,
+      "end": 5.62
+    },
+    {
+      "word": "an",
+      "start": 5.62,
+      "end": 5.72
+    },
+    {
+      "word": "interesting",
+      "start": 5.72,
+      "end": 5.819999999999999
+    },
+    {
+      "word": "response,",
+      "start": 5.819999999999999,
+      "end": 5.919999999999999
+    },
+    {
+      "word": "but",
+      "start": 5.919999999999999,
+      "end": 6.019999999999999
+    },
+    {
+      "word": "I'll",
+      "start": 6.019999999999999,
+      "end": 6.119999999999998
+    },
+    {
+      "word": "shut",
+      "start": 6.119999999999998,
+      "end": 6.219999999999998
+    },
+    {
+      "word": "down.,,,",
+      "start": 6.219999999999998,
+      "end": 6.319999999999998
+    }
+  ],
+  "duration": 5.705,
+  "transcript": "[sing] That is an interesting response, but I'll shut down.",
+  "clip_type": "tag_plus_speech"
+}

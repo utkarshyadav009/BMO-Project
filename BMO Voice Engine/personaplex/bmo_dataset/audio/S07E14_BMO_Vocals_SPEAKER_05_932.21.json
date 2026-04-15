@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "He",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "had",
+      [
+        0.16,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.24,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "huge",
+      [
+        0.3,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "gigantic",
+      [
+        0.72,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.681,
+  "transcript": "He had a huge, gigantic"
+}

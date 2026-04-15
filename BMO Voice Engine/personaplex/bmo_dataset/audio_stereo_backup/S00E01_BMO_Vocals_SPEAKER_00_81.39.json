@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "A",
+      [
+        0.0,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "red",
+      [
+        0.5,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.92,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.2,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "flower?",
+      [
+        1.38,
+        1.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.32,
+  "transcript": "A rat in the flower?"
+}

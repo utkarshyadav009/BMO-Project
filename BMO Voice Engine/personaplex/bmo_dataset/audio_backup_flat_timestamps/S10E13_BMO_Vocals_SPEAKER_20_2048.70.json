@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Happening, happening.",
+      [
+        0.0,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happened.,,,,",
+      [
+        1.84,
+        1.9400000000000002
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.842,
+  "transcript": "[sing] Happening happened."
+}

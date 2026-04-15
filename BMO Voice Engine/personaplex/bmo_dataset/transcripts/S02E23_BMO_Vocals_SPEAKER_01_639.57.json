@@ -1,0 +1,37 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Just hug, and it's all great",
+      "start": 0.0,
+      "end": 3.7600000000000002
+    },
+    {
+      "word": "hug",
+      "start": 3.7600000000000002,
+      "end": 3.8600000000000003
+    },
+    {
+      "word": "and",
+      "start": 3.8600000000000003,
+      "end": 3.9600000000000004
+    },
+    {
+      "word": "its",
+      "start": 3.9600000000000004,
+      "end": 4.0600000000000005
+    },
+    {
+      "word": "agreed.,,,,",
+      "start": 4.0600000000000005,
+      "end": 4.16
+    }
+  ],
+  "duration": 3.762,
+  "transcript": "[sing] Just hug and its agreed.",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Where",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.12,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Finstock?",
+      [
+        0.26,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.04,
+  "transcript": "Where is Finn's sock?"
+}

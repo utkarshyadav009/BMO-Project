@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "Once upon a time, there was this cool guy in a banana with sunglasses.",
+      [
+        0.0,
+        5.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 5.643,
+  "transcript": "Once upon a time, there was this cool guy and a banana with sunglasses."
+}

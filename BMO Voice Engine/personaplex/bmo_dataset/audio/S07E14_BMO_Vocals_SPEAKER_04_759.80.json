@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Even",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "though",
+      [
+        0.14,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.26,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.38,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "birthday.",
+      [
+        0.52,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.12,
+  "transcript": "Even though it's my birthday."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "terraforming",
+      [
+        0.0,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Martian",
+      [
+        0.86,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "soil.",
+      [
+        1.74,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.381,
+  "transcript": "[sing] Terraforming Martian soil."
+}

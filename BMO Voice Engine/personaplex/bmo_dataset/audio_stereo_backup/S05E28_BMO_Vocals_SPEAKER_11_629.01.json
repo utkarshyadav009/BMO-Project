@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Are",
+      [
+        0.0,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.46,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.64,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "grandpa?",
+      [
+        0.78,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.681,
+  "transcript": "Oh, are you my grandpa?"
+}

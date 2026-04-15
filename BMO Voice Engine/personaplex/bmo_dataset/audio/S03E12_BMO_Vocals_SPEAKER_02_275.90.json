@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "But",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sometimes",
+      [
+        0.1,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "life",
+      [
+        0.62,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        1.04,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "scary",
+      [
+        1.24,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        1.58,
+        2.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dark.",
+      [
+        2.2,
+        2.58
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.862,
+  "transcript": "But sometimes, life is scary and dark."
+}

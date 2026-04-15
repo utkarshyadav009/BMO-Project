@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bounty",
+      [
+        0.12,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "belongs",
+      [
+        0.42,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.68,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me!",
+      [
+        0.94,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.3,
+  "transcript": "This bounty belongs to me!"
+}

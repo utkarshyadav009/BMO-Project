@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Come",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Sidekick",
+      [
+        0.24,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Deputy.",
+      [
+        0.64,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.16,
+  "transcript": "Come on, sidekick deputy."
+}

@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Who's that?",
+      [
+        0.0,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that?,,,,",
+      [
+        2.0,
+        2.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.26,
+  "transcript": "[laugh] who's that?"
+}

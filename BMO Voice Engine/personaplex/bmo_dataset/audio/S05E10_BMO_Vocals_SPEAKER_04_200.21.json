@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "thought",
+      [
+        0.24,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.48,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "kept",
+      [
+        0.68,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "better",
+      [
+        0.94,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "company.",
+      [
+        1.24,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.901,
+  "transcript": "I just thought you kept better company."
+}

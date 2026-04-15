@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "It's weird!",
+      [
+        0.0,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "weird",
+      [
+        2.0,
+        2.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "[laugh]",
+      [
+        2.0,
+        2.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      ",,,,",
+      [
+        2.1,
+        2.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.469,
+  "transcript": "It's weird [laugh]"
+}

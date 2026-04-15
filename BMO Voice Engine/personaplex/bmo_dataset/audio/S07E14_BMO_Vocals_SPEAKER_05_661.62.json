@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "How",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "do",
+      [
+        0.24,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.76,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "get",
+      [
+        0.92,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "out?",
+      [
+        1.06,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.461,
+  "transcript": "How... how do we get out?"
+}

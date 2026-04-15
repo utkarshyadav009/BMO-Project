@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Haha",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "same",
+      [
+        0.34,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "old",
+      [
+        1.1,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lorraine.",
+      [
+        1.54,
+        2.34
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.501,
+  "transcript": "Haha, same old Lorraine."
+}

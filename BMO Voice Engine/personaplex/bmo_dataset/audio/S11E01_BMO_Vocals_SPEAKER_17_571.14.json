@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        0.38,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "call",
+      [
+        0.52,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.72,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "harmonica.",
+      [
+        1.02,
+        1.8
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.942,
+  "transcript": "I will call you Harmonica."
+}

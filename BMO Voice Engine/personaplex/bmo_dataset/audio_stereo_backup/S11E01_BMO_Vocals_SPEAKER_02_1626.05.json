@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Don't",
+      [
+        0.8799999999999999,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        1.22,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bad",
+      [
+        1.24,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        1.64,
+        1.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me!",
+      [
+        1.82,
+        1.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.142,
+  "transcript": "Stop it, Bad Olive!"
+}

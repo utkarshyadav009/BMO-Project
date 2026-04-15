@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Yay",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.32,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "win!",
+      [
+        0.56,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.361,
+  "transcript": "Yay, I win!"
+}

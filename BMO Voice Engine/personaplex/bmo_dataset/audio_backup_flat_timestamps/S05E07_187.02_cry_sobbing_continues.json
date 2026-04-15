@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Thank you for watching!",
+      [
+        0.0,
+        29.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 5.096,
+  "transcript": "[cry]"
+}

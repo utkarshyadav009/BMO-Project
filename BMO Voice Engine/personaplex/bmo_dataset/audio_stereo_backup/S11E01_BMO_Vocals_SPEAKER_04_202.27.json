@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.08,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.26,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.44,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "see",
+      [
+        0.64,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "huh?",
+      [
+        0.9,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.301,
+  "transcript": "You like what you see, huh?"
+}

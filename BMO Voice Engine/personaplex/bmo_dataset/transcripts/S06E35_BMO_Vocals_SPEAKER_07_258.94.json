@@ -1,0 +1,47 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Now I just wish you dick faster.",
+      "start": 0.0,
+      "end": 1.7
+    },
+    {
+      "word": "I",
+      "start": 1.7,
+      "end": 1.8
+    },
+    {
+      "word": "just",
+      "start": 1.8,
+      "end": 1.9000000000000001
+    },
+    {
+      "word": "wish",
+      "start": 1.9000000000000001,
+      "end": 2.0
+    },
+    {
+      "word": "youd",
+      "start": 2.0,
+      "end": 2.1
+    },
+    {
+      "word": "dig",
+      "start": 2.1,
+      "end": 2.2
+    },
+    {
+      "word": "faster.,,,,",
+      "start": 2.2,
+      "end": 2.3000000000000003
+    }
+  ],
+  "duration": 1.801,
+  "transcript": "[sing] Now I just wish youd dig faster.",
+  "clip_type": "tag_plus_speech"
+}

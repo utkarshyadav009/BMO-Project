@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "apologize",
+      [
+        0.28,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.76,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.18,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "intrusion.",
+      [
+        1.36,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.17,
+  "transcript": "I apologize for the intrusion."
+}

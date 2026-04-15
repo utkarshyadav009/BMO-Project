@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Beemo",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.24,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "camera.",
+      [
+        0.44,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.26,
+  "transcript": "BMO is camera."
+}

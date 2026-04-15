@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.28,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.46,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "life.",
+      [
+        0.58,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.121,
+  "transcript": "Ah, this is the life."
+}

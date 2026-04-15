@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.22,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.48,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "really",
+      [
+        0.74,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sad.",
+      [
+        1.52,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.421,
+  "transcript": "No, its just really sad."
+}

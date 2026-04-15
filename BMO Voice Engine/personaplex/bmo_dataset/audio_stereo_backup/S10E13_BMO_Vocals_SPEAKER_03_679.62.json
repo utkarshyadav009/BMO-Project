@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "And",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "they",
+      [
+        0.2,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "were",
+      [
+        0.48,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dead.",
+      [
+        0.68,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.121,
+  "transcript": "And so they were dead."
+}

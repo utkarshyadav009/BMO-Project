@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "So",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.22,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        1.0,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.26,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pizza.",
+      [
+        1.42,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.901,
+  "transcript": "So, this is the pits."
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Otherwise",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you'll",
+      [
+        0.34,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.78,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.9,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "alone.",
+      [
+        1.08,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.721,
+  "transcript": "Otherwise, youll be all alone."
+}

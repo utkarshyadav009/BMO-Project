@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "show",
+      [
+        0.1,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.34,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "terrible!",
+      [
+        0.52,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.36,
+  "transcript": "This show is terrible!"
+}

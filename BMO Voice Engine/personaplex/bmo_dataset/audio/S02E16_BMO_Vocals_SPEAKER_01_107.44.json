@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "much",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "more",
+      [
+        0.2,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dangerous",
+      [
+        0.44,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "than",
+      [
+        0.84,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        1.14,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "think.",
+      [
+        1.26,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.721,
+  "transcript": "It's much more dangerous than you think."
+}

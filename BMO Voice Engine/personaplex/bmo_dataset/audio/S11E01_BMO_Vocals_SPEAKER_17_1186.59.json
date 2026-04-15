@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.2,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "arms",
+      [
+        0.36,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        0.66,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "legs.",
+      [
+        0.88,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.26,
+  "transcript": "You are my arms and legs."
+}

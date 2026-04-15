@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Maybe",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.2,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.44,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.52,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pizza.",
+      [
+        0.7,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.401,
+  "transcript": "Maybe it's just a pizza."
+}

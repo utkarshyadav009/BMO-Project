@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Please",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "can",
+      [
+        0.18,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.28,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "invite",
+      [
+        0.44,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "him",
+      [
+        0.66,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.9,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dinner?",
+      [
+        1.02,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "Please can we invite him to dinner?"
+}

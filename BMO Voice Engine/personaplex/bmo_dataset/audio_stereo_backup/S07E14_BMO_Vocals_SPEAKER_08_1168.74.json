@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Give",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.08,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "those",
+      [
+        0.18,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "memories!",
+      [
+        0.36,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.041,
+  "transcript": "Give me those memories!"
+}

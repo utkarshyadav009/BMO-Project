@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Yes",
+      [
+        0.0,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "brute",
+      [
+        0.32,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "force!",
+      [
+        0.62,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.38,
+  "transcript": "Yes, brute force!"
+}

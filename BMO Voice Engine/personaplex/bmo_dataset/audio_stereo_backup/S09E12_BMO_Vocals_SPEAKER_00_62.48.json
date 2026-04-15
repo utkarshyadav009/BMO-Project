@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Time",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.18,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ice",
+      [
+        0.3,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "King's",
+      [
+        0.42,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "foreign",
+      [
+        0.74,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "book",
+      [
+        0.98,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "reading.",
+      [
+        1.24,
+        1.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.681,
+  "transcript": "Time for Ice Kings boring book reading."
+}

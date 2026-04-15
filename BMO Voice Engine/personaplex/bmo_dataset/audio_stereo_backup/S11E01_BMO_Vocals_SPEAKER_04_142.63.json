@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Time",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.24,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "make",
+      [
+        0.34,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.5,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doughnuts.",
+      [
+        0.62,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.08,
+  "transcript": "Time to make the donuts."
+}

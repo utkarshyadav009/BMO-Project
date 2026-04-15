@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Will",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "still",
+      [
+        0.22,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "visit",
+      [
+        0.46,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me?",
+      [
+        0.76,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "Will you still visit me?"
+}

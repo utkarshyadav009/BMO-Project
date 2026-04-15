@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.28,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.62,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "air.",
+      [
+        0.86,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.28,
+  "transcript": "Okay, I like air."
+}

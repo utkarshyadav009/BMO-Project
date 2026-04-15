@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Please",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.28,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bring",
+      [
+        0.74,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.88,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        1.1,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "there",
+      [
+        1.28,
+        1.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Bimo.",
+      [
+        1.64,
+        1.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.96,
+  "transcript": "Please don't bring me in there, BMO."
+}

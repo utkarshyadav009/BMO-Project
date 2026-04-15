@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.24,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.36,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "look",
+      [
+        0.52,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.78,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this.",
+      [
+        0.94,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.362,
+  "transcript": "I dont like the look of this."
+}

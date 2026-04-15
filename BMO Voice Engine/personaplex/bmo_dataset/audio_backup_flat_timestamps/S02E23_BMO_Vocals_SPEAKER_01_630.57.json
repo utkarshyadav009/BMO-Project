@@ -1,0 +1,70 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "You too, please stop, or you're undue.",
+      [
+        0.0,
+        3.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "two,",
+      [
+        3.1,
+        3.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "please",
+      [
+        3.2,
+        3.3000000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "stop",
+      [
+        3.3000000000000003,
+        3.4000000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "or",
+      [
+        3.4000000000000004,
+        3.5000000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you're",
+      [
+        3.5000000000000004,
+        3.6000000000000005
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "undo.,,,",
+      [
+        3.6000000000000005,
+        3.7000000000000006
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.123,
+  "transcript": "[sing] You two, please stop or you're undo."
+}

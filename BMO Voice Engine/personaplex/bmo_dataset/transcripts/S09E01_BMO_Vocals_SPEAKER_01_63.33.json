@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Once upon a time, there was this cool guy in a banana with sunglasses.",
+      "start": 0.0,
+      "end": 5.44
+    }
+  ],
+  "duration": 5.643,
+  "transcript": "Once upon a time, there was this cool guy and a banana with sunglasses.",
+  "clip_type": "speech_only"
+}

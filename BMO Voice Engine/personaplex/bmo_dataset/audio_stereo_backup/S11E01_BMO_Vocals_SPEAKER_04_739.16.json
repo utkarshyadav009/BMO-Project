@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Because",
+      [
+        0.0,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "BMO",
+      [
+        0.42,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "has",
+      [
+        1.24,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        1.42,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mission.",
+      [
+        1.5,
+        1.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.201,
+  "transcript": "Because BMO has a mission."
+}

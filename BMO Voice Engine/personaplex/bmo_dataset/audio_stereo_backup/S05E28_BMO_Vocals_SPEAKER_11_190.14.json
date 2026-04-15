@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.18,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "gonna",
+      [
+        0.28,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.56,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.74,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "snap!",
+      [
+        0.82,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.341,
+  "transcript": "This is gonna be a snap."
+}

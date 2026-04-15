@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        0.08,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.18,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "believe",
+      [
+        0.32,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.6,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.84,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happened!",
+      [
+        1.02,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.68,
+  "transcript": "You will not believe what just happened!"
+}

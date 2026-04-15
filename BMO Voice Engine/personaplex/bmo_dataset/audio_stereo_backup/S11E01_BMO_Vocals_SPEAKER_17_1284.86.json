@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sure",
+      [
+        0.1,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.28,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "worried",
+      [
+        0.46,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "word",
+      [
+        0.78,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "olive",
+      [
+        1.06,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.7,
+  "transcript": "You sure are a worried word, Olive."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "love",
+      [
+        0.12,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.22,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cheerio!",
+      [
+        0.48,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.143,
+  "transcript": "I love you, Cheerio."
+}

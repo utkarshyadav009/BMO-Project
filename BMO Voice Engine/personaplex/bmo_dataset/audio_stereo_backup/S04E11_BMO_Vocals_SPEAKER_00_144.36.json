@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Three",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "babies",
+      [
+        0.28,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "by",
+      [
+        0.64,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.31,
+  "transcript": "[sing] Three baby spy"
+}

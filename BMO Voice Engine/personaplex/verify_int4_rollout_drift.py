@@ -143,6 +143,7 @@ def parse_args():
     parser.add_argument("--catastrophic-cos", type=float, default=0.95)
     parser.add_argument("--catastrophic-mse", type=float, default=0.1)
     parser.add_argument("--lora-ckpt", type=str, default=None, help="Optional LoRA checkpoint (train_lqec.py output)")
+    parser.add_argument("--report-step", type=int, default=63, help="Print detailed metrics for this rollout step")
     return parser.parse_args()
 
 
@@ -174,6 +175,14 @@ def main():
     top1_match_rate = sum(x[4] for x in per_step) / len(per_step)
 
     catastrophic_steps = [x for x in per_step if x[1] < args.catastrophic_cos or x[2] > args.catastrophic_mse]
+
+    if 0 <= args.report_step < len(per_step):
+        t, cos, mse, max_abs, top1_same, bf_tok, i4_tok = per_step[args.report_step]
+        print("\n=== REPORT STEP ===")
+        print(
+            f"step={t:02d} cos={cos:.6f} mse={mse:.6f} max_abs={max_abs:.6f} "
+            f"top1_same={top1_same} bf16_top1={bf_tok} int4_top1={i4_tok}"
+        )
 
     print("\n=== ROLLOUT DRIFT SUMMARY ===")
     print(f"Steps: {args.steps}")

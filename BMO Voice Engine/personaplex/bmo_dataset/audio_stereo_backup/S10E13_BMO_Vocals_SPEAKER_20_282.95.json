@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "His",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "name",
+      [
+        0.16,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was...",
+      [
+        0.46,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Phil!",
+      [
+        1.9999999999999998,
+        2.3
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.621,
+  "transcript": "His name was... Phil!"
+}

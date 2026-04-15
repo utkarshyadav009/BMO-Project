@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Singing will happen.",
+      [
+        0.0,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        1.84,
+        1.9400000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happen.,,,,",
+      [
+        1.9400000000000002,
+        2.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.942,
+  "transcript": "[sing] Singing will happen."
+}

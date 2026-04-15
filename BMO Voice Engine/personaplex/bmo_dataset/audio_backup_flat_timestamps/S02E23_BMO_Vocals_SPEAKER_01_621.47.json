@@ -1,0 +1,70 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Hurting your friends will make you sadder",
+      [
+        0.0,
+        3.8000000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        3.8000000000000003,
+        3.9000000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "friend",
+      [
+        3.9000000000000004,
+        4.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        4.0,
+        4.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "make",
+      [
+        4.1,
+        4.199999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        4.199999999999999,
+        4.299999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sadder.,,,,",
+      [
+        4.299999999999999,
+        4.399999999999999
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 4.024,
+  "transcript": "[sing] Hurting your friend will make you sadder."
+}

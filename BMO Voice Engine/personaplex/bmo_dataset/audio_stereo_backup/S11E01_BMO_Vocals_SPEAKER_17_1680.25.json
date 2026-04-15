@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "but",
+      [
+        0.68,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "couldn't",
+      [
+        0.82,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        1.7,
+        1.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bring",
+      [
+        1.88,
+        2.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "them?",
+      [
+        2.44,
+        2.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.841,
+  "transcript": "Oh, but couldnt we bring the map?"
+}

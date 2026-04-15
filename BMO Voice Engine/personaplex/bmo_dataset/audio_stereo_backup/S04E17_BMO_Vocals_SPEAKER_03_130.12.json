@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "How",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.16,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lorraine?",
+      [
+        0.28,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.12,
+  "transcript": "How is Lorraine?"
+}

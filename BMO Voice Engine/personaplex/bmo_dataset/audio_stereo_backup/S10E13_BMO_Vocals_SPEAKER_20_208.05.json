@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I've",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "been",
+      [
+        0.1,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "expecting",
+      [
+        0.2,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        0.54,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.181,
+  "transcript": "Ive been expecting you."
+}

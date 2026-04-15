@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "credit",
+      [
+        0.28,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "time.",
+      [
+        0.62,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.281,
+  "transcript": "Its my karate time."
+}

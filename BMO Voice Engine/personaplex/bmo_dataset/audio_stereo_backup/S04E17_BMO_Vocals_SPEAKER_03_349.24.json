@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "She",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sold",
+      [
+        0.12,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.32,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "out",
+      [
+        0.58,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dum",
+      [
+        0.8,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-dum.",
+      [
+        1.08,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.48,
+  "transcript": "She sold you out, dum-dum."
+}

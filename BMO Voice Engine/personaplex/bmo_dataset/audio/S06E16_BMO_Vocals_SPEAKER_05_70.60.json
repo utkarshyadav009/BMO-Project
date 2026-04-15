@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Birthday",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "story",
+      [
+        0.24,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "time",
+      [
+        0.56,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "please!",
+      [
+        0.94,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.621,
+  "transcript": "Birthday story time, please!"
+}

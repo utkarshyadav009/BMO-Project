@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "\u30de\u30b9\u30bf\u30b7\u30e5\u30fc\u30ba \u30d3\u30fc\u30ed\u30f3\u30a4\u30f3 \u30c9\u30c3\u30ab\u30fc\u30dc\u30fc\u30c9",
+      [
+        0.0,
+        3.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "belong",
+      [
+        3.68,
+        3.7800000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        3.7800000000000002,
+        3.8800000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        3.8800000000000003,
+        3.9800000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cupboard.,,,,",
+      [
+        3.9800000000000004,
+        4.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.703,
+  "transcript": "[sing] Mustaches belong in the cupboard."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Now",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.16,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "too",
+      [
+        0.3,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "relatable!",
+      [
+        0.56,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.561,
+  "transcript": "Now it's too relatable."
+}

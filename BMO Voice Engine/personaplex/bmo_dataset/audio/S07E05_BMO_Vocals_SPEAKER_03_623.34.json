@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Carlos",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.34,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here.",
+      [
+        0.56,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.1,
+  "transcript": "Carlos is here."
+}

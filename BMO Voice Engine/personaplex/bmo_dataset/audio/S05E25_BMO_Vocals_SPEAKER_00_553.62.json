@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "tomato",
+      [
+        0.0,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sauce",
+      [
+        0.58,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "It's tomato sauce."
+}

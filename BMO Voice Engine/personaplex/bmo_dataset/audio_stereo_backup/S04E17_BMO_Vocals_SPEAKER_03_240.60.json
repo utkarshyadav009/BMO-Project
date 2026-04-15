@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Now",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tell",
+      [
+        0.24,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.7,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "where",
+      [
+        0.9,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ronnie",
+      [
+        1.14,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is.",
+      [
+        1.48,
+        1.68
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.821,
+  "transcript": "Now, tell me where Ronnie is."
+}

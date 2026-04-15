@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Yes",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.22,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "course",
+      [
+        0.38,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Jake.",
+      [
+        0.68,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.081,
+  "transcript": "Yes, of course, Jake."
+}

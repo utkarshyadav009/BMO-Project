@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I've",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "been",
+      [
+        0.1,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.3,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "set",
+      [
+        0.48,
+        0.53
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "right",
+      [
+        0.48,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "over",
+      [
+        0.74,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "there.",
+      [
+        0.92,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.281,
+  "transcript": "But Finn is sat right over there."
+}

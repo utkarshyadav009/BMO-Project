@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Ooh",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that's",
+      [
+        0.26,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smooth",
+      [
+        0.7,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "data.",
+      [
+        0.96,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.641,
+  "transcript": "Ooh, that's smooth data."
+}

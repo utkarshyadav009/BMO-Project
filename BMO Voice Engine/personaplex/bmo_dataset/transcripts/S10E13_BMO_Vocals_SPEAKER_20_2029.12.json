@@ -1,0 +1,57 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "So we are always living in the present tense.",
+      "start": 0.0,
+      "end": 3.48
+    },
+    {
+      "word": "we",
+      "start": 3.48,
+      "end": 3.58
+    },
+    {
+      "word": "are",
+      "start": 3.58,
+      "end": 3.68
+    },
+    {
+      "word": "always",
+      "start": 3.68,
+      "end": 3.7800000000000002
+    },
+    {
+      "word": "living",
+      "start": 3.7800000000000002,
+      "end": 3.8800000000000003
+    },
+    {
+      "word": "in",
+      "start": 3.8800000000000003,
+      "end": 3.9800000000000004
+    },
+    {
+      "word": "the",
+      "start": 3.9800000000000004,
+      "end": 4.08
+    },
+    {
+      "word": "present",
+      "start": 4.08,
+      "end": 4.18
+    },
+    {
+      "word": "tense.,,,,",
+      "start": 4.18,
+      "end": 4.279999999999999
+    }
+  ],
+  "duration": 3.483,
+  "transcript": "[sing] So we are always living in the present tense.",
+  "clip_type": "tag_plus_speech"
+}

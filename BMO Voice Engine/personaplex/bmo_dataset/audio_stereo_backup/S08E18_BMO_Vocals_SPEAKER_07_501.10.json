@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "He",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "never",
+      [
+        0.2,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "make",
+      [
+        0.48,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "anyone",
+      [
+        0.74,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happy",
+      [
+        1.08,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "again.",
+      [
+        1.52,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.521,
+  "transcript": "He will never make anyone happy again."
+}

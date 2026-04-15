@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Oh",
+      [
+        0.0,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "who's",
+      [
+        0.6,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        1.18,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bother?",
+      [
+        1.26,
+        1.72
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.182,
+  "transcript": "[sing] Oh, who's the father?"
+}

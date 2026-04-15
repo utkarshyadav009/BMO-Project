@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Horses",
+      [
+        0.0,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "do",
+      [
+        0.4,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.56,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "talk.",
+      [
+        0.76,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.26,
+  "transcript": "Horses do not talk."
+}

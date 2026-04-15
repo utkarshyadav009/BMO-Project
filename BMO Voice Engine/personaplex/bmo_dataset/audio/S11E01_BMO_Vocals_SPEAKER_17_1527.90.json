@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.1,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "huckleberry.",
+      [
+        0.2,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.081,
+  "transcript": "Im your huckleberry."
+}

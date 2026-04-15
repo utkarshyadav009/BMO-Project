@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Oh, oh boy, thanks!",
+      [
+        0.0,
+        3.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "[laugh]",
+      [
+        3.12,
+        3.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Oh,",
+      [
+        3.22,
+        3.3200000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boy!",
+      [
+        3.3200000000000003,
+        3.4200000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Thanks,,,",
+      [
+        3.4200000000000004,
+        3.5200000000000005
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.219,
+  "transcript": "Uh... [laugh] Oh, boy! Thanks"
+}

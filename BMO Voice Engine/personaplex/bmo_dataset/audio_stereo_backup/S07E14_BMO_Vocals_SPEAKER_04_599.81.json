@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Are",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.1,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.28,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Mothu?",
+      [
+        0.56,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.361,
+  "transcript": "Are you a Mo too?"
+}

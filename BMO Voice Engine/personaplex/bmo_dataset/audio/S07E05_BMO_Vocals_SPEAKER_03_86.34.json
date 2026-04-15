@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You'd",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "do",
+      [
+        0.14,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.28,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.58,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me?",
+      [
+        0.78,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.1,
+  "transcript": "You'd do that for me?"
+}

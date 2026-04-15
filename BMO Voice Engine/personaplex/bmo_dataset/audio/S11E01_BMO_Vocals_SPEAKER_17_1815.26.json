@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You're",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.14,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "new",
+      [
+        0.26,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "best",
+      [
+        0.54,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "friend",
+      [
+        0.82,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Krusty.",
+      [
+        1.16,
+        1.66
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.781,
+  "transcript": "Youre my new best friend, Krusty!"
+}

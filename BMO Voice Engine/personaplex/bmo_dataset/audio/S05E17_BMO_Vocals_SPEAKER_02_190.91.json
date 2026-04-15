@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.1,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "carnivore",
+      [
+        0.12,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "waiting",
+      [
+        0.92,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        1.1,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "eat",
+      [
+        1.42,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "us!",
+      [
+        1.84,
+        2.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.261,
+  "transcript": "Its a carnivore waiting to eat us."
+}

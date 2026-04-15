@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "told",
+      [
+        0.12,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.16,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.38,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "buy",
+      [
+        0.5,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "floss.",
+      [
+        0.7,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.301,
+  "transcript": "I told you to buy floss."
+}

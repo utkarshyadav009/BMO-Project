@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Does",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "he",
+      [
+        0.14,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.26,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.54,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pumpkin?",
+      [
+        0.64,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "Does he have a pumpkin?"
+}

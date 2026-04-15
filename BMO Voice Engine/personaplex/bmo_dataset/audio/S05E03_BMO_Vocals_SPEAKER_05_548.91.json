@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Lesson's",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "over",
+      [
+        0.22,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.34,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tonight.",
+      [
+        0.64,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.101,
+  "transcript": "Lesson's over for tonight."
+}

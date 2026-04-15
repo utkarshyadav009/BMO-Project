@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "stars",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.36,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.52,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "jacked!",
+      [
+        0.72,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.281,
+  "transcript": "The stars are all jacked!"
+}

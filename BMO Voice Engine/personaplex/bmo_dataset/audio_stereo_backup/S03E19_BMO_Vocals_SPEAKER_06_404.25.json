@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "against",
+      [
+        0.0,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.32,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "programming",
+      [
+        0.66,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.522,
+  "transcript": "Its against my programming."
+}

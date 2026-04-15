@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Special",
+      [
+        0.0,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sentient",
+      [
+        0.38,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sandwich",
+      [
+        1.12,
+        1.66
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.081,
+  "transcript": "Special sentient sandwich."
+}

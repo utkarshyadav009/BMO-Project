@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "trying",
+      [
+        0.04,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.14,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "close",
+      [
+        0.3,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.54,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "failure.",
+      [
+        0.7,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "I'm trying to close the sale here."
+}

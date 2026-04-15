@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "gonna",
+      [
+        0.1,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "go",
+      [
+        0.2,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "find",
+      [
+        0.36,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ronnie.",
+      [
+        0.66,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.321,
+  "transcript": "Im gonna go find Ronnie."
+}

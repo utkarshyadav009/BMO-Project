@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Would",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.1,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.18,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.38,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "rate",
+      [
+        0.56,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.76,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "video?",
+      [
+        0.96,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.58,
+  "transcript": "Would you like to rate this video?"
+}

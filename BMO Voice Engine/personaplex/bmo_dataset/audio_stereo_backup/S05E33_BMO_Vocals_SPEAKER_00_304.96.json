@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.06,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.18,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "solution",
+      [
+        0.48,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Jake.",
+      [
+        1.12,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.542,
+  "transcript": "I have the solution, Jake."
+}

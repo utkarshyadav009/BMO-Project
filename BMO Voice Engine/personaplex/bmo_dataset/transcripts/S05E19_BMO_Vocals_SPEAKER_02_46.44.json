@@ -1,0 +1,42 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "We will, we will, we will.",
+      "start": 0.0,
+      "end": 2.56
+    },
+    {
+      "word": "will,",
+      "start": 2.56,
+      "end": 2.66
+    },
+    {
+      "word": "we",
+      "start": 2.66,
+      "end": 2.7600000000000002
+    },
+    {
+      "word": "will,",
+      "start": 2.7600000000000002,
+      "end": 2.8600000000000003
+    },
+    {
+      "word": "we",
+      "start": 2.8600000000000003,
+      "end": 2.9600000000000004
+    },
+    {
+      "word": "will.,,",
+      "start": 2.9600000000000004,
+      "end": 3.0600000000000005
+    }
+  ],
+  "duration": 3.002,
+  "transcript": "[sing] We will, we will, we will.",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Silent empty sparking any man",
+      [
+        0.0,
+        2.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "empty,",
+      [
+        2.66,
+        2.7600000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sparkling,",
+      [
+        2.7600000000000002,
+        2.8600000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        2.8600000000000003,
+        2.9600000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "immense.,",
+      [
+        2.9600000000000004,
+        3.0600000000000005
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.302,
+  "transcript": "[sing] Silent, empty, sparkling, and immense."
+}

@@ -1,0 +1,52 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Guys, you know you're much more than this.",
+      "start": 0.0,
+      "end": 4.3
+    },
+    {
+      "word": "you",
+      "start": 4.3,
+      "end": 4.3999999999999995
+    },
+    {
+      "word": "know",
+      "start": 4.3999999999999995,
+      "end": 4.499999999999999
+    },
+    {
+      "word": "you're",
+      "start": 4.499999999999999,
+      "end": 4.599999999999999
+    },
+    {
+      "word": "much",
+      "start": 4.599999999999999,
+      "end": 4.699999999999998
+    },
+    {
+      "word": "more",
+      "start": 4.699999999999998,
+      "end": 4.799999999999998
+    },
+    {
+      "word": "than",
+      "start": 4.799999999999998,
+      "end": 4.899999999999998
+    },
+    {
+      "word": "this.,,,",
+      "start": 4.899999999999998,
+      "end": 4.999999999999997
+    }
+  ],
+  "duration": 4.304,
+  "transcript": "[sing] Guys, you know you're much more than this.",
+  "clip_type": "tag_plus_speech"
+}

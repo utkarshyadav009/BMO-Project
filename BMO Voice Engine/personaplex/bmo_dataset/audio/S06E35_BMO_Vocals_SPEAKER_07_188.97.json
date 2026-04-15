@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "For",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "who",
+      [
+        0.12,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.42,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "say?",
+      [
+        0.6,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.08,
+  "transcript": "A hole, you say?"
+}

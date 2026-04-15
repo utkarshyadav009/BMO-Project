@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sorry",
+      [
+        0.08,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.34,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "caused",
+      [
+        0.56,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "such",
+      [
+        0.82,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        1.08,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mess.",
+      [
+        1.18,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.781,
+  "transcript": "I'm sorry I caused such a mess."
+}

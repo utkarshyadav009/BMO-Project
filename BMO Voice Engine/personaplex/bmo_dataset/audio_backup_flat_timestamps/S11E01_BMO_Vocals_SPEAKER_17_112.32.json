@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Buy my fresh potatoes.",
+      [
+        0.0,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        1.74,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fresh",
+      [
+        1.84,
+        1.9400000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "potatoes.,,,,",
+      [
+        1.9400000000000002,
+        2.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.961,
+  "transcript": "[sing] Buy my fresh potatoes."
+}

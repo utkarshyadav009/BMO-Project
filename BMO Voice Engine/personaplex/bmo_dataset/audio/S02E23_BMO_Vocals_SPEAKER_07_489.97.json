@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "about",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "10",
+      [
+        0.12,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hours.",
+      [
+        0.36,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.001,
+  "transcript": "About 10 hours."
+}

@@ -1,0 +1,57 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Time is an illusion that helps things make sense.",
+      "start": 0.0,
+      "end": 3.2600000000000002
+    },
+    {
+      "word": "is",
+      "start": 3.2600000000000002,
+      "end": 3.3600000000000003
+    },
+    {
+      "word": "an",
+      "start": 3.3600000000000003,
+      "end": 3.4600000000000004
+    },
+    {
+      "word": "illusion",
+      "start": 3.4600000000000004,
+      "end": 3.5600000000000005
+    },
+    {
+      "word": "that",
+      "start": 3.5600000000000005,
+      "end": 3.6600000000000006
+    },
+    {
+      "word": "helps",
+      "start": 3.6600000000000006,
+      "end": 3.7600000000000007
+    },
+    {
+      "word": "things",
+      "start": 3.7600000000000007,
+      "end": 3.8600000000000008
+    },
+    {
+      "word": "make",
+      "start": 3.8600000000000008,
+      "end": 3.960000000000001
+    },
+    {
+      "word": "sense.,,,,",
+      "start": 3.960000000000001,
+      "end": 4.0600000000000005
+    }
+  ],
+  "duration": 3.322,
+  "transcript": "[sing] Time is an illusion that helps things make sense.",
+  "clip_type": "tag_plus_speech"
+}

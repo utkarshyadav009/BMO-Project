@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Lucky",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.22,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "didn't",
+      [
+        0.3,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "crash",
+      [
+        0.54,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "into",
+      [
+        0.7,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "anything",
+      [
+        0.9,
+        1.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "important.",
+      [
+        1.3,
+        1.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.14,
+  "transcript": "Lucky I didnt crash into anything important."
+}

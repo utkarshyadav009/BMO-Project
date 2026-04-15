@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "terrified",
+      [
+        0.14,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.72,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fiends!",
+      [
+        1.06,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.68,
+  "transcript": "I am terrified of Finn."
+}

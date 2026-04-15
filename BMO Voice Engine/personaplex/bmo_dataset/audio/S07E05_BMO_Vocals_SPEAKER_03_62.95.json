@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Can",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tell",
+      [
+        0.22,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.44,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.68,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "secret?",
+      [
+        1.12,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.821,
+  "transcript": "Can I tell you a secret?"
+}

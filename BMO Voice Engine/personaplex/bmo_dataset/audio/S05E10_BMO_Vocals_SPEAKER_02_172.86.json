@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Hope",
+      [
+        0.0,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.44,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.58,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hungry!",
+      [
+        0.78,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.62,
+  "transcript": "Hope you're hungry!"
+}

@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "No",
+      [
+        0.0,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        0.68,
+        0.7300000000000001
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        0.84,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        1.02,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        1.06,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no.",
+      [
+        1.36,
+        1.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.76,
+  "transcript": "[cry]"
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "That",
+      [
+        0.0,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.52,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.72,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cute",
+      [
+        0.98,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "though",
+      [
+        1.32,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.841,
+  "transcript": "That guys so cute now."
+}

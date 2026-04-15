@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.08,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.18,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "save",
+      [
+        0.3,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.54,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "precious",
+      [
+        0.76,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "unicorn!",
+      [
+        1.16,
+        1.56
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.061,
+  "transcript": "We have to save this precious unicorn."
+}

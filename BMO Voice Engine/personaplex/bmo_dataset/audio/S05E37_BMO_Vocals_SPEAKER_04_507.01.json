@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "put",
+      [
+        0.34,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cards",
+      [
+        0.58,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.92,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        1.14,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mouth?",
+      [
+        1.32,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.741,
+  "transcript": "You put cards in your mouth?"
+}

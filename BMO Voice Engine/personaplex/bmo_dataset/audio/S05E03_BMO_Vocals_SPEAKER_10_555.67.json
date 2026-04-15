@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Why",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.1,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "glum",
+      [
+        0.26,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fellas?",
+      [
+        0.72,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.3,
+  "transcript": "Why so glum, fellas?"
+}

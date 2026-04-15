@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "If",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.12,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "push",
+      [
+        0.16,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.44,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "button",
+      [
+        0.72,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.161,
+  "transcript": "If I push this button..."
+}

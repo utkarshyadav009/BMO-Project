@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Susan",
+      [
+        0.0,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "too",
+      [
+        0.3,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.76,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guess",
+      [
+        0.88,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.321,
+  "transcript": "And Susan too, I guess."
+}

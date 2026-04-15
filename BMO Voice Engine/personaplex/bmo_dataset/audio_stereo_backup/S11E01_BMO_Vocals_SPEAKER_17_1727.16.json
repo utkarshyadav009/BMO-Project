@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Beemo",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I'm",
+      [
+        0.3,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "scared.",
+      [
+        0.6,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.441,
+  "transcript": "BMO, I'm scared."
+}

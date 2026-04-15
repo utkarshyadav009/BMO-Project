@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "for",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "getting",
+      [
+        0.12,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "A",
+      [
+        0.3,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.44,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.64,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "job",
+      [
+        0.86,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "description.",
+      [
+        1.22,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.021,
+  "transcript": "Forgetting aint in my job description."
+}

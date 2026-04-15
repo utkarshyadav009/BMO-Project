@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.14,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "metaphor.",
+      [
+        0.16,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.041,
+  "transcript": "Its a metaphor."
+}

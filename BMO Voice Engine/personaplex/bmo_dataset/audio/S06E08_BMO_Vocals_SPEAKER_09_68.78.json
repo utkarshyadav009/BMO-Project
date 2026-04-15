@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "You're",
+      [
+        0.0,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "terrible!",
+      [
+        0.3,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.12,
+  "transcript": "You are terrible!"
+}

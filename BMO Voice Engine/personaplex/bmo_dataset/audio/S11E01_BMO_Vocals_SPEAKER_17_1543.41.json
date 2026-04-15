@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Settle",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "up",
+      [
+        0.28,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Deputy.",
+      [
+        0.46,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.0,
+  "transcript": "Um, is that... Settle up, Deputy!"
+}

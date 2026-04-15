@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "And",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.12,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sounds",
+      [
+        0.18,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cool",
+      [
+        0.42,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.98,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guess.",
+      [
+        1.14,
+        1.34
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.58,
+  "transcript": "And that sounds cool, I guess."
+}

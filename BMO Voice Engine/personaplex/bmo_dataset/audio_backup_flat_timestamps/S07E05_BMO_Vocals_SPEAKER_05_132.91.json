@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "Hello, my name is football, and you are Carlos, my best friend since college.",
+      [
+        0.0,
+        6.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 6.544,
+  "transcript": "Hello, my name is Football, and you are Carlos, my best friend since college."
+}

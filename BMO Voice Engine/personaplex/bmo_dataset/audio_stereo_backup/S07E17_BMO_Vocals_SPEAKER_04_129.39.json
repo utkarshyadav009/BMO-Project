@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "one",
+      [
+        0.0,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sandwich",
+      [
+        0.88,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "per",
+      [
+        1.36,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "horse",
+      [
+        1.74,
+        2.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hour",
+      [
+        2.12,
+        2.4
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.662,
+  "transcript": "One sandwich per horse hour."
+}

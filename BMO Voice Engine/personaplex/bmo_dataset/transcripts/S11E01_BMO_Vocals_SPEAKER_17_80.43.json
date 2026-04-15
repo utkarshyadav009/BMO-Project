@@ -1,0 +1,37 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Silent empty sparking any man",
+      "start": 0.0,
+      "end": 2.66
+    },
+    {
+      "word": "empty,",
+      "start": 2.66,
+      "end": 2.7600000000000002
+    },
+    {
+      "word": "sparkling,",
+      "start": 2.7600000000000002,
+      "end": 2.8600000000000003
+    },
+    {
+      "word": "and",
+      "start": 2.8600000000000003,
+      "end": 2.9600000000000004
+    },
+    {
+      "word": "immense.,",
+      "start": 2.9600000000000004,
+      "end": 3.0600000000000005
+    }
+  ],
+  "duration": 3.302,
+  "transcript": "[sing] Silent, empty, sparkling, and immense.",
+  "clip_type": "tag_plus_speech"
+}

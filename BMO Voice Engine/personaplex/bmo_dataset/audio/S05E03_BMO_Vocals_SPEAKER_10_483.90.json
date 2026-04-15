@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "But",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "but",
+      [
+        0.14,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.58,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "about",
+      [
+        0.7,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.88,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo?",
+      [
+        1.24,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.82,
+  "transcript": "But, but what about you, BMO?"
+}

@@ -1,0 +1,47 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "You too, please stop, or you're undue.",
+      "start": 0.0,
+      "end": 3.1
+    },
+    {
+      "word": "two,",
+      "start": 3.1,
+      "end": 3.2
+    },
+    {
+      "word": "please",
+      "start": 3.2,
+      "end": 3.3000000000000003
+    },
+    {
+      "word": "stop",
+      "start": 3.3000000000000003,
+      "end": 3.4000000000000004
+    },
+    {
+      "word": "or",
+      "start": 3.4000000000000004,
+      "end": 3.5000000000000004
+    },
+    {
+      "word": "you're",
+      "start": 3.5000000000000004,
+      "end": 3.6000000000000005
+    },
+    {
+      "word": "undo.,,,",
+      "start": 3.6000000000000005,
+      "end": 3.7000000000000006
+    }
+  ],
+  "duration": 3.123,
+  "transcript": "[sing] You two, please stop or you're undo.",
+  "clip_type": "tag_plus_speech"
+}

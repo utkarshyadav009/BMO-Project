@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "What's",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "job",
+      [
+        0.22,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Finn?",
+      [
+        0.66,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.101,
+  "transcript": "Whats my job, Finn?"
+}

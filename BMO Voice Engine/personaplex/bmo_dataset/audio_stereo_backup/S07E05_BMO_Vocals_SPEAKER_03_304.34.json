@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "And",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.2,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        0.32,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.52,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.86,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "football.",
+      [
+        1.18,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.942,
+  "transcript": "And I will always be Football."
+}

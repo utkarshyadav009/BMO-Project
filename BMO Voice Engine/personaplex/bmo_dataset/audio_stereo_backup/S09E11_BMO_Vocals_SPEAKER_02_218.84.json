@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Though",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.2,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "might",
+      [
+        0.4,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.62,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "embellished",
+      [
+        0.78,
+        1.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.58,
+  "transcript": "Though I might have embellished."
+}

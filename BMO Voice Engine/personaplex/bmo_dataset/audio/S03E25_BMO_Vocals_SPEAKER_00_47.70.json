@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Your",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "head",
+      [
+        0.1,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.34,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.52,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "body",
+      [
+        0.68,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "isn't",
+      [
+        1.0,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boring.",
+      [
+        1.38,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.921,
+  "transcript": "Your head on my body isnt boring?"
+}

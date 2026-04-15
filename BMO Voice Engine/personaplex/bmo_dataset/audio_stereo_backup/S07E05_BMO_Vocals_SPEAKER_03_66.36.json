@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "can",
+      [
+        0.1,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tell",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.36,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "anything.",
+      [
+        0.48,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.161,
+  "transcript": "You can tell me anything."
+}

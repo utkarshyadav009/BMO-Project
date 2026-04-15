@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.08,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.14,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "little",
+      [
+        0.22,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "living",
+      [
+        0.5,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boy.",
+      [
+        0.82,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.441,
+  "transcript": "I am a little living boy."
+}

@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "She",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "looked",
+      [
+        0.1,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "as",
+      [
+        0.32,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "beautiful",
+      [
+        0.58,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "as",
+      [
+        1.12,
+        1.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ever.",
+      [
+        1.44,
+        1.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.081,
+  "transcript": "She looked as beautiful as ever."
+}

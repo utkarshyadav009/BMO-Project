@@ -1,0 +1,52 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Jake, you know this can be the end.",
+      "start": 0.0,
+      "end": 3.92
+    },
+    {
+      "word": "you",
+      "start": 3.92,
+      "end": 4.02
+    },
+    {
+      "word": "know",
+      "start": 4.02,
+      "end": 4.119999999999999
+    },
+    {
+      "word": "this",
+      "start": 4.119999999999999,
+      "end": 4.219999999999999
+    },
+    {
+      "word": "can",
+      "start": 4.219999999999999,
+      "end": 4.3199999999999985
+    },
+    {
+      "word": "be",
+      "start": 4.3199999999999985,
+      "end": 4.419999999999998
+    },
+    {
+      "word": "the",
+      "start": 4.419999999999998,
+      "end": 4.519999999999998
+    },
+    {
+      "word": "end.,,,",
+      "start": 4.519999999999998,
+      "end": 4.619999999999997
+    }
+  ],
+  "duration": 3.923,
+  "transcript": "[sing] Jake, you know this can be the end.",
+  "clip_type": "tag_plus_speech"
+}

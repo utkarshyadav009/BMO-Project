@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.24,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.34,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "place",
+      [
+        0.56,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "anymore.",
+      [
+        0.84,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.401,
+  "transcript": "I don't like this place, BMO."
+}

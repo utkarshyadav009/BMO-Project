@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.02,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smoked.",
+      [
+        0.2,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.06,
+  "transcript": "Im so smoked!"
+}

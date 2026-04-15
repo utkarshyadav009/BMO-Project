@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "How",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "do",
+      [
+        0.08,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.12,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.22,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.4,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Bindu?",
+      [
+        0.56,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.281,
+  "transcript": "How do you like my bingo?"
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Jack",
+      [
+        0.26,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Rabbit",
+      [
+        0.36,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Johnson!",
+      [
+        0.76,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.501,
+  "transcript": "Thats the Jack Rabbit Johnson!"
+}

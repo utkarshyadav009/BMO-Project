@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fell",
+      [
+        0.08,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "right",
+      [
+        0.22,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "into",
+      [
+        0.52,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "his",
+      [
+        0.8,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "trap.",
+      [
+        1.02,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "I fell right into his trap."
+}

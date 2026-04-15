@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Once upon a time, there was a bandana with sunglasses.",
+      "start": 0.0,
+      "end": 5.0
+    }
+  ],
+  "duration": 4.823,
+  "transcript": "Once upon a time, there was a *bandana* with sunglasses.",
+  "clip_type": "speech_only"
+}

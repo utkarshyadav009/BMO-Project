@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.2,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "only",
+      [
+        0.88,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        1.28,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo.",
+      [
+        1.74,
+        2.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.761,
+  "transcript": "No, it's only me, Beemo."
+}

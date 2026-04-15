@@ -1,0 +1,57 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Cause you and I will always be back then",
+      "start": 0.0,
+      "end": 2.6
+    },
+    {
+      "word": "you",
+      "start": 2.6,
+      "end": 2.7
+    },
+    {
+      "word": "and",
+      "start": 2.7,
+      "end": 2.8000000000000003
+    },
+    {
+      "word": "I",
+      "start": 2.8000000000000003,
+      "end": 2.9000000000000004
+    },
+    {
+      "word": "will",
+      "start": 2.9000000000000004,
+      "end": 3.0000000000000004
+    },
+    {
+      "word": "always",
+      "start": 3.0000000000000004,
+      "end": 3.1000000000000005
+    },
+    {
+      "word": "be",
+      "start": 3.1000000000000005,
+      "end": 3.2000000000000006
+    },
+    {
+      "word": "back",
+      "start": 3.2000000000000006,
+      "end": 3.3000000000000007
+    },
+    {
+      "word": "then.,,,,",
+      "start": 3.3000000000000007,
+      "end": 3.400000000000001
+    }
+  ],
+  "duration": 2.642,
+  "transcript": "[sing] Cause you and I will always be back then.",
+  "clip_type": "tag_plus_speech"
+}

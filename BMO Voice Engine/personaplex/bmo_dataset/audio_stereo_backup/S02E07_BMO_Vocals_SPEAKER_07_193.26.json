@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Poopy",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Toopy",
+      [
+        0.28,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fighting!",
+      [
+        0.7,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "[sing] Poopy-toopy-pie-tin?"
+}

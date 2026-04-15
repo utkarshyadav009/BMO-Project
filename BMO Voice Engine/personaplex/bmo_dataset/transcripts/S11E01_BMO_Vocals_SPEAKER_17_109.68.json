@@ -1,0 +1,22 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Potatoes, potatoes.",
+      "start": 0.0,
+      "end": 1.92
+    },
+    {
+      "word": "potatoes.,,,",
+      "start": 1.92,
+      "end": 2.02
+    }
+  ],
+  "duration": 2.161,
+  "transcript": "[sing] Potatoes, potatoes.",
+  "clip_type": "tag_plus_speech"
+}

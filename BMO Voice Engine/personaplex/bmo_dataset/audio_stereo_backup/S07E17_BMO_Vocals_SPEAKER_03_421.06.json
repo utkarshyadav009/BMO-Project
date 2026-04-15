@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Don't",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "talk",
+      [
+        0.22,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.34,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.46,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "horse",
+      [
+        0.6,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Thumbelit.",
+      [
+        0.94,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.74,
+  "transcript": "Dont talk to my horse, Tumbleweed."
+}

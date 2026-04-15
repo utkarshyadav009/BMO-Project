@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "BMO",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.28,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bounces",
+      [
+        0.6,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "back.",
+      [
+        1.08,
+        1.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.62,
+  "transcript": "BMO always bounces back."
+}

@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.22,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dead.",
+      [
+        0.76,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.381,
+  "transcript": "No, not that."
+}

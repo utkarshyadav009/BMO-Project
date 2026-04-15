@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Fine",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-aged",
+      [
+        0.24,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Cheddar",
+      [
+        0.52,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Man?",
+      [
+        1.04,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.481,
+  "transcript": "Fine-aged cheddar man."
+}

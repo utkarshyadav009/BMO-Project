@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "But",
+      [
+        0.0,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "won't",
+      [
+        0.48,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Finn",
+      [
+        1.22,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        1.36,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Jake",
+      [
+        1.5,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "miss",
+      [
+        1.74,
+        1.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me?",
+      [
+        1.94,
+        2.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.461,
+  "transcript": "But won't Finn and Jake miss me?"
+}

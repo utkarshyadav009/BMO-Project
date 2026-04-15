@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Jack",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Rabbit",
+      [
+        0.2,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Johnson.",
+      [
+        0.44,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.181,
+  "transcript": "Jack Rabbit Johnson."
+}

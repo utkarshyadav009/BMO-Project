@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "or",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "maybe",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "over",
+      [
+        0.28,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.46,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "decade.",
+      [
+        0.56,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.12,
+  "transcript": "Or maybe of the decade!"
+}

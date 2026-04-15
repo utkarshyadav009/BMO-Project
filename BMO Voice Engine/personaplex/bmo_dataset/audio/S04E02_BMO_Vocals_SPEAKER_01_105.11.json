@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.22,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sounds",
+      [
+        0.36,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wonderful",
+      [
+        0.64,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Bimo.",
+      [
+        1.24,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.701,
+  "transcript": "Oh, that sounds wonderful, BMO."
+}

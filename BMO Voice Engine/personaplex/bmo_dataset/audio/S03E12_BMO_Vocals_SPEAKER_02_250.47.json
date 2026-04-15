@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.18,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "taking",
+      [
+        0.4,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "nice",
+      [
+        0.66,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pictures.",
+      [
+        0.98,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.622,
+  "transcript": "I just like taking nice pictures."
+}

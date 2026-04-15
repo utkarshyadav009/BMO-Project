@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.1,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "gone",
+      [
+        0.3,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "now.",
+      [
+        0.64,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "And Moe is gone now."
+}

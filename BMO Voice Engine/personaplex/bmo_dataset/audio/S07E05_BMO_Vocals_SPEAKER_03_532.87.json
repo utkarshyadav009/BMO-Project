@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Bimo",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.24,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "see",
+      [
+        0.36,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "where",
+      [
+        0.58,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.74,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "live?",
+      [
+        0.94,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.381,
+  "transcript": "BMO, you've seen where I live."
+}

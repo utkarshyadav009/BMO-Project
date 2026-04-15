@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "\ubfcc\uc090 \ub69c\uc090 \ud30c\uc774\ud305!",
+      "start": 0.0,
+      "end": 1.4000000000000001
+    }
+  ],
+  "duration": 1.521,
+  "transcript": "[sing] Poopy-toopy-pie-tin?",
+  "clip_type": "tag_plus_speech"
+}

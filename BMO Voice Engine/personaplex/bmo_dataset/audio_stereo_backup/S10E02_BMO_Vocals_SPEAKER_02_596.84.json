@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Perfect",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.22,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smashing",
+      [
+        0.34,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "through",
+      [
+        0.72,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "minerals",
+      [
+        1.04,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "or",
+      [
+        1.64,
+        2.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "composites.",
+      [
+        2.08,
+        2.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.921,
+  "transcript": "Perfect for smashing through minerals or composites."
+}

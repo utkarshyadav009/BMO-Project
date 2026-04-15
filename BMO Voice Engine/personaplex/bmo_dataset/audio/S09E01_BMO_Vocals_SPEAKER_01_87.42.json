@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Good",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "night",
+      [
+        0.1,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "weird",
+      [
+        0.4,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "clouds.",
+      [
+        0.62,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.22,
+  "transcript": "Good night, weird cloud."
+}

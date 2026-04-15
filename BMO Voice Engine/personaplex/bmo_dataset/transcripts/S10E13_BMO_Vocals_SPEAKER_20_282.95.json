@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "His name was...",
+      "start": 0.0,
+      "end": 2.0
+    },
+    {
+      "word": "Phil!",
+      "start": 2.0,
+      "end": 4.0
+    }
+  ],
+  "duration": 2.621,
+  "transcript": "His name was... Phil!",
+  "clip_type": "speech_only"
+}

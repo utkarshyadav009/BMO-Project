@@ -215,6 +215,51 @@ class ScaledEmbedding(torch.nn.Embedding):
         return y
 
 
+class TemporalProjectedTransformer(StreamingContainer):
+    """Projected temporal backbone with a compressed inner Transformer.
+
+    This keeps the LM external residual width unchanged while allowing
+    a lower inner temporal width for SliceGPT-style compression.
+    """
+
+    def __init__(
+        self,
+        input_dimension: int,
+        inner_dimension: int,
+        *,
+        num_heads: int,
+        dim_feedforward: int,
+        device=None,
+        dtype=None,
+        **kwargs,
+    ):
+        super().__init__()
+        self.input_proj = torch.nn.Linear(
+            input_dimension, inner_dimension, bias=False, device=device, dtype=dtype
+        )
+        self.inner = StreamingTransformer(
+            d_model=inner_dimension,
+            num_heads=num_heads,
+            dim_feedforward=dim_feedforward,
+            device=device,
+            dtype=dtype,
+            **kwargs,
+        )
+        self.output_proj = torch.nn.Linear(
+            inner_dimension, input_dimension, bias=False, device=device, dtype=dtype
+        )
+
+    @property
+    def layers(self):
+        # Backward-compatible access for scripts that expect model.transformer.layers.
+        return self.inner.layers
+
+    def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        z = self.input_proj(x)
+        z = self.inner(z, *args, **kwargs)
+        return self.output_proj(z)
+
+
 class LMModel(StreamingContainer):
     """Transformer-based language model on multiple streams of codes.
 
@@ -259,6 +304,8 @@ class LMModel(StreamingContainer):
         depformer_weights_per_step_schedule: list[int] | None = None,
         depformer_pos_emb: str = "sin",
         existing_text_padding_id: Optional[int] = None,
+        temporal_inner_dim: Optional[int] = None,
+        temporal_dim_feedforward: Optional[int] = None,
         context: Optional[int] = None,
         device=None,
         dtype=None,
@@ -298,15 +345,30 @@ class LMModel(StreamingContainer):
         main_kwargs = {
             k: v for k, v in kwargs.items() if not k.startswith(depformer_prefix)
         }
-        self.transformer = StreamingTransformer(
-            d_model=dim,
-            num_heads=num_heads,
-            dim_feedforward=int(hidden_scale * dim),
-            norm=norm,
-            device=device,
-            dtype=dtype,
-            **main_kwargs,
-        )
+        if temporal_inner_dim is not None and temporal_inner_dim != dim:
+            temporal_ff = temporal_dim_feedforward
+            if temporal_ff is None:
+                temporal_ff = int(hidden_scale * dim)
+            self.transformer = TemporalProjectedTransformer(
+                input_dimension=dim,
+                inner_dimension=temporal_inner_dim,
+                num_heads=num_heads,
+                dim_feedforward=int(temporal_ff),
+                norm=norm,
+                device=device,
+                dtype=dtype,
+                **main_kwargs,
+            )
+        else:
+            self.transformer = StreamingTransformer(
+                d_model=dim,
+                num_heads=num_heads,
+                dim_feedforward=int(hidden_scale * dim),
+                norm=norm,
+                device=device,
+                dtype=dtype,
+                **main_kwargs,
+            )
         self.out_norm = create_norm_fn(norm, dim)
         self.depformer_multi_linear = depformer_multi_linear
         kwargs_dep = main_kwargs.copy()
@@ -450,7 +512,10 @@ class LMModel(StreamingContainer):
         if self.out_norm:
             transformer_out = self.out_norm(transformer_out)
         assert isinstance(transformer_out, torch.Tensor)
-        text_logits = self.text_linear(transformer_out)
+        text_in = transformer_out
+        if hasattr(self.text_linear, "weight") and text_in.dtype != self.text_linear.weight.dtype:
+            text_in = text_in.to(self.text_linear.weight.dtype)
+        text_logits = self.text_linear(text_in)
         text_logits = text_logits[:, None]
         return transformer_out, text_logits
 
@@ -473,9 +538,15 @@ class LMModel(StreamingContainer):
         last_token_input: Optional[torch.Tensor] = None
         depformer_input = transformer_out
         if self.depformer_multi_linear:
-            depformer_input = self.depformer_in[depformer_cb_index](depformer_input)
+            proj = self.depformer_in[depformer_cb_index]
+            if depformer_input.dtype != proj.weight.dtype:
+                depformer_input = depformer_input.to(proj.weight.dtype)
+            depformer_input = proj(depformer_input)
         else:
-            depformer_input = self.depformer_in[0](depformer_input)
+            proj = self.depformer_in[0]
+            if depformer_input.dtype != proj.weight.dtype:
+                depformer_input = depformer_input.to(proj.weight.dtype)
+            depformer_input = proj(depformer_input)
         if depformer_cb_index == 0:
             last_token_input = self.depformer_text_emb(sequence[:, 0])
         else:
@@ -487,7 +558,10 @@ class LMModel(StreamingContainer):
         # depformer_input is [B, 1, depformer_dim].
         # The streaming state of the depformer ensures that the proper layer is run.
         dep_output = self.depformer(depformer_input)
-        logits = self.linears[depformer_cb_index](dep_output)
+        head = self.linears[depformer_cb_index]
+        if dep_output.dtype != head.weight.dtype:
+            dep_output = dep_output.to(head.weight.dtype)
+        logits = head(dep_output)
         logits = logits[:, None]
         assert logits.dim() == 4, logits.shape  # [B, Ka, S, card]
         return logits
@@ -508,9 +582,17 @@ class LMModel(StreamingContainer):
                 linear_index = cb_index
                 if self.depformer_weights_per_step_schedule is not None:
                     linear_index = self.depformer_weights_per_step_schedule[cb_index]
-                transformer_in = self.depformer_in[linear_index](transformer_out)
+                proj = self.depformer_in[linear_index]
+                proj_in = transformer_out
+                if proj_in.dtype != proj.weight.dtype:
+                    proj_in = proj_in.to(proj.weight.dtype)
+                transformer_in = proj(proj_in)
             else:
-                transformer_in = self.depformer_in[0](transformer_out)
+                proj = self.depformer_in[0]
+                proj_in = transformer_out
+                if proj_in.dtype != proj.weight.dtype:
+                    proj_in = proj_in.to(proj.weight.dtype)
+                transformer_in = proj(proj_in)
             if cb_index == 0:
                 token_in = self.depformer_text_emb(sequence[:, 0])
             else:
@@ -522,7 +604,11 @@ class LMModel(StreamingContainer):
         depformer_output = self.depformer(depformer_input)
         all_logits = []
         for cb_index in range(Ka):
-            logits = self.linears[cb_index](depformer_output[:, cb_index])
+            head = self.linears[cb_index]
+            head_in = depformer_output[:, cb_index]
+            if head_in.dtype != head.weight.dtype:
+                head_in = head_in.to(head.weight.dtype)
+            logits = head(head_in)
             all_logits.append(logits.view(B, T, -1))
         logits = torch.stack(all_logits, 1)
         assert logits.dim() == 4, logits.shape  # [B, Ka, T, card]

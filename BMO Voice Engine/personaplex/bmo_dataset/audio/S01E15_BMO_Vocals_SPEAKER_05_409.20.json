@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "That",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        0.12,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.26,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "great",
+      [
+        0.4,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "plan.",
+      [
+        0.68,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.52,
+  "transcript": "That was a great plan!"
+}

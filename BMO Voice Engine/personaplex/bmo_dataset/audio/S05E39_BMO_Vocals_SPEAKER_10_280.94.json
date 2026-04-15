@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "Yeah",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bye.",
+      [
+        0.2,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.26,
+  "transcript": "Yeah, boi!"
+}

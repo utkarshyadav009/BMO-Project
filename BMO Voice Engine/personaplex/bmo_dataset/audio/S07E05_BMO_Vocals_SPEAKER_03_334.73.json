@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.08,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "need",
+      [
+        0.18,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.38,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "stay",
+      [
+        0.54,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "strong.",
+      [
+        0.76,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.36,
+  "transcript": "We all need to stay strong."
+}

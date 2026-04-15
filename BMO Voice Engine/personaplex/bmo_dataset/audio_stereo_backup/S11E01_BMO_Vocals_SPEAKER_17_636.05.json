@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Don't",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "give",
+      [
+        0.2,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.24,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.42,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "puppy",
+      [
+        0.48,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "eye.",
+      [
+        0.78,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.281,
+  "transcript": "Dont give me that puppy eye."
+}

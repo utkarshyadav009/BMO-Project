@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wasn't",
+      [
+        0.08,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "listening",
+      [
+        0.26,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.54,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.76,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "story.",
+      [
+        0.94,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "I was listening to your story."
+}

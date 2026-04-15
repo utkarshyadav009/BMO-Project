@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Let's",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "forget",
+      [
+        0.18,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "saw",
+      [
+        0.56,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this.",
+      [
+        0.74,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.021,
+  "transcript": "Let's forget we saw this."
+}

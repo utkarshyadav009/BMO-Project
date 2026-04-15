@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Just hug, and it's all great",
+      [
+        0.0,
+        3.7600000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hug",
+      [
+        3.7600000000000002,
+        3.8600000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        3.8600000000000003,
+        3.9600000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "its",
+      [
+        3.9600000000000004,
+        4.0600000000000005
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "agreed.,,,,",
+      [
+        4.0600000000000005,
+        4.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.762,
+  "transcript": "[sing] Just hug and its agreed."
+}

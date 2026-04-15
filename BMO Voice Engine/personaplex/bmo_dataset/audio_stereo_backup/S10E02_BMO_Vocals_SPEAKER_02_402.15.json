@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "oh",
+      [
+        0.58,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.76,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know!",
+      [
+        0.98,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.341,
+  "transcript": "Oh, oh, I know."
+}

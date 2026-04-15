@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Why",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.1,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.32,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.4,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pull",
+      [
+        0.64,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.94,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "plug?",
+      [
+        1.16,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.661,
+  "transcript": "Why don't we just pull the plug?"
+}

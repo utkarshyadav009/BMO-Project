@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.12,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "probably",
+      [
+        0.28,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bad",
+      [
+        0.74,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "huh?",
+      [
+        1.4,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.781,
+  "transcript": "This is probably bad, huh?"
+}

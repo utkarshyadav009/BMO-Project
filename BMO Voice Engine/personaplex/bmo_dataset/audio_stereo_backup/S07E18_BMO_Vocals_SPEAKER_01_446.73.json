@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bring",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.22,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boys",
+      [
+        0.5,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "home.",
+      [
+        0.82,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.381,
+  "transcript": "I bring my boys home."
+}

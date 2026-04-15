@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "only",
+      [
+        0.14,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.26,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "eating.",
+      [
+        0.44,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Grapefruit.",
+      [
+        1.52,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.001,
+  "transcript": "It's only for eating grapefruits."
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.2,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "changed",
+      [
+        0.3,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.56,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mind.",
+      [
+        0.78,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.301,
+  "transcript": "Okay, I changed my mind."
+}

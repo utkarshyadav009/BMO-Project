@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "knew",
+      [
+        0.26,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.44,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lipstick",
+      [
+        0.62,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "anywhere.",
+      [
+        1.0,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.02,
+  "transcript": "I knew that lipstick anywhere."
+}

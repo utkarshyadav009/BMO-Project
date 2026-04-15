@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Now",
+      [
+        0.0,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "show",
+      [
+        0.3,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.82,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "where",
+      [
+        1.02,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.28,
+        1.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "trouble",
+      [
+        1.46,
+        1.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is.",
+      [
+        1.76,
+        2.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.261,
+  "transcript": "Now, show me where the trouble is."
+}

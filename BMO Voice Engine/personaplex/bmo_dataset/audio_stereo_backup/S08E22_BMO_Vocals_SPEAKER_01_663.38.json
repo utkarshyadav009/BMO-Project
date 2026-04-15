@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "She",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "seems",
+      [
+        0.1,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fine.",
+      [
+        0.32,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.221,
+  "transcript": "She seems fine."
+}

@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Boy",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.22,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "meteoroid",
+      [
+        0.34,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "storm",
+      [
+        0.92,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        1.24,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "scary.",
+      [
+        1.38,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.921,
+  "transcript": "Boy, that meteoroid storm was scary."
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Hahaha!",
+      [
+        0.0,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "You're",
+      [
+        0.66,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        1.12,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "rabbit!",
+      [
+        1.24,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.385,
+  "transcript": "[laugh] You're a rabbit."
+}

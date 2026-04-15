@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "okay.",
+      [
+        0.38,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 0.86,
+  "transcript": "But thats okay."
+}

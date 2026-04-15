@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Hot",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "chocolate",
+      [
+        0.16,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.56,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ready.",
+      [
+        0.84,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.522,
+  "transcript": "Hot chocolate is ready."
+}

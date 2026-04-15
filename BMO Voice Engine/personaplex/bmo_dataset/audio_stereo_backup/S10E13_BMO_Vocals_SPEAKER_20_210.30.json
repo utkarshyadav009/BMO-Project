@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "because",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.2,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "proximity",
+      [
+        0.56,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "radar.",
+      [
+        0.94,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.762,
+  "transcript": "Because of my proximity radar."
+}

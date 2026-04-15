@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "So",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.08,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "decided",
+      [
+        0.22,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.56,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "take",
+      [
+        0.76,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.98,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "case.",
+      [
+        1.14,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.641,
+  "transcript": "So I decided to take the case."
+}

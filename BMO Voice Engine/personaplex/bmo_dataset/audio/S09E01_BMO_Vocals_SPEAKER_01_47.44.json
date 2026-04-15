@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "There",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.24,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "strange",
+      [
+        0.34,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cloud",
+      [
+        0.76,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "following",
+      [
+        1.26,
+        1.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "us.",
+      [
+        1.8,
+        2.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.322,
+  "transcript": "There is a strange cloud following us."
+}

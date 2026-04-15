@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "\ubfcc\uc090 \ub69c\uc090 \ud30c\uc774\ud305!",
+      [
+        0.0,
+        1.4000000000000001
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "[sing] Poopy-toopy-pie-tin?"
+}

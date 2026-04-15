@@ -1,0 +1,22 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Happening, happening.",
+      "start": 0.0,
+      "end": 1.84
+    },
+    {
+      "word": "happened.,,,,",
+      "start": 1.84,
+      "end": 1.9400000000000002
+    }
+  ],
+  "duration": 1.842,
+  "transcript": "[sing] Happening happened.",
+  "clip_type": "tag_plus_speech"
+}

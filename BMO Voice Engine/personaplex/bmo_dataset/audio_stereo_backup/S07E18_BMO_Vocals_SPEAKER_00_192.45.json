@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.08,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.16,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dangerous",
+      [
+        0.34,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "waters.",
+      [
+        0.74,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.425,
+  "transcript": "We are in dangerous waters!"
+}

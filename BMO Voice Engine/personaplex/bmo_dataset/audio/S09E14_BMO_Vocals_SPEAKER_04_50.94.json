@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "can't",
+      [
+        0.02,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bear",
+      [
+        0.22,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.38,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "burden",
+      [
+        0.6,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "any",
+      [
+        1.0,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "longer!",
+      [
+        1.32,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.801,
+  "transcript": "I cant bear this burden any longer."
+}

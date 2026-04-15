@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.04,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "going",
+      [
+        0.12,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.28,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "find",
+      [
+        0.42,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "some",
+      [
+        0.68,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "treasure.",
+      [
+        0.88,
+        1.34
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.641,
+  "transcript": "We are going to find some treasure!"
+}

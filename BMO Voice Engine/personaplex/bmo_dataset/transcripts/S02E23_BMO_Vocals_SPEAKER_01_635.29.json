@@ -1,0 +1,37 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "that you've been through",
+      "start": 0.0,
+      "end": 2.24
+    },
+    {
+      "word": "that",
+      "start": 2.24,
+      "end": 2.3400000000000003
+    },
+    {
+      "word": "you've",
+      "start": 2.3400000000000003,
+      "end": 2.4400000000000004
+    },
+    {
+      "word": "been",
+      "start": 2.4400000000000004,
+      "end": 2.5400000000000005
+    },
+    {
+      "word": "through.,,,,",
+      "start": 2.5400000000000005,
+      "end": 2.6400000000000006
+    }
+  ],
+  "duration": 2.321,
+  "transcript": "[sing] All that you've been through.",
+  "clip_type": "tag_plus_speech"
+}

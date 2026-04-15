@@ -1,0 +1,62 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "What do you think about the stars in the sky?",
+      "start": 0.0,
+      "end": 4.94
+    },
+    {
+      "word": "do",
+      "start": 4.94,
+      "end": 5.04
+    },
+    {
+      "word": "you",
+      "start": 5.04,
+      "end": 5.14
+    },
+    {
+      "word": "think",
+      "start": 5.14,
+      "end": 5.239999999999999
+    },
+    {
+      "word": "about",
+      "start": 5.239999999999999,
+      "end": 5.339999999999999
+    },
+    {
+      "word": "the",
+      "start": 5.339999999999999,
+      "end": 5.439999999999999
+    },
+    {
+      "word": "stars",
+      "start": 5.439999999999999,
+      "end": 5.539999999999998
+    },
+    {
+      "word": "in",
+      "start": 5.539999999999998,
+      "end": 5.639999999999998
+    },
+    {
+      "word": "the",
+      "start": 5.639999999999998,
+      "end": 5.7399999999999975
+    },
+    {
+      "word": "sky?,,,,",
+      "start": 5.7399999999999975,
+      "end": 5.839999999999997
+    }
+  ],
+  "duration": 5.024,
+  "transcript": "[sing] What do you think about the stars in the sky?",
+  "clip_type": "tag_plus_speech"
+}

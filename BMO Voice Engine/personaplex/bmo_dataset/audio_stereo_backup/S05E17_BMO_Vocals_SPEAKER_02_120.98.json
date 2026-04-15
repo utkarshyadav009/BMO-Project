@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "nothing's",
+      [
+        0.34,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "stepping",
+      [
+        1.1,
+        1.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "up",
+      [
+        1.34,
+        1.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Bubble.",
+      [
+        1.8,
+        1.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.142,
+  "transcript": "Okay, nothing stopping a bubble."
+}

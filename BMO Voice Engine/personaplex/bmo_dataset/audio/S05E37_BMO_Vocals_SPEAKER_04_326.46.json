@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "stupid!",
+      [
+        0.22,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.1,
+  "transcript": "Thats stupid."
+}

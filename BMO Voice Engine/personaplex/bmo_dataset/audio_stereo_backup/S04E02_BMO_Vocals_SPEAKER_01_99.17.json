@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "BMO",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.32,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.78,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.96,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "robot?",
+      [
+        1.06,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.581,
+  "transcript": "BMO, are you a robot?"
+}

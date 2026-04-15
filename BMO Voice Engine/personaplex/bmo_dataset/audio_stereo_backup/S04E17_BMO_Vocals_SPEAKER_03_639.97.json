@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.1,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "where",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.36,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sock",
+      [
+        0.54,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is!",
+      [
+        0.84,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "I know where your sock is!"
+}

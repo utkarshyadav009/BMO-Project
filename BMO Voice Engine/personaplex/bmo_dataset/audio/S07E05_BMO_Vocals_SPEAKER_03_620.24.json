@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "All",
+      [
+        0.0,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.8,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "friends",
+      [
+        1.04,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        1.36,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here.",
+      [
+        1.54,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.101,
+  "transcript": "All my friends are here."
+}

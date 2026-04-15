@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "The Chinese food is on me.",
+      "start": 0.0,
+      "end": 1.18
+    }
+  ],
+  "duration": 1.24,
+  "transcript": "The Chinese food is on me!",
+  "clip_type": "speech_only"
+}

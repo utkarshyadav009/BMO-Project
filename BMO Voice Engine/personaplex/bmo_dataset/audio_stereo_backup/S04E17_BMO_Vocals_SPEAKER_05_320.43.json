@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Bebe",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        0.22,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Bebes",
+      [
+        0.44,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        1.64,
+        2.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dance",
+      [
+        2.24,
+        2.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "club",
+      [
+        2.58,
+        2.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "downtown.",
+      [
+        2.9,
+        3.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.722,
+  "transcript": "Bebe owned Bebes, a dance club downtown."
+}

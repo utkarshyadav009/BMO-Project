@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.08,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.26,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "do.",
+      [
+        0.5,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.021,
+  "transcript": "Its what I do."
+}

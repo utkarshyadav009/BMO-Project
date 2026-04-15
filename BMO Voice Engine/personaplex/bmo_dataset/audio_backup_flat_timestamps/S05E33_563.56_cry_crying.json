@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Cheese!",
+      [
+        0.0,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.677,
+  "transcript": "[cry] Jake!"
+}

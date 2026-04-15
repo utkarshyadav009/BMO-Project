@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "used",
+      [
+        0.1,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.14,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wish",
+      [
+        0.3,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.44,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        0.62,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        0.78,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.301,
+  "transcript": "I used to wish I was you."
+}

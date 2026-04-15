@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "That",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "song",
+      [
+        0.12,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "makes",
+      [
+        0.38,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.56,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "feel",
+      [
+        0.84,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happy.",
+      [
+        1.1,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.77,
+  "transcript": "That sounds makes me feel happy."
+}

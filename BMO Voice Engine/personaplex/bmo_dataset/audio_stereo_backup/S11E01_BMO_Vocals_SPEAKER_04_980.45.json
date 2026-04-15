@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "They",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "look",
+      [
+        0.1,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.28,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cold",
+      [
+        0.48,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        0.88,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "scared.",
+      [
+        1.06,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.881,
+  "transcript": "They look so cold and scared."
+}

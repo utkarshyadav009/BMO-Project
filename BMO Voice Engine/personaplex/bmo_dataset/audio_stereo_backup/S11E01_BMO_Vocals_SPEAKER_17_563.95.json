@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.14,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "self",
+      [
+        0.16,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-made",
+      [
+        0.4,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "man.",
+      [
+        0.64,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.101,
+  "transcript": "I am a self-made man."
+}

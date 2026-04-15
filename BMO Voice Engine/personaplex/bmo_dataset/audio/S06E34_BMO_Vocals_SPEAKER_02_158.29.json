@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Give",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.18,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "man",
+      [
+        0.28,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.64,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "he",
+      [
+        1.0,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wants.",
+      [
+        1.26,
+        1.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.802,
+  "transcript": "Give the man what he wants."
+}

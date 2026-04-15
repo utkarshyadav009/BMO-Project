@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Then",
+      [
+        0.0,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.3,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "floated",
+      [
+        0.48,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "with",
+      [
+        0.96,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.18,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boat.",
+      [
+        1.32,
+        1.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.74,
+  "transcript": "Then we floated with the boat."
+}

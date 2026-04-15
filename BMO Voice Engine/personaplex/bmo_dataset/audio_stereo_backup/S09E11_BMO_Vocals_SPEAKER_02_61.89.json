@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Show",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.16,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.26,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.52,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "vampires!",
+      [
+        0.78,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.622,
+  "transcript": "Show me all your vampires."
+}

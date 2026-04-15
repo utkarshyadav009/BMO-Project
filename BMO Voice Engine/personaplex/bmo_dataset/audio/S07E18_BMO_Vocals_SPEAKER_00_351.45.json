@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "need",
+      [
+        0.08,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        0.14,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.24,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "surface",
+      [
+        0.32,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "immediately!",
+      [
+        0.6,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.742,
+  "transcript": "We need to surface immediately!"
+}

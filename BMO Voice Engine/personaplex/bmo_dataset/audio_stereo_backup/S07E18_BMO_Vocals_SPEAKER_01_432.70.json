@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Stay",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "collected",
+      [
+        0.22,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lieutenant.",
+      [
+        0.82,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.482,
+  "transcript": "Stay collected, Lieutenant."
+}

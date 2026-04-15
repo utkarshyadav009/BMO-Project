@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "think",
+      [
+        0.2,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.34,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "magnificent.",
+      [
+        0.56,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.621,
+  "transcript": "I think it's magnificent!"
+}

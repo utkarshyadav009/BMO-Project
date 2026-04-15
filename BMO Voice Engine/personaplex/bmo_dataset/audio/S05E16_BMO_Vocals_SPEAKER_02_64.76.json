@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Maybe",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "she",
+      [
+        0.14,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.3,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "didn't",
+      [
+        0.54,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "get",
+      [
+        0.9,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        1.04,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "yet.",
+      [
+        1.16,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "Maybe she just didn't get it yet."
+}

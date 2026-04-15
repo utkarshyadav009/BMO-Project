@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "found",
+      [
+        0.08,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.34,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mom!",
+      [
+        0.5,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.02,
+  "transcript": "You found your mug."
+}

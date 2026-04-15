@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "A",
+      [
+        0.0,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "factory?",
+      [
+        0.46,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.061,
+  "transcript": "A factory?"
+}

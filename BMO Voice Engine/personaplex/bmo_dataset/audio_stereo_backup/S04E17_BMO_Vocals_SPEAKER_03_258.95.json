@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.1,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "putting",
+      [
+        0.14,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "words",
+      [
+        0.34,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.72,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.98,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mouth.",
+      [
+        1.12,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.681,
+  "transcript": "You are putting words in my mouth."
+}

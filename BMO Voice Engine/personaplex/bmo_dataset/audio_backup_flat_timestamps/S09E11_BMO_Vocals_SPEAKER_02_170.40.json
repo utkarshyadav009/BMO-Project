@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "He said his name was Ted.",
+      [
+        0.0,
+        1.4000000000000001
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.461,
+  "transcript": "He said his name was Ted."
+}

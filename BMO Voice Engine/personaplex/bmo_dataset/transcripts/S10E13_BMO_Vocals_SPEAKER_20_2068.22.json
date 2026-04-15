@@ -1,0 +1,52 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "You and I will always be back then.",
+      "start": 0.0,
+      "end": 2.46
+    },
+    {
+      "word": "and",
+      "start": 2.46,
+      "end": 2.56
+    },
+    {
+      "word": "I",
+      "start": 2.56,
+      "end": 2.66
+    },
+    {
+      "word": "will",
+      "start": 2.66,
+      "end": 2.7600000000000002
+    },
+    {
+      "word": "always",
+      "start": 2.7600000000000002,
+      "end": 2.8600000000000003
+    },
+    {
+      "word": "be",
+      "start": 2.8600000000000003,
+      "end": 2.9600000000000004
+    },
+    {
+      "word": "back",
+      "start": 2.9600000000000004,
+      "end": 3.0600000000000005
+    },
+    {
+      "word": "then.,,,,",
+      "start": 3.0600000000000005,
+      "end": 3.1600000000000006
+    }
+  ],
+  "duration": 2.542,
+  "transcript": "[sing] You and I will always be back then.",
+  "clip_type": "tag_plus_speech"
+}

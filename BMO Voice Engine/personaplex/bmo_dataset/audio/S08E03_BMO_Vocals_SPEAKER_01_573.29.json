@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Listen",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.2,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.44,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sound.",
+      [
+        0.54,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "Listen for a sound."
+}

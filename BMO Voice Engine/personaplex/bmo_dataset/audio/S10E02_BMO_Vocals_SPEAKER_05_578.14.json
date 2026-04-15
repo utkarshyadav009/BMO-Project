@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Maybe",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.18,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sewed",
+      [
+        0.28,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "too",
+      [
+        0.66,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "well.",
+      [
+        0.9,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.521,
+  "transcript": "Maybe I sold too well."
+}

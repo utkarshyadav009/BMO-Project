@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Awkward",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "feelings",
+      [
+        0.22,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "averted.",
+      [
+        0.54,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.421,
+  "transcript": "Awkward feelings averted."
+}

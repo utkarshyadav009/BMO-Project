@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Looking",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.18,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fin",
+      [
+        0.34,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "socks",
+      [
+        0.6,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "same",
+      [
+        1.12,
+        1.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "as",
+      [
+        1.46,
+        1.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        1.66,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.041,
+  "transcript": "Looking for finn' socks, same as you."
+}

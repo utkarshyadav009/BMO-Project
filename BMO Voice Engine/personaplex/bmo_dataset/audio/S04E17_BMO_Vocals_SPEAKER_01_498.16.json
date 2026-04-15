@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "What",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        0.1,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Rani",
+      [
+        0.24,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doing",
+      [
+        0.62,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "down",
+      [
+        0.8,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here?",
+      [
+        1.1,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.481,
+  "transcript": "What was Ronnie doing down here?"
+}

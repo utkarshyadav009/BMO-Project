@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "He said his name was Ted.",
+      "start": 0.0,
+      "end": 1.4000000000000001
+    }
+  ],
+  "duration": 1.461,
+  "transcript": "He said his name was Ted.",
+  "clip_type": "speech_only"
+}

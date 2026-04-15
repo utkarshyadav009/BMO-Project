@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "This is a salt shaker.",
+      "start": 0.0,
+      "end": 2.0
+    }
+  ],
+  "duration": 1.68,
+  "transcript": "This is a salt shaker.",
+  "clip_type": "speech_only"
+}

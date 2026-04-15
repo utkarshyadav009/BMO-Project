@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "now",
+      [
+        0.24,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "straight",
+      [
+        0.9,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "down",
+      [
+        1.2,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        1.52,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "place.",
+      [
+        1.74,
+        2.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.242,
+  "transcript": "Okay, now straight down this place."
+}

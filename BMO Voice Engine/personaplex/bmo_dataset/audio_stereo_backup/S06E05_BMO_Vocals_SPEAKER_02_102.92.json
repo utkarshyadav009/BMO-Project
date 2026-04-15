@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "none",
+      [
+        0.22,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.32,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "our",
+      [
+        0.48,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "business.",
+      [
+        0.56,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.121,
+  "transcript": "That's none of our business."
+}

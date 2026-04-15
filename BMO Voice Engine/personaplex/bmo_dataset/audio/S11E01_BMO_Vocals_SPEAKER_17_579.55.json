@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Yeah",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that's",
+      [
+        0.12,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.3,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.44,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "did.",
+      [
+        0.68,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.1,
+  "transcript": "Yeah, thats what I did."
+}

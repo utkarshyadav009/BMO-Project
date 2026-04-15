@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "can",
+      [
+        0.02,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smell",
+      [
+        0.14,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.44,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "reddish",
+      [
+        0.56,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lilacs.",
+      [
+        0.96,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.68,
+  "transcript": "I can smell the lettuce lilacs."
+}

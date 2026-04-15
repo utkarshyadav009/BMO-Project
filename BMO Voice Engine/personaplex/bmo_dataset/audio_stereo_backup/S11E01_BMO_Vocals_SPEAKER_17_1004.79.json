@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "saved",
+      [
+        0.08,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.36,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "large",
+      [
+        0.52,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.08,
+  "transcript": "I save this lord."
+}

@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "Once upon a time, there was a bandana with sunglasses.",
+      [
+        0.0,
+        5.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 4.823,
+  "transcript": "Once upon a time, there was a *bandana* with sunglasses."
+}

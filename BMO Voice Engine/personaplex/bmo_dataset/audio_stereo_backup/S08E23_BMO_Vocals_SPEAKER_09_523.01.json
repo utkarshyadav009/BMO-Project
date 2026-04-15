@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "save",
+      [
+        0.12,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.5,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.78,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "better",
+      [
+        1.36,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "reality.",
+      [
+        1.64,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.361,
+  "transcript": "I will save you a better reality."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Dancing is cool.",
+      [
+        0.0,
+        2.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        2.56,
+        2.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cool,,,,",
+      [
+        2.66,
+        2.7600000000000002
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.803,
+  "transcript": "[laugh] Dancing is cool"
+}

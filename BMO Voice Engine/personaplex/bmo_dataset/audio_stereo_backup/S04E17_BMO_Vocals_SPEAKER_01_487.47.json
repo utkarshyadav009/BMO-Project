@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Sorry",
+      [
+        0.0,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.32,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "gotta",
+      [
+        0.64,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "run.",
+      [
+        0.86,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.281,
+  "transcript": "Sorry, I gotta run."
+}

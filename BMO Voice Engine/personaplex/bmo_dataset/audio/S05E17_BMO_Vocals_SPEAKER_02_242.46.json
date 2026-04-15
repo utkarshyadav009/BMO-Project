@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bridge",
+      [
+        0.16,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doesn't",
+      [
+        0.28,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.82,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guardrails.",
+      [
+        1.08,
+        1.96
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.14,
+  "transcript": "The bridge doesnt have guardrails."
+}

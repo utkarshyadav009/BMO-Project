@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ha",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        0.16,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        0.4,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        0.62,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "oh!",
+      [
+        0.86,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.76,
+  "transcript": "[cry]"
+}

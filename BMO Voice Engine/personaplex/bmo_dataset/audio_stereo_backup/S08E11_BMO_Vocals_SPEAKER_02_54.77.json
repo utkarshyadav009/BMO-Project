@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "learning",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "truth",
+      [
+        0.28,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "about",
+      [
+        0.66,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "myself.",
+      [
+        0.94,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.678,
+  "transcript": "Im learning truth about myself."
+}

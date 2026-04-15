@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Till",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "next",
+      [
+        0.14,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "time",
+      [
+        0.32,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lori.",
+      [
+        0.64,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.161,
+  "transcript": "Till next time, Lorraine."
+}

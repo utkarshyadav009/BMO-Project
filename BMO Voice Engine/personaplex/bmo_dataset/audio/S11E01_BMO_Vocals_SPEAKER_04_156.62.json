@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.12,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.38,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.66,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo.",
+      [
+        1.08,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.62,
+  "transcript": "You always have me, BMO."
+}

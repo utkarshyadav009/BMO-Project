@@ -1,0 +1,37 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Your love will not delete",
+      "start": 0.0,
+      "end": 2.82
+    },
+    {
+      "word": "love",
+      "start": 2.82,
+      "end": 2.92
+    },
+    {
+      "word": "will",
+      "start": 2.92,
+      "end": 3.02
+    },
+    {
+      "word": "not",
+      "start": 3.02,
+      "end": 3.12
+    },
+    {
+      "word": "delete.,,,,",
+      "start": 3.12,
+      "end": 3.22
+    }
+  ],
+  "duration": 2.861,
+  "transcript": "[sing] Your love will not delete.",
+  "clip_type": "tag_plus_speech"
+}

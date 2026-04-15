@@ -1,0 +1,52 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "This is the greatest day of my life.",
+      "start": 0.0,
+      "end": 2.66
+    },
+    {
+      "word": "is",
+      "start": 2.66,
+      "end": 2.7600000000000002
+    },
+    {
+      "word": "the",
+      "start": 2.7600000000000002,
+      "end": 2.8600000000000003
+    },
+    {
+      "word": "greatest",
+      "start": 2.8600000000000003,
+      "end": 2.9600000000000004
+    },
+    {
+      "word": "day",
+      "start": 2.9600000000000004,
+      "end": 3.0600000000000005
+    },
+    {
+      "word": "of",
+      "start": 3.0600000000000005,
+      "end": 3.1600000000000006
+    },
+    {
+      "word": "my",
+      "start": 3.1600000000000006,
+      "end": 3.2600000000000007
+    },
+    {
+      "word": "life!,,,,",
+      "start": 3.2600000000000007,
+      "end": 3.3600000000000008
+    }
+  ],
+  "duration": 2.682,
+  "transcript": "[sing] This is the greatest day of my life!",
+  "clip_type": "tag_plus_speech"
+}

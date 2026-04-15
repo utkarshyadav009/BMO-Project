@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "[scream]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Ah!",
+      "start": 0.0,
+      "end": 0.24
+    }
+  ],
+  "duration": 1.259,
+  "transcript": "[scream]",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "[laugh]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Ha ha ha ha ha ha!",
+      "start": 0.0,
+      "end": 2.2800000000000002
+    }
+  ],
+  "duration": 2.302,
+  "transcript": "[laugh]",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,32 @@
+{
+  "words": [
+    {
+      "word": "Oh, oh boy, thanks!",
+      "start": 0.0,
+      "end": 3.12
+    },
+    {
+      "word": "[laugh]",
+      "start": 3.12,
+      "end": 3.22
+    },
+    {
+      "word": "Oh,",
+      "start": 3.22,
+      "end": 3.3200000000000003
+    },
+    {
+      "word": "boy!",
+      "start": 3.3200000000000003,
+      "end": 3.4200000000000004
+    },
+    {
+      "word": "Thanks,,,",
+      "start": 3.4200000000000004,
+      "end": 3.5200000000000005
+    }
+  ],
+  "duration": 3.219,
+  "transcript": "Uh... [laugh] Oh, boy! Thanks",
+  "clip_type": "tag_plus_speech"
+}

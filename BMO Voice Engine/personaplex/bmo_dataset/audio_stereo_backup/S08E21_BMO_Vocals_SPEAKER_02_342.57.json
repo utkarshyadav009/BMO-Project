@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "Who",
+      [
+        0.0,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cares?",
+      [
+        0.4,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.081,
+  "transcript": "Who cares?"
+}

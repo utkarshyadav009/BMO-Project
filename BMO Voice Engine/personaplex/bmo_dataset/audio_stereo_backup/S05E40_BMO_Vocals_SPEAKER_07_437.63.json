@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pushed",
+      [
+        0.08,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.32,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "whole",
+      [
+        0.56,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "body.",
+      [
+        0.82,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.541,
+  "transcript": "You pushed my whole body!"
+}

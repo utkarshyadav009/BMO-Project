@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Mustaches",
+      [
+        0.0,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "belong",
+      [
+        0.58,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        1.74,
+        2.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        2.16,
+        2.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cupboard.",
+      [
+        2.26,
+        2.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.703,
+  "transcript": "[sing] Mustaches belong in the cupboard."
+}

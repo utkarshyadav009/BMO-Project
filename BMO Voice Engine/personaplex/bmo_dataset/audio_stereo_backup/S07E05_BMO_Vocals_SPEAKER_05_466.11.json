@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Football",
+      [
+        0.0,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.4,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.56,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.74,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        1.02,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.4,
+  "transcript": "Football, I know it's you."
+}

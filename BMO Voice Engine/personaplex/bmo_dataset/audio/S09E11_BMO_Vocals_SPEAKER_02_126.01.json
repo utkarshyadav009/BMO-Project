@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Did",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.1,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "make",
+      [
+        0.16,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        0.3,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "yourself?",
+      [
+        0.44,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.021,
+  "transcript": "Did you make it yourself?"
+}

@@ -364,6 +364,20 @@ def patched_get_moshi(*args, **kwargs):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Moshi checkpoint not found: {checkpoint_path}")
 
+    load_dtype = kwargs.get("dtype", torch.bfloat16)
+    if isinstance(load_dtype, str):
+        _dtype_map = {
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+            "float32": torch.float32,
+        }
+        load_dtype = _dtype_map.get(load_dtype.lower(), torch.bfloat16)
+
+    def _cast_to_load_dtype(x):
+        if isinstance(x, torch.Tensor) and x.is_floating_point() and x.dtype != load_dtype:
+            return x.to(dtype=load_dtype)
+        return x
+
     if checkpoint_path.lower().endswith((".safetensors", ".sft", ".sfts")):
         device = kwargs.get("device", "cuda")
         cpu_offload = kwargs.get("cpu_offload", False)
@@ -372,56 +386,73 @@ def patched_get_moshi(*args, **kwargs):
             checkpoint_path,
             copy_missing_weights=True,
             device=device,
-            dtype=torch.bfloat16,
+            dtype=load_dtype,
             cpu_offload=cpu_offload,
         )
         _attach_activation_probes(model)
         return model
 
-    print("[INFO] Loading Config Skeleton...")
-    from moshi.models.lm import LMModel
-    with open("bmo_config.json", "r") as f:
-        config_dict = json.load(f)
-    config_dict.pop("model_type", None)
-    
-    print("[INFO] Initializing architecture on META device...")
-    with torch.device("meta"):
-        model = LMModel(**config_dict)
-        
-    print("[INFO] Applying Mixed-Precision structure...")
-    SKIP_MODULES = {"text_emb", "audio_emb", "out_norm", "audio_heads", "text_heads", "extra_heads", "mimi"}
-    
-    def _swap(module, prefix=""):
-        for child_name, child in list(module.named_children()):
-            full_name = f"{prefix}.{child_name}" if prefix else child_name
-            
-            if "depformer" in full_name or any(skip in full_name for skip in SKIP_MODULES):
-                continue
-                
-            if isinstance(child, nn.Linear):
-                int4_layer = bnb.nn.Linear4bit(
-                    child.in_features, 
-                    child.out_features, 
-                    bias=child.bias is not None, 
-                    compute_dtype=torch.bfloat16, 
-                    quant_type="nf4"
-                )
-                # NOTE: We removed the LoRA4bitLinear wrapper here!
-                setattr(module, child_name, int4_layer)
-            else:
-                _swap(child, full_name)
-    _swap(model)
-    
     ckpt_size_gb = os.path.getsize(checkpoint_path) / 1e9
     print(f"[INFO] Memory-Mapping {ckpt_size_gb:.2f} GB Payload from Disk: {checkpoint_path}")
     loaded_obj = torch.load(checkpoint_path, map_location="cpu", mmap=True)
     state_dict = loaded_obj["state_dict"] if isinstance(loaded_obj, dict) and "state_dict" in loaded_obj else loaded_obj
+
+    model_mode = "int4_prequant"
+    config_override = None
+    force_dense = False
+    if isinstance(loaded_obj, dict):
+        model_mode = str(loaded_obj.get("model_mode", model_mode))
+        config_override = loaded_obj.get("config_override")
+        force_dense = bool(loaded_obj.get("force_dense", False)) or model_mode in {
+            "dense_bf16",
+            "slicegpt_dense",
+        }
+
+    print("[INFO] Loading Config Skeleton...")
+    from moshi.models.lm import LMModel
+    with open("bmo_config.json", "r") as f:
+        config_dict = json.load(f)
+    if isinstance(config_override, dict):
+        print("[INFO] Applying checkpoint config override")
+        config_dict.update(config_override)
+    config_dict.pop("model_type", None)
+    
+    print("[INFO] Initializing architecture on META device...")
+    with torch.device("meta"):
+        model = LMModel(dtype=load_dtype, **config_dict)
+
+    if not force_dense:
+        print("[INFO] Applying Mixed-Precision structure...")
+        SKIP_MODULES = {"text_emb", "audio_emb", "out_norm", "audio_heads", "text_heads", "extra_heads", "mimi"}
+
+        def _swap(module, prefix=""):
+            for child_name, child in list(module.named_children()):
+                full_name = f"{prefix}.{child_name}" if prefix else child_name
+
+                if "depformer" in full_name or any(skip in full_name for skip in SKIP_MODULES):
+                    continue
+
+                if isinstance(child, nn.Linear):
+                    int4_layer = bnb.nn.Linear4bit(
+                        child.in_features,
+                        child.out_features,
+                        bias=child.bias is not None,
+                        compute_dtype=torch.bfloat16,
+                        quant_type="nf4",
+                    )
+                    setattr(module, child_name, int4_layer)
+                else:
+                    _swap(child, full_name)
+
+        _swap(model)
+    else:
+        print(f"[INFO] Dense checkpoint mode detected: model_mode={model_mode}")
     
     print("[INFO] Materializing to VRAM (Expect System RAM Spillover)...")
     quant_suffix = ".quant_state.bitsandbytes__nf4"
-    quant_bases = [k[:-len(quant_suffix)] for k in state_dict.keys() if k.endsWith(quant_suffix)]
+    quant_bases = [k[:-len(quant_suffix)] for k in state_dict.keys() if k.endswith(quant_suffix)]
 
-    if quant_bases:
+    if quant_bases and not force_dense:
         print(f"[INFO] Detected {len(quant_bases)} pre-quantized NF4 weight groups in checkpoint")
         quant_base_set = set(quant_bases)
 
@@ -469,7 +500,7 @@ def patched_get_moshi(*args, **kwargs):
                 continue
             if k.endswith(".weight") and k in quant_base_set:
                 continue
-            dense_sd[k] = v
+            dense_sd[k] = _cast_to_load_dtype(v)
 
         incompat = model.load_state_dict(dense_sd, strict=False, assign=True)
         if incompat.unexpected_keys:
@@ -537,10 +568,20 @@ def patched_get_moshi(*args, **kwargs):
         if skipped_prequant:
             print(f"[WARN] Skipped pre-quantized groups (non-Linear4bit targets): {skipped_prequant}")
     else:
-        # Fallback path for dense checkpoints.
-        model.load_state_dict(state_dict, assign=True)
+        dense_sd = {}
+        for k, v in state_dict.items():
+            if k.endswith(".absmax") or k.endswith(".quant_map") or k.endswith(".nested_absmax") or k.endswith(".nested_quant_map") or k.endswith(".quant_state.bitsandbytes__nf4"):
+                continue
+            dense_sd[k] = _cast_to_load_dtype(v)
+
+        incompat = model.load_state_dict(dense_sd, strict=False, assign=True)
+        if incompat.unexpected_keys:
+            print(f"[WARN] Unexpected dense keys while loading: {len(incompat.unexpected_keys)}")
+        if incompat.missing_keys:
+            print(f"[WARN] Missing dense keys while loading: {len(incompat.missing_keys)}")
 
     model.cuda()
+    _attach_activation_probes(model)
     
     return model
 

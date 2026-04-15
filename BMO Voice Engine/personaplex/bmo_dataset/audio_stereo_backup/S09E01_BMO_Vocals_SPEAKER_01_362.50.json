@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.18,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.36,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bold.",
+      [
+        0.6,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.121,
+  "transcript": "Im not football."
+}

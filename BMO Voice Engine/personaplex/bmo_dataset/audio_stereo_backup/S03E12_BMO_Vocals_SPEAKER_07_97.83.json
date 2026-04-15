@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.06,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Professor",
+      [
+        0.18,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Pence.",
+      [
+        0.44,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.09,
+  "transcript": "I am Professor Pintz."
+}

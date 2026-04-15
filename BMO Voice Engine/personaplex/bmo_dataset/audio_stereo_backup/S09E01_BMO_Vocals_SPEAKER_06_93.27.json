@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Good",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "night",
+      [
+        0.16,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "weird",
+      [
+        0.3,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "orb.",
+      [
+        0.62,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.2,
+  "transcript": "Good night, weird orb."
+}

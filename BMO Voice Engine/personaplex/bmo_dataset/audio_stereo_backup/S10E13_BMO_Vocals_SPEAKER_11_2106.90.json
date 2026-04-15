@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "My",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "art",
+      [
+        0.28,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.46,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.72,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "weapon!",
+      [
+        0.9,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.481,
+  "transcript": "My art is a weapon!"
+}

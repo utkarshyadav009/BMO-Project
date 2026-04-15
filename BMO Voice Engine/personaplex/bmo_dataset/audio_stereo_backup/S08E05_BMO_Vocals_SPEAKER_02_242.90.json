@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Get",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.08,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "load",
+      [
+        0.14,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.44,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.54,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guy.",
+      [
+        0.8,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.222,
+  "transcript": "Get a load of this guy."
+}

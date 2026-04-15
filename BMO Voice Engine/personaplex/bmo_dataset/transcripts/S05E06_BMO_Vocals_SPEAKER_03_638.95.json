@@ -1,0 +1,67 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "I said to the bread lady, what happened to your husband?",
+      "start": 0.0,
+      "end": 2.88
+    },
+    {
+      "word": "said",
+      "start": 2.88,
+      "end": 2.98
+    },
+    {
+      "word": "to",
+      "start": 2.98,
+      "end": 3.08
+    },
+    {
+      "word": "the",
+      "start": 3.08,
+      "end": 3.18
+    },
+    {
+      "word": "bread",
+      "start": 3.18,
+      "end": 3.2800000000000002
+    },
+    {
+      "word": "lady,",
+      "start": 3.2800000000000002,
+      "end": 3.3800000000000003
+    },
+    {
+      "word": "what",
+      "start": 3.3800000000000003,
+      "end": 3.4800000000000004
+    },
+    {
+      "word": "happened",
+      "start": 3.4800000000000004,
+      "end": 3.5800000000000005
+    },
+    {
+      "word": "to",
+      "start": 3.5800000000000005,
+      "end": 3.6800000000000006
+    },
+    {
+      "word": "your",
+      "start": 3.6800000000000006,
+      "end": 3.7800000000000007
+    },
+    {
+      "word": "husband?,,,",
+      "start": 3.7800000000000007,
+      "end": 3.880000000000001
+    }
+  ],
+  "duration": 3.043,
+  "transcript": "[sing] I said to the bread lady, what happened to your husband?",
+  "clip_type": "tag_plus_speech"
+}

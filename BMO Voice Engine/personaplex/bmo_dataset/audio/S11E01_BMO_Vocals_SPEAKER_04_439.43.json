@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "They",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.1,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "terrible",
+      [
+        0.32,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "aim.",
+      [
+        0.8,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.301,
+  "transcript": "They have terrible aim."
+}

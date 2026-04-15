@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "weird",
+      [
+        0.1,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "babies!",
+      [
+        0.46,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "You weird babies."
+}

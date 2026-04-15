@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "She",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wants",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.24,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hear",
+      [
+        0.36,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.54,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "banana",
+      [
+        0.7,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "story.",
+      [
+        1.02,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.841,
+  "transcript": "She wants to hear my banana story!"
+}

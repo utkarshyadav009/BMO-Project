@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "we",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "landed",
+      [
+        0.22,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.68,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.98,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "small",
+      [
+        1.12,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "island",
+      [
+        1.36,
+        1.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.062,
+  "transcript": "until we landed on a small island."
+}

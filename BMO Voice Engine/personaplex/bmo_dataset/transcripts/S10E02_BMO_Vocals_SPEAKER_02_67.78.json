@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Today is the first day of my new job!",
+      "start": 0.0,
+      "end": 2.16
+    }
+  ],
+  "duration": 2.201,
+  "transcript": "Today is the first day of my new job!",
+  "clip_type": "speech_only"
+}

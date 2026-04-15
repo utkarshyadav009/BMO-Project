@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Silent",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "empty",
+      [
+        0.44,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sparking",
+      [
+        1.06,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        1.84,
+        2.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "immense.",
+      [
+        2.04,
+        2.46
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.302,
+  "transcript": "[sing] Silent, empty, sparkling, and immense."
+}

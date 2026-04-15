@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ha, ha, ha, ha, ha.",
+      [
+        0.0,
+        1.1400000000000001
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.2,
+  "transcript": "[laugh]"
+}

@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "thank",
+      [
+        0.2,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        0.52,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.06,
+  "transcript": "OK, thank you."
+}

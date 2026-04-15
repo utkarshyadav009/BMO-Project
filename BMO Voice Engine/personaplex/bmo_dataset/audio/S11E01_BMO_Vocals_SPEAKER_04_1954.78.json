@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Mr.",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "M",
+      [
+        0.2,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.66,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "got",
+      [
+        0.92,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.14,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "crystal!",
+      [
+        1.26,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.181,
+  "transcript": "MR. M, I GOT A CRYSTAL!"
+}

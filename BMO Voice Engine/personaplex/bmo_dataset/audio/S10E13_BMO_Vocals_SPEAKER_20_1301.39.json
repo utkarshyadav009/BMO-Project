@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "That",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happened",
+      [
+        0.12,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "next.",
+      [
+        0.44,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.081,
+  "transcript": "That happened next."
+}

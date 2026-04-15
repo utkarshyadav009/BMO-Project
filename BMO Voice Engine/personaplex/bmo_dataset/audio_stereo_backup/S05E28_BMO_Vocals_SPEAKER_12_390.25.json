@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Get",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.1,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "close",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.36,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.6,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guy's",
+      [
+        0.78,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "porch.",
+      [
+        1.1,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.601,
+  "transcript": "Get me close to that guys port."
+}

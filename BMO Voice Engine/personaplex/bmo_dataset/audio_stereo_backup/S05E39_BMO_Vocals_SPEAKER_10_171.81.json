@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mean",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "an",
+      [
+        0.28,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "air",
+      [
+        1.0,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-fuel",
+      [
+        1.36,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mixture?",
+      [
+        1.64,
+        1.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.45,
+  "transcript": "You mean an air-fuel mixture?"
+}

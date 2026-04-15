@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wrote",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.18,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "song",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.56,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.72,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "head!",
+      [
+        0.84,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.341,
+  "transcript": "I wrote this song for my head!"
+}

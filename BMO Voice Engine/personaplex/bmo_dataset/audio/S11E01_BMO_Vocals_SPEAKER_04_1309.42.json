@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You're",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.12,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "deputy",
+      [
+        0.24,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "after",
+      [
+        0.6,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all.",
+      [
+        1.02,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.48,
+  "transcript": "Youre my deputy, after all."
+}

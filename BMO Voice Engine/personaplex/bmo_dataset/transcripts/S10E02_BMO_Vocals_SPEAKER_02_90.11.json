@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "This is my first sale!",
+      "start": 0.0,
+      "end": 1.34
+    }
+  ],
+  "duration": 1.16,
+  "transcript": "My first sale!",
+  "clip_type": "speech_only"
+}

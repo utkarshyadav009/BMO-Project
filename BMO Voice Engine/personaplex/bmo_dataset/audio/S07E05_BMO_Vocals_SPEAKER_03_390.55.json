@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "How",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "did",
+      [
+        0.08,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.14,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "get",
+      [
+        0.3,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.46,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.58,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "spoon?",
+      [
+        0.72,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.421,
+  "transcript": "How did you get in the spoon?"
+}

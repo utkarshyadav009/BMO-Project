@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Chinese",
+      [
+        0.08,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "food",
+      [
+        0.3,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.56,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.72,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me.",
+      [
+        0.88,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.24,
+  "transcript": "The Chinese food is on me!"
+}

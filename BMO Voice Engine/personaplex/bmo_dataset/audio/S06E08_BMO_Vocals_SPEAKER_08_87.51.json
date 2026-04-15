@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "got",
+      [
+        0.1,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "too",
+      [
+        0.18,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "much",
+      [
+        0.36,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "money",
+      [
+        0.6,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "honey.",
+      [
+        1.04,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.421,
+  "transcript": "You got too much money, honey."
+}

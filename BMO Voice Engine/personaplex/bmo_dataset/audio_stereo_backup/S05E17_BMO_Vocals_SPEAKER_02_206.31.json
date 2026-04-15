@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "He",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "must",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.2,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lost",
+      [
+        0.44,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        1.02,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "us!",
+      [
+        1.24,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.781,
+  "transcript": "He must be lost, like us."
+}

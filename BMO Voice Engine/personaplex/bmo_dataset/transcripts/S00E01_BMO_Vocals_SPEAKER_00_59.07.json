@@ -1,0 +1,37 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "\u30de\u30b9\u30bf\u30b7\u30e5\u30fc\u30ba \u30d3\u30fc\u30ed\u30f3\u30a4\u30f3 \u30c9\u30c3\u30ab\u30fc\u30dc\u30fc\u30c9",
+      "start": 0.0,
+      "end": 3.68
+    },
+    {
+      "word": "belong",
+      "start": 3.68,
+      "end": 3.7800000000000002
+    },
+    {
+      "word": "in",
+      "start": 3.7800000000000002,
+      "end": 3.8800000000000003
+    },
+    {
+      "word": "the",
+      "start": 3.8800000000000003,
+      "end": 3.9800000000000004
+    },
+    {
+      "word": "cupboard.,,,,",
+      "start": 3.9800000000000004,
+      "end": 4.08
+    }
+  ],
+  "duration": 3.703,
+  "transcript": "[sing] Mustaches belong in the cupboard.",
+  "clip_type": "tag_plus_speech"
+}

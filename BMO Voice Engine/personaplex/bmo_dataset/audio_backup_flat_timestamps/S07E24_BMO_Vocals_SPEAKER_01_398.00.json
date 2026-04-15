@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "Are you awake?",
+      [
+        0.0,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.1,
+  "transcript": "Are you awake?"
+}

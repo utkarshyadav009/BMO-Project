@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Give",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.2,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bank",
+      [
+        0.36,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "account.",
+      [
+        0.66,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.361,
+  "transcript": "Give me your bank account."
+}

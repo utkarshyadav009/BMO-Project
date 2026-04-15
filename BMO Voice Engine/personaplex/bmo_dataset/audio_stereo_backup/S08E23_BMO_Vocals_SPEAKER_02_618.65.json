@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Jake",
+      [
+        0.0,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hug",
+      [
+        0.4,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.6,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tighter",
+      [
+        0.8,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.52,
+  "transcript": "Oh Jake, hug me tighter!"
+}

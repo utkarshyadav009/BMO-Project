@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Moe is the smartest man in the world.",
+      "start": 0.0,
+      "end": 2.4
+    }
+  ],
+  "duration": 2.426,
+  "transcript": "Mo is the smartest man in the world!",
+  "clip_type": "speech_only"
+}

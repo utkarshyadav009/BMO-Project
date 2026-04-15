@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "What",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.1,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wonderful",
+      [
+        0.12,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "surprise.",
+      [
+        0.42,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.38,
+  "transcript": "What a wonderful surprise."
+}

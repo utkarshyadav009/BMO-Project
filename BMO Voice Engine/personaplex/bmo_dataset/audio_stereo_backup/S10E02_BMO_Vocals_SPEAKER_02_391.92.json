@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Excuse",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.28,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "indigestion.",
+      [
+        0.46,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.321,
+  "transcript": "Excuse my indigestion."
+}

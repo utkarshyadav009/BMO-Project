@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Proceed",
+      [
+        0.0,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "extraction",
+      [
+        0.56,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "point.",
+      [
+        1.0,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.64,
+  "transcript": "Proceed to extraction point."
+}

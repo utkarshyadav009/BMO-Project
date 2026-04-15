@@ -1,0 +1,22 @@
+{
+  "words": [
+    {
+      "word": "[laugh]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Who's that?",
+      "start": 0.0,
+      "end": 2.0
+    },
+    {
+      "word": "that?,,,,",
+      "start": 2.0,
+      "end": 2.1
+    }
+  ],
+  "duration": 2.26,
+  "transcript": "[laugh] who's that?",
+  "clip_type": "tag_plus_speech"
+}

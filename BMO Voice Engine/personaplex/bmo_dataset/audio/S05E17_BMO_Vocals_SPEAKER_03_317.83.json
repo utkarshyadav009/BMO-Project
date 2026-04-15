@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "think",
+      [
+        0.1,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.2,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "batteries",
+      [
+        0.42,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.88,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wet.",
+      [
+        1.22,
+        1.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.602,
+  "transcript": "I think my batteries are wet."
+}

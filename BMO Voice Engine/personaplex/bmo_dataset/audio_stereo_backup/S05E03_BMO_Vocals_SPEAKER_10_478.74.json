@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.08,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.16,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "learn",
+      [
+        0.3,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "manners",
+      [
+        0.52,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "too.",
+      [
+        0.86,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.401,
+  "transcript": "You have to learn manners, too."
+}

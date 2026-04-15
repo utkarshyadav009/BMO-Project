@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.22,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.52,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "organized",
+      [
+        0.8,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sound.",
+      [
+        1.22,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.082,
+  "transcript": "No, I like organized sound."
+}

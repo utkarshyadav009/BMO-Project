@@ -1,0 +1,27 @@
+{
+  "words": [
+    {
+      "word": "[laugh]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Dancing is cool.",
+      "start": 0.0,
+      "end": 2.56
+    },
+    {
+      "word": "is",
+      "start": 2.56,
+      "end": 2.66
+    },
+    {
+      "word": "cool,,,,",
+      "start": 2.66,
+      "end": 2.7600000000000002
+    }
+  ],
+  "duration": 2.803,
+  "transcript": "[laugh] Dancing is cool",
+  "clip_type": "tag_plus_speech"
+}

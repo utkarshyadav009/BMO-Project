@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.0,
+        0.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "first",
+      [
+        0.04,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sale!",
+      [
+        0.38,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.16,
+  "transcript": "My first sale!"
+}

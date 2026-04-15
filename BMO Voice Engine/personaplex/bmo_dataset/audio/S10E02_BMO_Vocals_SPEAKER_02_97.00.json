@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Cosmert",
+      [
+        0.08,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.56,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.66,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "right!",
+      [
+        1.0,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.562,
+  "transcript": "The customer is always right!"
+}

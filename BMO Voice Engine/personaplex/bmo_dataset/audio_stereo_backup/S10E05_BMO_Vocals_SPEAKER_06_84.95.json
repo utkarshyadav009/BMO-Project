@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "called",
+      [
+        0.12,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "First",
+      [
+        0.38,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Day",
+      [
+        0.66,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Boyfighter.",
+      [
+        0.94,
+        1.66
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.781,
+  "transcript": "He's called Birthday Boy Fighter!"
+}

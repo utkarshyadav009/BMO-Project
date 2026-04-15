@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Football",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.48,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.9,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "okay?",
+      [
+        1.08,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.601,
+  "transcript": "Football, are you okay?"
+}

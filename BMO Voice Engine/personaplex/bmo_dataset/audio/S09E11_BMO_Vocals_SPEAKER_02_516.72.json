@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "but",
+      [
+        0.3,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "she",
+      [
+        0.86,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        1.04,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        1.16,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "right?",
+      [
+        1.56,
+        1.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.961,
+  "transcript": "Okay, but she was you, right?"
+}

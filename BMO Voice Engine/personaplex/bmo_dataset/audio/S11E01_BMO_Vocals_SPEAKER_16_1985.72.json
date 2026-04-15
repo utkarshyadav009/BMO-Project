@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        0.08,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.32,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cry",
+      [
+        0.68,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "BMO.",
+      [
+        0.96,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.401,
+  "transcript": "Oh no, don't cry, BMO."
+}

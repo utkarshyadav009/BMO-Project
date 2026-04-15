@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Yo",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "give",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.36,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.52,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "break.",
+      [
+        0.6,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.241,
+  "transcript": "Yo, give me a break."
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "staying",
+      [
+        0.1,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.3,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.46,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "side.",
+      [
+        0.62,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.06,
+  "transcript": "Im staying on this side."
+}

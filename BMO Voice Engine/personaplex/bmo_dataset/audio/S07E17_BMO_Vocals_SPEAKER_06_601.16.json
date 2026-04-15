@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Your",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "day",
+      [
+        0.12,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-to",
+      [
+        0.42,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-day's",
+      [
+        0.58,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.86,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "over!",
+      [
+        1.06,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.801,
+  "transcript": "Your day-to-days are over!"
+}

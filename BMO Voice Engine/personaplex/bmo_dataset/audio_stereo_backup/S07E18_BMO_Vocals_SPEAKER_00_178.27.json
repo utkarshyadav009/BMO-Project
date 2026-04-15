@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.1,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.18,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.36,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "submarine.",
+      [
+        0.48,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.221,
+  "transcript": "We are on the submarine."
+}

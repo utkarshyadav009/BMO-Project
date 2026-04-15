@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "What",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.12,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "handsome",
+      [
+        0.22,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "baby.",
+      [
+        0.68,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.381,
+  "transcript": "What a handsome baby."
+}

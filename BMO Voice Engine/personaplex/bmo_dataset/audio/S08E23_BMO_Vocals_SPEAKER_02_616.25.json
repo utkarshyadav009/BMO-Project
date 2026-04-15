@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Well",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "maybe",
+      [
+        0.2,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.8,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "could",
+      [
+        0.98,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "visit.",
+      [
+        1.24,
+        1.56
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.821,
+  "transcript": "Well, maybe I could visit."
+}

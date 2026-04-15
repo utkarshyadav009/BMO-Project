@@ -1,0 +1,52 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "That's okay, I like being a robot cowboy.",
+      "start": 0.0,
+      "end": 3.86
+    },
+    {
+      "word": "okay",
+      "start": 3.86,
+      "end": 3.96
+    },
+    {
+      "word": "I",
+      "start": 3.96,
+      "end": 4.06
+    },
+    {
+      "word": "like",
+      "start": 4.06,
+      "end": 4.159999999999999
+    },
+    {
+      "word": "being",
+      "start": 4.159999999999999,
+      "end": 4.259999999999999
+    },
+    {
+      "word": "a",
+      "start": 4.259999999999999,
+      "end": 4.3599999999999985
+    },
+    {
+      "word": "robot",
+      "start": 4.3599999999999985,
+      "end": 4.459999999999998
+    },
+    {
+      "word": "cowboy.,,,,",
+      "start": 4.459999999999998,
+      "end": 4.559999999999998
+    }
+  ],
+  "duration": 4.543,
+  "transcript": "[sing] That's okay I like being a robot cowboy.",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.08,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "garbage",
+      [
+        0.26,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "trash.",
+      [
+        0.62,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.341,
+  "transcript": "Its just garbage trash."
+}

@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "\u6bd4\u83ab",
+      [
+        0.0,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.843,
+  "transcript": "[cry]BMO"
+}

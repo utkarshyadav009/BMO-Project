@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Deputy",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "carry",
+      [
+        0.32,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this.",
+      [
+        0.92,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.381,
+  "transcript": "Deputy, carry this."
+}

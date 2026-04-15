@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.2,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "any",
+      [
+        0.26,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.46,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "these",
+      [
+        0.62,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guys.",
+      [
+        0.8,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "I don't know any of these guys."
+}

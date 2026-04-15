@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I've",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "got",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.22,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "many",
+      [
+        0.48,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "great",
+      [
+        0.82,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "things.",
+      [
+        1.08,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.52,
+  "transcript": "Ive got so many great things."
+}

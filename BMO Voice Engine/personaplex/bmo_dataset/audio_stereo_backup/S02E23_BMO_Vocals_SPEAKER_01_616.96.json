@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Romance",
+      [
+        0.0,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "or",
+      [
+        0.72,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "action",
+      [
+        0.94,
+        1.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "does",
+      [
+        1.6,
+        2.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        2.3,
+        3.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "matter.",
+      [
+        3.0,
+        3.54
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 4.244,
+  "transcript": "[sing] Romance or action does not matter."
+}

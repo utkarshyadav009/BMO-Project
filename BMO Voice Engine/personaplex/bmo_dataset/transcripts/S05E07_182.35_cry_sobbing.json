@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "[cry]",
+      "start": 0.0,
+      "end": 0.1
+    },
+    {
+      "word": ",,,,",
+      "start": 0.0,
+      "end": 0.1
+    }
+  ],
+  "duration": 2.302,
+  "transcript": "[cry]",
+  "clip_type": "tag_plus_speech"
+}

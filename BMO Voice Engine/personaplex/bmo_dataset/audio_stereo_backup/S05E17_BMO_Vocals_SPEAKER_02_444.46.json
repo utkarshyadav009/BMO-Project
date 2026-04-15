@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "And",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.22,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "miss",
+      [
+        0.32,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Finn.",
+      [
+        0.56,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.221,
+  "transcript": "And I miss Finn."
+}

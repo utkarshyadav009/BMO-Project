@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Yes",
+      [
+        0.0,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "shh",
+      [
+        0.42,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "yes",
+      [
+        1.12,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        1.48,
+        2.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "understand.",
+      [
+        2.06,
+        2.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.083,
+  "transcript": "Yes, shh, yes, I understand."
+}

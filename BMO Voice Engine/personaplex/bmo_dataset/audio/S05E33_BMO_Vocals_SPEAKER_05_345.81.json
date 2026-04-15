@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.24,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "BEEEEEP!",
+      [
+        0.46,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.921,
+  "transcript": "This is sick!"
+}

@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Why",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.22,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "talking",
+      [
+        0.3,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.58,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.76,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "then?",
+      [
+        0.9,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "WHY AM I TALKING TO YOU THEN?"
+}

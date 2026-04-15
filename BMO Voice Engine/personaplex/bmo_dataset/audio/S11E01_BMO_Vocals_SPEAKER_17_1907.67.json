@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "going",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.2,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "take",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.56,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "crystal",
+      [
+        0.76,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "football.",
+      [
+        1.18,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.78,
+  "transcript": "Im going to take this crystal football."
+}

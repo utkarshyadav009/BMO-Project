@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Get",
+      [
+        0.0,
+        0.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "back",
+      [
+        0.06,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here",
+      [
+        0.32,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "with",
+      [
+        0.5,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.72,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "treasure",
+      [
+        0.94,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lorraine!",
+      [
+        1.42,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.981,
+  "transcript": "Get back here with that treasure, Lorraine!"
+}

@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "I'm a door-to-door salesman, ma'am.",
+      [
+        0.0,
+        1.72
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.84,
+  "transcript": "I'm a door-to-door salesman, mam."
+}

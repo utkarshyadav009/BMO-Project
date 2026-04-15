@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.5,
+        0.55
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.5,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "known",
+      [
+        0.68,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "more.",
+      [
+        1.32,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.021,
+  "transcript": "I am not non-mo."
+}

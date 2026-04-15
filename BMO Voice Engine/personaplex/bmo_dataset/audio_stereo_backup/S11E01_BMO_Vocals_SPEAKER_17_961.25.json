@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "What's",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wrong",
+      [
+        0.34,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "partner?",
+      [
+        0.62,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.04,
+  "transcript": "Whats wrong, partner?"
+}

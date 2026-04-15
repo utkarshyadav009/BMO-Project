@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "thought",
+      [
+        0.16,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        0.38,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        0.5,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.72,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "popcorn",
+      [
+        0.82,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "maker",
+      [
+        1.2,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.882,
+  "transcript": "Oh, I thought it was a popcorn maker."
+}

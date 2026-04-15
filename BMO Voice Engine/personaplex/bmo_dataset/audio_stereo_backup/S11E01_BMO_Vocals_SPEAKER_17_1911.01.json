@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.34,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "need",
+      [
+        0.6,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.72,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "deputy!",
+      [
+        0.86,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.641,
+  "transcript": "I dont need a deputy."
+}

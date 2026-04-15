@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.28,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "negotiate",
+      [
+        0.44,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "first.",
+      [
+        0.72,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.501,
+  "transcript": "You have to negotiate first."
+}

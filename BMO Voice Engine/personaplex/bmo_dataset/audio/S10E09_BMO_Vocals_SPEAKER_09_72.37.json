@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "My",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cheek",
+      [
+        0.18,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "valentines.",
+      [
+        0.34,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.4,
+  "transcript": "My Jake Valentines."
+}

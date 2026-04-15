@@ -1,0 +1,70 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Now I just wish you dick faster.",
+      [
+        0.0,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        1.7,
+        1.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        1.8,
+        1.9000000000000001
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wish",
+      [
+        1.9000000000000001,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "youd",
+      [
+        2.0,
+        2.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dig",
+      [
+        2.1,
+        2.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "faster.,,,,",
+      [
+        2.2,
+        2.3000000000000003
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.801,
+  "transcript": "[sing] Now I just wish youd dig faster."
+}

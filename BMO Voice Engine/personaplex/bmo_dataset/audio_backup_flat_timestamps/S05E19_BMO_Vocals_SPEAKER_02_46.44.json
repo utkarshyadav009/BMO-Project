@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "We will, we will, we will.",
+      [
+        0.0,
+        2.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will,",
+      [
+        2.56,
+        2.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        2.66,
+        2.7600000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will,",
+      [
+        2.7600000000000002,
+        2.8600000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        2.8600000000000003,
+        2.9600000000000004
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will.,,",
+      [
+        2.9600000000000004,
+        3.0600000000000005
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.002,
+  "transcript": "[sing] We will, we will, we will."
+}

@@ -1,0 +1,52 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "That's okay because I like them a lot.",
+      "start": 0.0,
+      "end": 3.36
+    },
+    {
+      "word": "okay",
+      "start": 3.36,
+      "end": 3.46
+    },
+    {
+      "word": "because",
+      "start": 3.46,
+      "end": 3.56
+    },
+    {
+      "word": "I",
+      "start": 3.56,
+      "end": 3.66
+    },
+    {
+      "word": "like",
+      "start": 3.66,
+      "end": 3.7600000000000002
+    },
+    {
+      "word": "them",
+      "start": 3.7600000000000002,
+      "end": 3.8600000000000003
+    },
+    {
+      "word": "a",
+      "start": 3.8600000000000003,
+      "end": 3.9600000000000004
+    },
+    {
+      "word": "lot.,,,,",
+      "start": 3.9600000000000004,
+      "end": 4.0600000000000005
+    }
+  ],
+  "duration": 3.402,
+  "transcript": "[sing] Thats okay because I like them a lot.",
+  "clip_type": "tag_plus_speech"
+}

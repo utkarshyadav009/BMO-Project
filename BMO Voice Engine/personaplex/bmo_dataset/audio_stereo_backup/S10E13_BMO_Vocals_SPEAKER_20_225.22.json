@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Yeah",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that's",
+      [
+        0.16,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.48,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.74,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "right.",
+      [
+        0.9,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.241,
+  "transcript": "Yeah, that's me, all right."
+}

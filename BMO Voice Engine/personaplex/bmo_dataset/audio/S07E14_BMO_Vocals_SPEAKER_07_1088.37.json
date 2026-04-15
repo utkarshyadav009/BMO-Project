@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "Talk",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Emil.",
+      [
+        0.26,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.161,
+  "transcript": "Talk, Amel."
+}

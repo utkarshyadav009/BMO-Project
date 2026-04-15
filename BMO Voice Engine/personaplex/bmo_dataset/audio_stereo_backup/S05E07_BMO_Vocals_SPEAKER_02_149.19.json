@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Let's",
+      [
+        0.0,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "play",
+      [
+        0.34,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Cops",
+      [
+        0.62,
+        1.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        1.34,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Robbers!",
+      [
+        1.4,
+        1.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.587,
+  "transcript": "Lets play cops and *robbers*"
+}

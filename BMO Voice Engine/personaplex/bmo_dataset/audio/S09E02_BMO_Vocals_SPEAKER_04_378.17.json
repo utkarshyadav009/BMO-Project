@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "They",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "look",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.22,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happy",
+      [
+        0.4,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.98,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dogs.",
+      [
+        1.48,
+        1.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.081,
+  "transcript": "They look so happy, like dogs."
+}

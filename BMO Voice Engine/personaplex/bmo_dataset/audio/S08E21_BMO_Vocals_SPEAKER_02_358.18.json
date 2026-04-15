@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "one",
+      [
+        0.06,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wants",
+      [
+        0.24,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.48,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hear",
+      [
+        0.6,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.84,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ideas!",
+      [
+        1.04,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.781,
+  "transcript": "No one wants to hear your ideas!"
+}

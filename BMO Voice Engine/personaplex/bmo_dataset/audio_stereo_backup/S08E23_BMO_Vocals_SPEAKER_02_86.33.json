@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Dance",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "baby",
+      [
+        0.22,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dance.",
+      [
+        0.68,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.382,
+  "transcript": "Dance, baby, dance."
+}

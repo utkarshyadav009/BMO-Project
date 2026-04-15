@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ain't",
+      [
+        0.08,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        0.32,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "clown",
+      [
+        0.4,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "town",
+      [
+        0.86,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "snitch",
+      [
+        1.14,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "baby.",
+      [
+        1.58,
+        1.72
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.961,
+  "transcript": "I ain't no clown town snitch, baby."
+}

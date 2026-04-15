@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "It",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happens",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "once",
+      [
+        0.28,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.52,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "month.",
+      [
+        0.7,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.081,
+  "transcript": "It happens once a month."
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.12,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I'm",
+      [
+        0.2,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "an",
+      [
+        0.52,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "empath",
+      [
+        0.6,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.3,
+  "transcript": "You know I'm an empath."
+}

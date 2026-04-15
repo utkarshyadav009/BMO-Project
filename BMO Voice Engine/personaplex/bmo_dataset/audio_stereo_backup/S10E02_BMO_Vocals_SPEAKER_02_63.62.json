@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.08,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "also",
+      [
+        0.14,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "excited",
+      [
+        0.4,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "about",
+      [
+        0.8,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "today.",
+      [
+        1.2,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.621,
+  "transcript": "I am also excited about today."
+}

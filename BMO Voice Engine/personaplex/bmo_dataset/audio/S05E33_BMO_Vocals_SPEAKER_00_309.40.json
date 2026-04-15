@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "plan",
+      [
+        0.14,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        0.32,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "work.",
+      [
+        0.54,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.021,
+  "transcript": "This plan will work."
+}

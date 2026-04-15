@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Is",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Bin",
+      [
+        0.2,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "gonna",
+      [
+        0.46,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.68,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "okay?",
+      [
+        0.86,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.421,
+  "transcript": "Is Finn gonna be okay?"
+}

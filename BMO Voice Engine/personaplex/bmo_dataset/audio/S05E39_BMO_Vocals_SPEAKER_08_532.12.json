@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "He's",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "very",
+      [
+        0.14,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smart",
+      [
+        0.54,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        1.0,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "very",
+      [
+        1.42,
+        1.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "single.",
+      [
+        1.9,
+        2.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.063,
+  "transcript": "He's very smart and very single."
+}

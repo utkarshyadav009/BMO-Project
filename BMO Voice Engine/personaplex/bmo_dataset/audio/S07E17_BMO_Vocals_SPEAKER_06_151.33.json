@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "See",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.22,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "yourself",
+      [
+        0.28,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "partner.",
+      [
+        0.88,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.54,
+  "transcript": "Steady yourself, partner."
+}

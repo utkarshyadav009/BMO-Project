@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "It's my favorite window!",
+      "start": 0.0,
+      "end": 2.0
+    }
+  ],
+  "duration": 1.18,
+  "transcript": "My favorite window!",
+  "clip_type": "speech_only"
+}

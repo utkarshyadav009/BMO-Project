@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "should",
+      [
+        0.06,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "give",
+      [
+        0.22,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it",
+      [
+        0.42,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.66,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Robin",
+      [
+        0.76,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Hood.",
+      [
+        1.0,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.421,
+  "transcript": "You should give it to Robin Hood."
+}

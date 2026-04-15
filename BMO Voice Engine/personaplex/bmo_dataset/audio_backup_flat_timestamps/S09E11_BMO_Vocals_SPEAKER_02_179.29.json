@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "A big blue jay was making noise nearby.",
+      [
+        0.0,
+        2.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.243,
+  "transcript": "A big blue jay was making noise nearby."
+}

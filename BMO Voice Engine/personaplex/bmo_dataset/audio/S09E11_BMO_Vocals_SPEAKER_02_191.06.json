@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "saw",
+      [
+        0.08,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "some",
+      [
+        0.22,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boats",
+      [
+        0.46,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.72,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.96,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "clouds.",
+      [
+        1.1,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.622,
+  "transcript": "We saw some boats in the clouds."
+}

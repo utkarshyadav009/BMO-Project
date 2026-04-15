@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Now",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.14,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tell",
+      [
+        0.24,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.5,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.78,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "secret",
+      [
+        0.98,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "football.",
+      [
+        1.24,
+        1.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.0,
+  "transcript": "Now you tell me a secret, Football."
+}

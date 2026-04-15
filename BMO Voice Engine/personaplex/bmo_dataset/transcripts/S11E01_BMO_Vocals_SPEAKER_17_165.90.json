@@ -1,0 +1,92 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "I have left my dream of grand adventure",
+      "start": 0.0,
+      "end": 4.0
+    },
+    {
+      "word": "For the quiet of my martian tater farm",
+      "start": 4.0,
+      "end": 8.0
+    },
+    {
+      "word": "left",
+      "start": 8.0,
+      "end": 8.1
+    },
+    {
+      "word": "my",
+      "start": 8.1,
+      "end": 8.2
+    },
+    {
+      "word": "dream",
+      "start": 8.2,
+      "end": 8.299999999999999
+    },
+    {
+      "word": "of",
+      "start": 8.299999999999999,
+      "end": 8.399999999999999
+    },
+    {
+      "word": "grand",
+      "start": 8.399999999999999,
+      "end": 8.499999999999998
+    },
+    {
+      "word": "adventure",
+      "start": 8.499999999999998,
+      "end": 8.599999999999998
+    },
+    {
+      "word": "for",
+      "start": 8.599999999999998,
+      "end": 8.699999999999998
+    },
+    {
+      "word": "the",
+      "start": 8.699999999999998,
+      "end": 8.799999999999997
+    },
+    {
+      "word": "quiet",
+      "start": 8.799999999999997,
+      "end": 8.899999999999997
+    },
+    {
+      "word": "of",
+      "start": 8.899999999999997,
+      "end": 8.999999999999996
+    },
+    {
+      "word": "my",
+      "start": 8.999999999999996,
+      "end": 9.099999999999996
+    },
+    {
+      "word": "Martian",
+      "start": 9.099999999999996,
+      "end": 9.199999999999996
+    },
+    {
+      "word": "tater",
+      "start": 9.199999999999996,
+      "end": 9.299999999999995
+    },
+    {
+      "word": "farm.,,,,",
+      "start": 9.299999999999995,
+      "end": 9.399999999999995
+    }
+  ],
+  "duration": 8.327,
+  "transcript": "[sing] I have left my dream of grand adventure for the quiet of my Martian tater farm.",
+  "clip_type": "tag_plus_speech"
+}

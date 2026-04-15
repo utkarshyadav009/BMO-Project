@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "can",
+      [
+        0.1,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "save",
+      [
+        0.2,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.42,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "drift.",
+      [
+        0.58,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.08,
+  "transcript": "You can save the drift."
+}

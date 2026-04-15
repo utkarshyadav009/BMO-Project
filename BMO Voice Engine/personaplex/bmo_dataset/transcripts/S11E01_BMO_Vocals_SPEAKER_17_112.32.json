@@ -1,0 +1,32 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Buy my fresh potatoes.",
+      "start": 0.0,
+      "end": 1.74
+    },
+    {
+      "word": "my",
+      "start": 1.74,
+      "end": 1.84
+    },
+    {
+      "word": "fresh",
+      "start": 1.84,
+      "end": 1.9400000000000002
+    },
+    {
+      "word": "potatoes.,,,,",
+      "start": 1.9400000000000002,
+      "end": 2.04
+    }
+  ],
+  "duration": 1.961,
+  "transcript": "[sing] Buy my fresh potatoes.",
+  "clip_type": "tag_plus_speech"
+}

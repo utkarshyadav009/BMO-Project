@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you don't",
+      [
+        0.0,
+        1.8800000000000001
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don,,,,",
+      [
+        1.8800000000000001,
+        1.9800000000000002
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.885,
+  "transcript": "[cry] You don"
+}

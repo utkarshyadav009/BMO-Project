@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "can",
+      [
+        0.08,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "still",
+      [
+        0.18,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "take",
+      [
+        0.4,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.62,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bath.",
+      [
+        0.72,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.202,
+  "transcript": "We can still take a bath."
+}

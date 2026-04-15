@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Thank",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.14,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.2,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "visiting",
+      [
+        0.3,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.58,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "King",
+      [
+        0.82,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of...",
+      [
+        1.02,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.36,
+  "transcript": "Thank you for visiting the King of"
+}

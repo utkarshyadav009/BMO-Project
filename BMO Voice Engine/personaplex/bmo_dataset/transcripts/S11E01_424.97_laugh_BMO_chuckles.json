@@ -1,0 +1,27 @@
+{
+  "words": [
+    {
+      "word": "[laugh]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Hahaha! You're a rabbit!",
+      "start": 0.0,
+      "end": 2.0
+    },
+    {
+      "word": "a",
+      "start": 2.0,
+      "end": 2.1
+    },
+    {
+      "word": "rabbit.,,,,",
+      "start": 2.1,
+      "end": 2.2
+    }
+  ],
+  "duration": 2.385,
+  "transcript": "[laugh] You're a rabbit.",
+  "clip_type": "tag_plus_speech"
+}

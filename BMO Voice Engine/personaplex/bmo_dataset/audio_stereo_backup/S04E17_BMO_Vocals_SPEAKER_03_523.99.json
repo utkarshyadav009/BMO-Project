@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I've",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "got",
+      [
+        0.08,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.24,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "score",
+      [
+        0.42,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.76,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "settle.",
+      [
+        1.1,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.721,
+  "transcript": "I've got a score to settle."
+}

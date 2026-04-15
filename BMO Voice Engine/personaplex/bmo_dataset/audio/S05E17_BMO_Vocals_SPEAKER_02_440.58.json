@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Miss",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Baby",
+      [
+        0.18,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ricky?",
+      [
+        0.54,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.182,
+  "transcript": "[sing] I miss baby Ricky."
+}

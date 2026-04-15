@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "miss",
+      [
+        0.08,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.22,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "traffic",
+      [
+        0.42,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.72,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.92,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "much!",
+      [
+        1.08,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.662,
+  "transcript": "I miss my traffic cone so much!"
+}

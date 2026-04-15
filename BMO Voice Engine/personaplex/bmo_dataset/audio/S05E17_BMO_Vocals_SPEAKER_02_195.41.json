@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I've",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "got",
+      [
+        0.12,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "everything",
+      [
+        0.22,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "under",
+      [
+        0.66,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "control.",
+      [
+        0.98,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.6,
+  "transcript": "Ive got everything under control."
+}

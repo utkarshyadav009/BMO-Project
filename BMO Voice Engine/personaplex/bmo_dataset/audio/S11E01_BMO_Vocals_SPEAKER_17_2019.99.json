@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "BMO",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "always",
+      [
+        0.24,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bounces",
+      [
+        0.56,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "back.",
+      [
+        1.08,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.681,
+  "transcript": "Hot chocolate is ready."
+}

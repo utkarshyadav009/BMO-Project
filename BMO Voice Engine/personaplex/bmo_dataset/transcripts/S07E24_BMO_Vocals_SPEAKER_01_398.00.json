@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Are you awake?",
+      "start": 0.0,
+      "end": 1.0
+    }
+  ],
+  "duration": 1.1,
+  "transcript": "Are you awake?",
+  "clip_type": "speech_only"
+}

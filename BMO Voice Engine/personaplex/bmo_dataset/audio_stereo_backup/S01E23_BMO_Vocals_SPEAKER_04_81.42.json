@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Who",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wants",
+      [
+        0.28,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.74,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "play",
+      [
+        0.92,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "video",
+      [
+        1.32,
+        1.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "games?",
+      [
+        1.92,
+        2.46
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.242,
+  "transcript": "Who wants to play video games?"
+}

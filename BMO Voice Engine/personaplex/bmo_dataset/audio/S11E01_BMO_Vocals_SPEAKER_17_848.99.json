@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "It",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.08,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "far",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "from",
+      [
+        0.36,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here.",
+      [
+        0.58,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.001,
+  "transcript": "It is far from here."
+}

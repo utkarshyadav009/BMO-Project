@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Your love will not delete",
+      [
+        0.0,
+        2.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "love",
+      [
+        2.82,
+        2.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "will",
+      [
+        2.92,
+        3.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        3.02,
+        3.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "delete.,,,,",
+      [
+        3.12,
+        3.22
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.861,
+  "transcript": "[sing] Your love will not delete."
+}

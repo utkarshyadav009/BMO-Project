@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Bait",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "by",
+      [
+        0.16,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.34,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo!",
+      [
+        0.6,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.801,
+  "transcript": "Made by the BMO."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "love",
+      [
+        0.64,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.82,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo.",
+      [
+        1.16,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.762,
+  "transcript": "I love you, BMO."
+}

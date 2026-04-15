@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bet",
+      [
+        0.1,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "he",
+      [
+        0.14,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "could",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "even",
+      [
+        0.56,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fix",
+      [
+        0.8,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "scepter.",
+      [
+        1.12,
+        1.66
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.821,
+  "transcript": "I bet he could even fix Naptur."
+}

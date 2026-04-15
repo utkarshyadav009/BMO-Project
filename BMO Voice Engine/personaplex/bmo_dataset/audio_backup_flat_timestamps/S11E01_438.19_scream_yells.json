@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "[scream]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ah!",
+      [
+        0.0,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.218,
+  "transcript": "[scream]"
+}

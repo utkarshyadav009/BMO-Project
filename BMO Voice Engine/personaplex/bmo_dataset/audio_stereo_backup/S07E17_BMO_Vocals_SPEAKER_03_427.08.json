@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.08,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.22,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.34,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "where",
+      [
+        0.54,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "he's",
+      [
+        0.76,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "headed!",
+      [
+        1.06,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.581,
+  "transcript": "I know you know where he's headed."
+}

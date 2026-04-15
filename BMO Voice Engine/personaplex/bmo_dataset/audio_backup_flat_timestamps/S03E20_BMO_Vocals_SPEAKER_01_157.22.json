@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "The thirteenth letter of the alphabet is M.",
+      [
+        0.0,
+        2.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "If I print the letter M every time Ice King says an M word, it looks like this.",
+      [
+        3.16,
+        8.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 8.283,
+  "transcript": "The 13th letter of the alphabet is M. If I print the letter M every time Ice King says an M word, it looks like this."
+}

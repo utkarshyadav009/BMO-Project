@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Because",
+      [
+        0.0,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.36,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "love",
+      [
+        0.98,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        1.28,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.681,
+  "transcript": "Because I love you."
+}

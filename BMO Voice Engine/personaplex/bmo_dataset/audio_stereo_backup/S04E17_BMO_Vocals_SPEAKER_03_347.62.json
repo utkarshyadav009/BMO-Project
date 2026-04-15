@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Talk",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.2,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lorraine",
+      [
+        0.34,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "baby.",
+      [
+        0.84,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.3,
+  "transcript": "I talked to Lorraine, Bebe."
+}

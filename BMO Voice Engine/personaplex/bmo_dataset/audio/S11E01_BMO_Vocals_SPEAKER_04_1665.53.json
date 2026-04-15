@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Yep",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.28,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doesn't",
+      [
+        0.58,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "feel",
+      [
+        1.0,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dangerous",
+      [
+        1.18,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "at",
+      [
+        1.64,
+        2.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all.",
+      [
+        2.06,
+        2.5
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.881,
+  "transcript": "Yep, this doesn't feel dangerous at all!"
+}

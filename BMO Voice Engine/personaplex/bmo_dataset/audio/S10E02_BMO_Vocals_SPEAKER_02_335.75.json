@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Ice",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "King",
+      [
+        0.16,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.48,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "think",
+      [
+        0.86,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        1.12,
+        1.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        1.64,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lost.",
+      [
+        1.74,
+        2.08
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.341,
+  "transcript": "Ice King, I think we're lost."
+}

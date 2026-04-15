@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "love",
+      [
+        0.56,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.68,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "too.",
+      [
+        0.76,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "I love you too."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smooth",
+      [
+        0.26,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smooth",
+      [
+        0.9,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "data.",
+      [
+        1.36,
+        2.06
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.423,
+  "transcript": "The smooth, smooth data."
+}

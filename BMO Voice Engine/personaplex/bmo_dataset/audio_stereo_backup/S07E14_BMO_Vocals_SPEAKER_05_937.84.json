@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "spikes",
+      [
+        0.1,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.3,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "under",
+      [
+        0.56,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.72,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "wig!",
+      [
+        1.0,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.441,
+  "transcript": "The Spicer are under the wig!"
+}

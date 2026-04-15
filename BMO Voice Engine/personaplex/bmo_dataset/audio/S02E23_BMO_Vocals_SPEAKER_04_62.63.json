@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "does",
+      [
+        0.18,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "compute.",
+      [
+        0.44,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.301,
+  "transcript": "This does compute."
+}

@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "It",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.28,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "beautiful!",
+      [
+        0.62,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.161,
+  "transcript": "It is so beautiful."
+}

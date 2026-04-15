@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Now you tell me a secret football.",
+      "start": 0.0,
+      "end": 2.0
+    }
+  ],
+  "duration": 2.0,
+  "transcript": "Now you tell me a secret, Football.",
+  "clip_type": "speech_only"
+}

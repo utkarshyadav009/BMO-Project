@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "About",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.16,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.32,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "did",
+      [
+        0.5,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.9,
+        1.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "okay.",
+      [
+        1.58,
+        1.8
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.19,
+  "transcript": "About what I did, its okay."
+}

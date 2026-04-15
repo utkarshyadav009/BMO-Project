@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Of",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "course",
+      [
+        0.16,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.38,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "didn't",
+      [
+        0.62,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "trust",
+      [
+        0.98,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ronnie.",
+      [
+        1.16,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.841,
+  "transcript": "Of course, I didnt trust Ronnie."
+}

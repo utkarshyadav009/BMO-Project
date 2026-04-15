@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Was",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.16,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tiger",
+      [
+        0.24,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "already",
+      [
+        0.56,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "biting",
+      [
+        0.84,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "his",
+      [
+        1.16,
+        1.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "foot?",
+      [
+        1.46,
+        1.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.917,
+  "transcript": "Was the tiger already biting his foot?"
+}

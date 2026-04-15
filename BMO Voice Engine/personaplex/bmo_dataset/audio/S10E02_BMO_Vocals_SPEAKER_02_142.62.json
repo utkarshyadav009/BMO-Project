@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Baddest",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.24,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "talk",
+      [
+        0.58,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ice",
+      [
+        0.84,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "King.",
+      [
+        0.98,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.421,
+  "transcript": "Bodies dont talk, Ice King."
+}

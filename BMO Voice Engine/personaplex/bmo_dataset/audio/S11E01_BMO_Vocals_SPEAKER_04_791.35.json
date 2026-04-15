@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Then",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "appoint",
+      [
+        0.22,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "myself",
+      [
+        0.48,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.84,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "new",
+      [
+        1.38,
+        1.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sheriff.",
+      [
+        1.68,
+        2.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.281,
+  "transcript": "Then I appoint myself your new sheriff."
+}

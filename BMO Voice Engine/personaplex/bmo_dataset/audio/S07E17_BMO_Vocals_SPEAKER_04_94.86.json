@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.18,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "fast",
+      [
+        0.2,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Dick.",
+      [
+        0.56,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.001,
+  "transcript": "Not so fast, Jake."
+}

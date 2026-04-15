@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Once",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "again",
+      [
+        0.16,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "BMO",
+      [
+        0.48,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "comes",
+      [
+        0.86,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "out",
+      [
+        1.0,
+        1.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        1.26,
+        1.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "top!",
+      [
+        1.46,
+        1.74
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.881,
+  "transcript": "Once again, BMO comes out on top."
+}

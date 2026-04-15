@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Maybe",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it's",
+      [
+        0.18,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "just",
+      [
+        0.32,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.52,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "funny.",
+      [
+        0.76,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.261,
+  "transcript": "Maybe it's just not funny."
+}

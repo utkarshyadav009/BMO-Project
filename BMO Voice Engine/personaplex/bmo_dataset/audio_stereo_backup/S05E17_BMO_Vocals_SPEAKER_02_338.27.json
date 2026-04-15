@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "didn't",
+      [
+        0.1,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.28,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "any",
+      [
+        0.38,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dreams.",
+      [
+        0.6,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.181,
+  "transcript": "I didn't have any dreams."
+}

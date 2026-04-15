@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "How",
+      [
+        0.0,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.64,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.84,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "children?",
+      [
+        1.04,
+        1.34
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.661,
+  "transcript": "Tree Trunks, how are your children?"
+}

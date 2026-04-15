@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "This",
+      [
+        0.0,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.52,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.64,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "salt",
+      [
+        0.8,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "shaker.",
+      [
+        1.06,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.68,
+  "transcript": "This is a salt shaker."
+}

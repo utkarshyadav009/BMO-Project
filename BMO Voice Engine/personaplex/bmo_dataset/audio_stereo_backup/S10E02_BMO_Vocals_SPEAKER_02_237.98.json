@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "And",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.28,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "little",
+      [
+        0.3,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "velvet",
+      [
+        0.58,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bag.",
+      [
+        0.9,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.321,
+  "transcript": "And a little velvet bag."
+}

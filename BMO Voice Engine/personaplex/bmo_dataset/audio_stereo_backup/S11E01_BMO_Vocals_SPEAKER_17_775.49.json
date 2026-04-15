@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Okay",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.22,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.46,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.72,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you're",
+      [
+        0.9,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        1.12,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "thinking.",
+      [
+        1.2,
+        1.48
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.721,
+  "transcript": "Okay, I know what yall thinking."
+}

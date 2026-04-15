@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        0.22,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "feelings!",
+      [
+        0.38,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.161,
+  "transcript": "I have no feelings!"
+}

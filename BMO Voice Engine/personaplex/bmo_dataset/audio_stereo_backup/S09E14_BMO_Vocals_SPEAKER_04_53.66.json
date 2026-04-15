@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "am",
+      [
+        0.36,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.52,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "booboo",
+      [
+        0.6,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "jailer",
+      [
+        0.96,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "smasher!",
+      [
+        1.36,
+        1.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.961,
+  "transcript": "Im the Vuvuzela Smasher."
+}

@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "were",
+      [
+        0.1,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here",
+      [
+        0.16,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "all",
+      [
+        0.4,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.64,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "time?",
+      [
+        0.86,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.381,
+  "transcript": "You were here all this time?"
+}

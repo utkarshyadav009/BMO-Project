@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "end.",
+      [
+        0.28,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 0.7,
+  "transcript": "The end."
+}

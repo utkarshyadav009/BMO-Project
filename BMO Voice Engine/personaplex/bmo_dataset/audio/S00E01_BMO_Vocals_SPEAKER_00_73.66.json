@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I'm",
+      [
+        0.38,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        1.5,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "simmering.",
+      [
+        1.7,
+        2.4
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.581,
+  "transcript": "Ooh, Im so simmering."
+}

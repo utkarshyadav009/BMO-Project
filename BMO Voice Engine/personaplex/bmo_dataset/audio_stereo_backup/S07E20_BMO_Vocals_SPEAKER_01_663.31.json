@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sorry",
+      [
+        0.1,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "doubted",
+      [
+        0.56,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        1.1,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Jake.",
+      [
+        1.4,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.88,
+  "transcript": "Im sorry we doubted you, Jake."
+}

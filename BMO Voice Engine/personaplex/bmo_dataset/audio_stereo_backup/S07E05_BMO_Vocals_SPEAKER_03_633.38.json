@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "didn't",
+      [
+        0.06,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.24,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.38,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bathroom",
+      [
+        0.6,
+        0.98
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "much",
+      [
+        0.98,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "either",
+      [
+        1.24,
+        1.56
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.88,
+  "transcript": "I didnt like your bathroom much either."
+}

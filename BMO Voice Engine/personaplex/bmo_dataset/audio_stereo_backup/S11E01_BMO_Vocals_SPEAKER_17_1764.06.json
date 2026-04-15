@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "not",
+      [
+        0.6,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lucky",
+      [
+        1.02,
+        1.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        1.46,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "more.",
+      [
+        1.7,
+        1.98
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.122,
+  "transcript": "Oh, not lucky, BMO."
+}

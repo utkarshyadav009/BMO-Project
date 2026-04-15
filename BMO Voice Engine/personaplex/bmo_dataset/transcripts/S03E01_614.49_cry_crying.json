@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "[cry]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Ha, ha, ha, ha, ha.",
+      "start": 0.0,
+      "end": 2.0
+    }
+  ],
+  "duration": 2.26,
+  "transcript": "[cry]",
+  "clip_type": "tag_plus_speech"
+}

@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Well",
+      [
+        0.0,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "let's",
+      [
+        0.36,
+        1.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "switch",
+      [
+        1.34,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "places",
+      [
+        1.54,
+        1.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        1.96,
+        2.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        2.3,
+        2.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "day.",
+      [
+        2.44,
+        2.64
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.821,
+  "transcript": "Well, lets switch places for the day."
+}

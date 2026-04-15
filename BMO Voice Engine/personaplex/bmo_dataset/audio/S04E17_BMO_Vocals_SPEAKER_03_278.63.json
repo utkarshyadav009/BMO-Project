@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dice",
+      [
+        0.2,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "sweet",
+      [
+        0.48,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pig.",
+      [
+        0.82,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.42,
+  "transcript": "No dice, sweet big."
+}

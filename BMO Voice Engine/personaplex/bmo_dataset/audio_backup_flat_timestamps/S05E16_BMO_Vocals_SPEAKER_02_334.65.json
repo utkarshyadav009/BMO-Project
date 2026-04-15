@@ -1,0 +1,14 @@
+{
+  "alignments": [
+    [
+      "You found your mug!",
+      [
+        0.0,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.02,
+  "transcript": "You found your mug."
+}

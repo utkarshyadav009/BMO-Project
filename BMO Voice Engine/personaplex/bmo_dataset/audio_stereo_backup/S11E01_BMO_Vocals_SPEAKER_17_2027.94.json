@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Now",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "your",
+      [
+        0.18,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "job",
+      [
+        0.28,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.54,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.7,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "be",
+      [
+        0.84,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dead.",
+      [
+        1.0,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.361,
+  "transcript": "Now your job is to be dead."
+}

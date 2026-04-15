@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Of",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "course",
+      [
+        0.16,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.28,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "won't",
+      [
+        0.54,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "go.",
+      [
+        0.86,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.161,
+  "transcript": "Of course I wont go!"
+}

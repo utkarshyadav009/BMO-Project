@@ -1,0 +1,86 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "That is an interesting response.",
+      [
+        0.0,
+        3.3200000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Better low, shut down.",
+      [
+        3.72,
+        5.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "an",
+      [
+        5.62,
+        5.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "interesting",
+      [
+        5.72,
+        5.819999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "response,",
+      [
+        5.819999999999999,
+        5.919999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "but",
+      [
+        5.919999999999999,
+        6.019999999999999
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I'll",
+      [
+        6.019999999999999,
+        6.119999999999998
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "shut",
+      [
+        6.119999999999998,
+        6.219999999999998
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "down.,,,",
+      [
+        6.219999999999998,
+        6.319999999999998
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 5.705,
+  "transcript": "[sing] That is an interesting response, but I'll shut down."
+}

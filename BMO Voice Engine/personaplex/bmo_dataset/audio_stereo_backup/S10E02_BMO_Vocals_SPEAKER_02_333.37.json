@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lost",
+      [
+        0.08,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.32,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "customer.",
+      [
+        0.48,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.221,
+  "transcript": "I lost the customer."
+}

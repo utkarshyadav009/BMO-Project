@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "We",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.08,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "running",
+      [
+        0.14,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "out",
+      [
+        0.36,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.56,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "air.",
+      [
+        0.78,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.322,
+  "transcript": "We are running out of air."
+}

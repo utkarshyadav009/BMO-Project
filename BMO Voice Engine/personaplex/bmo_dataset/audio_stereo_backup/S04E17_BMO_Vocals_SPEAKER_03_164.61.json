@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "But",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.24,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "had",
+      [
+        0.46,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "no",
+      [
+        0.7,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "other",
+      [
+        1.0,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "leads.",
+      [
+        1.28,
+        1.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.821,
+  "transcript": "But I had no other leads."
+}

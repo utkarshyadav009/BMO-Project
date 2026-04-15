@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hear",
+      [
+        0.16,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.2,
+        0.34
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "everywhere",
+      [
+        0.34,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.7,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "go.",
+      [
+        1.02,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.52,
+  "transcript": "I hear that everywhere I go."
+}

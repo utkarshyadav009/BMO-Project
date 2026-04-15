@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "Me",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "and",
+      [
+        0.1,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lorraine",
+      [
+        0.22,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.62,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dinosaur",
+      [
+        0.82,
+        1.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "bones.",
+      [
+        1.82,
+        2.3
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.521,
+  "transcript": "Me and Lorraine are... dinosaur bones."
+}

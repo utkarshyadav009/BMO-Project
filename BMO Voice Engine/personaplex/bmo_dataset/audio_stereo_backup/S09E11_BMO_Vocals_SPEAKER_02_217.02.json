@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "how",
+      [
+        0.24,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I",
+      [
+        0.32,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "remember",
+      [
+        0.5,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "it.",
+      [
+        0.78,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.201,
+  "transcript": "That's how I remember it."
+}

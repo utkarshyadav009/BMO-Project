@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "So",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.22,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "act",
+      [
+        0.66,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.7,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cute.",
+      [
+        0.92,
+        1.3
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.601,
+  "transcript": "So don't act so cute."
+}

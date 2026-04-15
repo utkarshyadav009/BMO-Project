@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "Stay",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "psyched.",
+      [
+        0.28,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.081,
+  "transcript": "Just as I thought."
+}

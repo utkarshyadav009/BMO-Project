@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "But",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "maybe",
+      [
+        0.1,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that's",
+      [
+        0.3,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.6,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "point.",
+      [
+        0.7,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.201,
+  "transcript": "But maybe that's the point."
+}

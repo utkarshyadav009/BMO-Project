@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Eating",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "helps",
+      [
+        0.14,
+        0.38
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.38,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "grow!",
+      [
+        0.58,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.241,
+  "transcript": "Eating helps me grow."
+}

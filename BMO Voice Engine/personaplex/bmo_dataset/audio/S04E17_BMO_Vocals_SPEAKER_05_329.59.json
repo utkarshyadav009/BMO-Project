@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Wake",
+      [
+        0.0,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "up",
+      [
+        0.2,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "brainiac.",
+      [
+        0.42,
+        1.16
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.361,
+  "transcript": "Wake up, brainiac."
+}

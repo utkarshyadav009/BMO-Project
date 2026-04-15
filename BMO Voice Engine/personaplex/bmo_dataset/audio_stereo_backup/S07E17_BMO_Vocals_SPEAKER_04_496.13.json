@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Better",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "stop",
+      [
+        0.12,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.4,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.56,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "night.",
+      [
+        0.68,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.06,
+  "transcript": "Better stop for the night."
+}

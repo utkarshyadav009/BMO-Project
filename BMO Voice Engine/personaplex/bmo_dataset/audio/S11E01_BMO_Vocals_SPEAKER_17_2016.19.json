@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "think",
+      [
+        0.82,
+        1.06
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I'm",
+      [
+        1.06,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "dying.",
+      [
+        1.28,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.822,
+  "transcript": "Haha, I think Im dying."
+}

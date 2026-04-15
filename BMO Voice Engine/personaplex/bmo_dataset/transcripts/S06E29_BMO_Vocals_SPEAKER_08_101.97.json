@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "I love you, cheerio!",
+      "start": 0.0,
+      "end": 1.12
+    }
+  ],
+  "duration": 1.143,
+  "transcript": "I love you, Cheerio.",
+  "clip_type": "speech_only"
+}

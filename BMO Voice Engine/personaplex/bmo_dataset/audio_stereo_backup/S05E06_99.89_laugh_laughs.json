@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ha",
+      [
+        0.30000000000000004,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        0.66,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha.",
+      [
+        0.78,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.677,
+  "transcript": "[laugh]"
+}

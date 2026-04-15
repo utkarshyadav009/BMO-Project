@@ -1,0 +1,22 @@
+{
+  "words": [
+    {
+      "word": "That was a close call, Mr. M.",
+      "start": 0.0,
+      "end": 2.0
+    },
+    {
+      "word": "Mother Drifter got a taste of BMO,",
+      "start": 2.0,
+      "end": 4.5
+    },
+    {
+      "word": "but I licked her right back.",
+      "start": 4.5,
+      "end": 6.0
+    }
+  ],
+  "duration": 5.901,
+  "transcript": "That was a close call, Mr. M. Mother Drifter got a taste of BMO, but I licked her right back.",
+  "clip_type": "speech_only"
+}

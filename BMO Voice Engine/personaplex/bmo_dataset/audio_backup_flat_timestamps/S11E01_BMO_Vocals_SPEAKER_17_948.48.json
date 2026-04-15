@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "I've got my eye on you.",
+      [
+        0.0,
+        1.3800000000000001
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Fish it.",
+      [
+        1.78,
+        2.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.161,
+  "transcript": "Ive got my eye on you, fishes."
+}

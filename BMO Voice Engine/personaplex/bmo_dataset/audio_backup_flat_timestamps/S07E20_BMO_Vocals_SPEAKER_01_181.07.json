@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "I have a water body!",
+      [
+        0.0,
+        2.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "have",
+      [
+        2.56,
+        2.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        2.66,
+        2.7600000000000002
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "water",
+      [
+        2.7600000000000002,
+        2.8600000000000003
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "body.,,,,",
+      [
+        2.8600000000000003,
+        2.9600000000000004
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.54,
+  "transcript": "[sing] I have a water body."
+}

@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "didn't",
+      [
+        0.02,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "listen",
+      [
+        0.32,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.52,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.76,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "cop.",
+      [
+        0.9,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.341,
+  "transcript": "I didn't listen to that cop."
+}

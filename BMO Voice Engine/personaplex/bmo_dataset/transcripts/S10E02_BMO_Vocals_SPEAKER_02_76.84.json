@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "I'm a door-to-door salesman.",
+      "start": 0.0,
+      "end": 1.58
+    }
+  ],
+  "duration": 1.68,
+  "transcript": "I'm a door-to-door salesman!",
+  "clip_type": "speech_only"
+}

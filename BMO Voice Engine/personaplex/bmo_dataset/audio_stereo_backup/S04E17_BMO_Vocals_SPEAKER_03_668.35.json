@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "She's",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "red",
+      [
+        0.16,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hot",
+      [
+        0.46,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "like",
+      [
+        0.78,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pizza",
+      [
+        1.08,
+        1.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "supper.",
+      [
+        1.62,
+        2.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.361,
+  "transcript": "Shes red hot like pizza supper."
+}

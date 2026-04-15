@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Bye",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-bye",
+      [
+        0.08,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hungry",
+      [
+        0.16,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "baby.",
+      [
+        0.44,
+        0.7
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "My hungry baby."
+}

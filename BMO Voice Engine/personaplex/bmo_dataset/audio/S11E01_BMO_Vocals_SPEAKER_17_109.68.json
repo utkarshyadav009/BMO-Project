@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Potatoes",
+      [
+        0.6000000000000001,
+        1.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "potatoes.",
+      [
+        1.0,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.161,
+  "transcript": "[sing] Potatoes, potatoes."
+}

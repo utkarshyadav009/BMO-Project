@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "was",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "being",
+      [
+        0.18,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "emotionally",
+      [
+        0.4,
+        0.82
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "truthful",
+      [
+        0.82,
+        1.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.761,
+  "transcript": "I was being emotionally truthful."
+}

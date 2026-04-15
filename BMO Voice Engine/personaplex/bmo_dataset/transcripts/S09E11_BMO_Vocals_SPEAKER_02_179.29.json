@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "A big blue jay was making noise nearby.",
+      "start": 0.0,
+      "end": 2.24
+    }
+  ],
+  "duration": 2.243,
+  "transcript": "A big blue jay was making noise nearby.",
+  "clip_type": "speech_only"
+}

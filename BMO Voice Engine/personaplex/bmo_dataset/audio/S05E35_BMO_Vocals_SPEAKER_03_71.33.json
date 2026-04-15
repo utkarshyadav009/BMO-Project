@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "think",
+      [
+        0.08,
+        0.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "someone's",
+      [
+        0.2,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "knocking",
+      [
+        0.68,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "at",
+      [
+        0.9,
+        1.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.12,
+        1.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "door.",
+      [
+        1.28,
+        1.44
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.601,
+  "transcript": "I think someone's knocking at the door."
+}

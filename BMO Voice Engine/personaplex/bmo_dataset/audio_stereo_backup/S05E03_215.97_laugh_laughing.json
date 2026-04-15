@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Thank",
+      [
+        0.0,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you.",
+      [
+        1.24,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.342,
+  "transcript": "[laugh]"
+}

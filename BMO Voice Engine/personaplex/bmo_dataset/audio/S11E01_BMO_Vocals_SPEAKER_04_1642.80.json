@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "make",
+      [
+        0.08,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.22,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "feelings",
+      [
+        0.42,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "happy.",
+      [
+        0.76,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.461,
+  "transcript": "You make my feelings happy."
+}

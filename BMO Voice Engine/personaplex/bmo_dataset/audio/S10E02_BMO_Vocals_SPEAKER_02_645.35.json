@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "See",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.1,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tomorrow",
+      [
+        0.16,
+        0.48
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "partner.",
+      [
+        0.66,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.761,
+  "transcript": "See you tomorrow, partner."
+}

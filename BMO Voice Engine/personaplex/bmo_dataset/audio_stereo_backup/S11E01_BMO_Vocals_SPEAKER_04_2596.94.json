@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Ricky",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "let's",
+      [
+        0.24,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ride!",
+      [
+        0.96,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.62,
+  "transcript": "Ricky, let's ride!"
+}

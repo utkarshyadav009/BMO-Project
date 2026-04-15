@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "don't",
+      [
+        0.02,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "feel",
+      [
+        0.24,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "good",
+      [
+        0.32,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "about",
+      [
+        0.54,
+        0.78
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "this",
+      [
+        0.78,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Beemo!",
+      [
+        1.04,
+        1.3
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.481,
+  "transcript": "I dont feel good about this, BMO."
+}

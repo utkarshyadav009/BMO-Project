@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.04
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "live",
+      [
+        0.04,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.24,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.42,
+        0.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "tree",
+      [
+        0.5,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "house.",
+      [
+        0.76,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.221,
+  "transcript": "I live in a tree house."
+}

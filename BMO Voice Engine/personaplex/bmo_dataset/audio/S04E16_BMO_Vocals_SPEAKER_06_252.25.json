@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Guess",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "who's",
+      [
+        0.24,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "late",
+      [
+        0.52,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "for",
+      [
+        0.8,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "their",
+      [
+        1.02,
+        1.2
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "video",
+      [
+        1.2,
+        1.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "chat?",
+      [
+        1.54,
+        1.88
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.201,
+  "transcript": "Guess who's late for their video chat."
+}

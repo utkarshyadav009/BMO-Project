@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "It's",
+      [
+        0.0,
+        0.05
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "favorite",
+      [
+        0.16,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "window!",
+      [
+        0.36,
+        0.76
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.18,
+  "transcript": "My favorite window!"
+}

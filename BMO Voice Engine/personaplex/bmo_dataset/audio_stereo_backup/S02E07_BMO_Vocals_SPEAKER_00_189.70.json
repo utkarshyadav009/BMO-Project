@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "[sing]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Rima",
+      [
+        0.0,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-ti",
+      [
+        0.22,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-ma",
+      [
+        0.4,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-tin",
+      [
+        0.64,
+        0.92
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "-tin!",
+      [
+        0.92,
+        1.32
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.56,
+  "transcript": "[sing] Rima-tima-tin-tin?"
+}

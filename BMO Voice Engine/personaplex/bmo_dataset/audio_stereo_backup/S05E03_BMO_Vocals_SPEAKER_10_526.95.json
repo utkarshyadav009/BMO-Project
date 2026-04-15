@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "Don't",
+      [
+        0.0,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "know",
+      [
+        0.24,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "football.",
+      [
+        0.3,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.0,
+  "transcript": "No, no, football."
+}

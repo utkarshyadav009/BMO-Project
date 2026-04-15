@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.12,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "BMO",
+      [
+        0.22,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "guarantee.",
+      [
+        0.62,
+        0.86
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.38,
+  "transcript": "Thats a BMO guarantee."
+}

@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "I lost the customer.",
+      "start": 0.0,
+      "end": 1.24
+    }
+  ],
+  "duration": 1.221,
+  "transcript": "I lost the customer.",
+  "clip_type": "speech_only"
+}

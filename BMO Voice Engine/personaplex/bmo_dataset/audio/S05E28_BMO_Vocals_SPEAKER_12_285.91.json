@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "That's",
+      [
+        0.0,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "where",
+      [
+        0.16,
+        0.32
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.32,
+        0.54
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "driver",
+      [
+        0.54,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ports",
+      [
+        0.8,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are!",
+      [
+        1.18,
+        1.42
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.661,
+  "transcript": "That's where the driver ports are!"
+}

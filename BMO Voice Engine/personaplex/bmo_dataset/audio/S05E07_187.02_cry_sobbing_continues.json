@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Oh",
+      [
+        0.0,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "my",
+      [
+        1.22,
+        1.7
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "God.",
+      [
+        1.7,
+        2.38
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 5.096,
+  "transcript": "[cry]"
+}

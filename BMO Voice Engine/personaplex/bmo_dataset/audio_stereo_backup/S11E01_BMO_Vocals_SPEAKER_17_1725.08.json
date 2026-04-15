@@ -1,0 +1,22 @@
+{
+  "alignments": [
+    [
+      "So",
+      [
+        0.0,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "pretty!",
+      [
+        0.26,
+        0.6
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "So pretty."
+}

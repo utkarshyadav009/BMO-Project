@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "They",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "became",
+      [
+        0.08,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "best",
+      [
+        0.36,
+        0.72
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "friends.",
+      [
+        0.72,
+        1.1
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.341,
+  "transcript": "They became best friends."
+}

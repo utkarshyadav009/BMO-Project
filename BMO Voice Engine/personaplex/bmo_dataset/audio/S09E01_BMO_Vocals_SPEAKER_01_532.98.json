@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "The",
+      [
+        0.0,
+        0.1
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "unconscious",
+      [
+        0.1,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.46,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.9,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "complicated.",
+      [
+        1.24,
+        1.82
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.382,
+  "transcript": "The unconscious is so complicated."
+}

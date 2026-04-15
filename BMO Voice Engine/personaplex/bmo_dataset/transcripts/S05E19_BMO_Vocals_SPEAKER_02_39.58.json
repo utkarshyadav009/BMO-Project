@@ -1,0 +1,32 @@
+{
+  "words": [
+    {
+      "word": "[sing]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Oh, who's to bother?",
+      "start": 0.0,
+      "end": 2.0
+    },
+    {
+      "word": "who's",
+      "start": 2.0,
+      "end": 2.1
+    },
+    {
+      "word": "the",
+      "start": 2.1,
+      "end": 2.2
+    },
+    {
+      "word": "father?,,,",
+      "start": 2.2,
+      "end": 2.3000000000000003
+    }
+  ],
+  "duration": 2.182,
+  "transcript": "[sing] Oh, who's the father?",
+  "clip_type": "tag_plus_speech"
+}

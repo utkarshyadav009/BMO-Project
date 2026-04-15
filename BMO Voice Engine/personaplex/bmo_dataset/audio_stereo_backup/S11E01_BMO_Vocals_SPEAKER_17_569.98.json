@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "No",
+      [
+        0.0,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that's",
+      [
+        0.18,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "boring.",
+      [
+        0.44,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.141,
+  "transcript": "No, that's boring."
+}

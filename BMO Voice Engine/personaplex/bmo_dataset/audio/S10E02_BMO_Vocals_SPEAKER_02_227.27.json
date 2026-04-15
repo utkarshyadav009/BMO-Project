@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Oh",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "another",
+      [
+        0.08,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ball",
+      [
+        0.44,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "of",
+      [
+        0.74,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "lint.",
+      [
+        0.9,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.32,
+  "transcript": "Oh, another ball of lint."
+}

@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "That's gonna be the biggest comment I ever did on...",
+      "start": 0.0,
+      "end": 3.2
+    },
+    {
+      "word": "What the heck?",
+      "start": 3.2,
+      "end": 4.74
+    }
+  ],
+  "duration": 4.764,
+  "transcript": "That's gotta be the biggest comet I ever did, I... What the heck?",
+  "clip_type": "speech_only"
+}

@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "Tell",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "me",
+      [
+        0.14,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "what",
+      [
+        0.24,
+        0.44
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "you",
+      [
+        0.44,
+        0.56
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "need.",
+      [
+        0.56,
+        0.9
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.08,
+  "transcript": "Tell me what you need."
+}

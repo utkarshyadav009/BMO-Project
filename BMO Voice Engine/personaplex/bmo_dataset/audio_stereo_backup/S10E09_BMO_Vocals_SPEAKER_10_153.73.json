@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "Because",
+      [
+        0.0,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.28,
+        0.58
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.58,
+        0.84
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.84,
+        0.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "beard",
+      [
+        0.96,
+        1.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "man's",
+      [
+        1.22,
+        1.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "responsibility.",
+      [
+        1.68,
+        2.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.782,
+  "transcript": "Because that is the bearded man's responsibility."
+}

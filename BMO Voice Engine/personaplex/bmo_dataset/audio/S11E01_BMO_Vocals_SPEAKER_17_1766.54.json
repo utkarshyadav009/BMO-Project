@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "You",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "are",
+      [
+        0.08,
+        0.12
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "in",
+      [
+        0.12,
+        0.3
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        0.3,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "third",
+      [
+        0.46,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "hole",
+      [
+        0.74,
+        1.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "now.",
+      [
+        1.08,
+        1.4
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.601,
+  "transcript": "You are in the third hole now."
+}

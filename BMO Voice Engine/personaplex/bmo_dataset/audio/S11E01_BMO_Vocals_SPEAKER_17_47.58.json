@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "His",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "name",
+      [
+        0.08,
+        0.28
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "is",
+      [
+        0.28,
+        0.42
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Lars",
+      [
+        0.42,
+        0.8
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Darksaber.",
+      [
+        0.8,
+        1.52
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.722,
+  "transcript": "His name is Lars Darksaber."
+}

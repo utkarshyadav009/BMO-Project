@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "and",
+      [
+        0.0,
+        0.08
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "we",
+      [
+        0.08,
+        0.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "disappeared",
+      [
+        0.16,
+        0.68
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "into",
+      [
+        0.68,
+        1.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "the",
+      [
+        1.14,
+        1.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "clouds.",
+      [
+        1.36,
+        1.78
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 2.0,
+  "transcript": "And we disappeared into the clouds."
+}

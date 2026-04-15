@@ -1,0 +1,38 @@
+{
+  "alignments": [
+    [
+      "Take",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "that",
+      [
+        0.14,
+        0.4
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Master",
+      [
+        0.44,
+        0.74
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Chen.",
+      [
+        0.74,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.321,
+  "transcript": "Take that, Master Chen."
+}

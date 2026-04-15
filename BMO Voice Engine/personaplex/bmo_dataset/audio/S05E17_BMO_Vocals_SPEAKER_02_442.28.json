@@ -1,0 +1,54 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "miss",
+      [
+        0.02,
+        0.22
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "him",
+      [
+        0.22,
+        0.36
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "so",
+      [
+        0.36,
+        0.52
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "much",
+      [
+        0.52,
+        0.94
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "already.",
+      [
+        0.94,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.702,
+  "transcript": "I miss him so much already."
+}

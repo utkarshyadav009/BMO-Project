@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "[laugh]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ha",
+      [
+        0.5599999999999998,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        1.1,
+        1.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        1.24,
+        1.5
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        1.52,
+        1.96
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha",
+      [
+        1.96,
+        2.16
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "ha.",
+      [
+        2.16,
+        2.46
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 3.136,
+  "transcript": "[laugh]"
+}

@@ -1,0 +1,17 @@
+{
+  "words": [
+    {
+      "word": "[laugh]",
+      "start": 0.0,
+      "end": 0.0
+    },
+    {
+      "word": "Oh, boy!",
+      "start": 0.0,
+      "end": 1.36
+    }
+  ],
+  "duration": 1.385,
+  "transcript": "[laugh]",
+  "clip_type": "tag_plus_speech"
+}

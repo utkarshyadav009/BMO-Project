@@ -1,0 +1,12 @@
+{
+  "words": [
+    {
+      "word": "Now this is a turnip green cherry.",
+      "start": 0.0,
+      "end": 1.42
+    }
+  ],
+  "duration": 1.42,
+  "transcript": "Now this is a turnip grincher.",
+  "clip_type": "speech_only"
+}

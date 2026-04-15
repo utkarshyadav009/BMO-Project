@@ -1,0 +1,30 @@
+{
+  "alignments": [
+    [
+      "[cry]",
+      [
+        0.0,
+        0.0
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Be",
+      [
+        0.0,
+        0.66
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "more.",
+      [
+        0.66,
+        1.04
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.843,
+  "transcript": "[cry]BMO"
+}

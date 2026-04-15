@@ -1,0 +1,46 @@
+{
+  "alignments": [
+    [
+      "I",
+      [
+        0.0,
+        0.02
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "need",
+      [
+        0.02,
+        0.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "to",
+      [
+        0.18,
+        0.26
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "find",
+      [
+        0.26,
+        0.64
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "Ronnie.",
+      [
+        0.64,
+        1.02
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.321,
+  "transcript": "I needed to find Ronnie."
+}

@@ -1,0 +1,62 @@
+{
+  "alignments": [
+    [
+      "I'm",
+      [
+        0.0,
+        0.14
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "here",
+      [
+        0.14,
+        0.24
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "on",
+      [
+        0.24,
+        0.46
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "a",
+      [
+        0.46,
+        0.62
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "solo",
+      [
+        0.62,
+        0.88
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "birthday",
+      [
+        0.88,
+        1.18
+      ],
+      "SPEAKER_MAIN"
+    ],
+    [
+      "mission!",
+      [
+        1.18,
+        1.56
+      ],
+      "SPEAKER_MAIN"
+    ]
+  ],
+  "duration": 1.922,
+  "transcript": "I'm here on a solo birthday mission!"
+}
