@@ -791,8 +791,8 @@ def rotate_attention_with_basis(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Rotate attention weights into the compressed basis.
 
-    In RoPE-safe QuaRot mode (identity-only), q/k are fused so RoPE sees
-    unrotated q/k vectors, while v/out remain in the rotated residual basis.
+    In RoPE-safe identity mode, in-proj is input-side-only and out-proj is
+    output-side-only so RoPE acts on native q/k coordinates.
     """
     w_q = src_in_blocks[0] * alpha.unsqueeze(0) * alpha_scale_for_weights
     w_k = src_in_blocks[1] * alpha.unsqueeze(0) * alpha_scale_for_weights
@@ -804,13 +804,14 @@ def rotate_attention_with_basis(
                 "RoPE-safe QuaRot mode requires square basis (identity mode): "
                 f"got q shape={tuple(q_basis.shape)}"
             )
-        # q/k: input-side fusion only so RoPE acts on original q/k coordinates.
+        # Input-side-only fusion for q/k/v so attention projections consume rotated residual
+        # but produce native attention channels where RoPE is defined.
         dst_q = w_q @ q_basis
         dst_k = w_k @ q_basis
-        # v/out: stay in rotated basis so residual/state basis remains consistent.
-        dst_v = q_basis.T @ w_v @ q_basis
+        dst_v = w_v @ q_basis
         dst_in_proj = torch.cat([dst_q, dst_k, dst_v], dim=0)
-        dst_out_proj = q_basis.T @ src_out_proj @ q_basis
+        # Output-side-only projection maps native attention output back to rotated residual basis.
+        dst_out_proj = q_basis.T @ src_out_proj
         return dst_in_proj, dst_out_proj
 
     dst_q = q_basis.T @ w_q @ q_basis
@@ -1373,6 +1374,23 @@ def main():
                 alpha_scale_for_weights,
                 rope_safe_quarot=bool(use_rope_safe_quarot),
             )
+
+            if i == 0 and bool(use_rope_safe_quarot):
+                expected_in = tuple(dst_layer.self_attn.in_proj_weight.shape)
+                expected_out = tuple(dst_layer.self_attn.out_proj.weight.shape)
+                got_in = tuple(dst_in_proj.shape)
+                got_out = tuple(dst_out_proj.shape)
+                print(
+                    "[INFO] RoPE-safe attention shape sanity (layer 0): "
+                    f"in_proj got={got_in} expected={expected_in} "
+                    f"out_proj got={got_out} expected={expected_out}"
+                )
+                if got_in != expected_in or got_out != expected_out:
+                    raise RuntimeError(
+                        "RoPE-safe attention shape mismatch at layer 0: "
+                        f"in got={got_in} expected={expected_in}; "
+                        f"out got={got_out} expected={expected_out}"
+                    )
 
             dst_layer.self_attn.in_proj_weight.copy_(
                 dst_in_proj.cpu().to(dst_layer.self_attn.in_proj_weight.dtype)

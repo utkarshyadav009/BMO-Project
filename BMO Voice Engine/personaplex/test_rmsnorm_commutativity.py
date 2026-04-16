@@ -10,11 +10,18 @@ from apply_slicegpt import (
     get_rms_alpha_or_ones,
     load_q_matrix,
     parse_bool,
+    rotate_attention_with_basis,
     set_norm_alpha_one_if_present,
 )
 
 
-def rotate_layer_weights(src_layer, dst_layer, q: torch.Tensor, absorb_rms_alpha: bool):
+def rotate_layer_weights(
+    src_layer,
+    dst_layer,
+    q: torch.Tensor,
+    absorb_rms_alpha: bool,
+    rope_safe_attn: bool,
+):
     d_old = int(q.shape[0])
     if absorb_rms_alpha:
         alpha1 = get_rms_alpha_or_ones(src_layer.norm1, d_old, q.device)
@@ -28,16 +35,20 @@ def rotate_layer_weights(src_layer, dst_layer, q: torch.Tensor, absorb_rms_alpha
     with torch.no_grad():
         src_in_proj = src_layer.self_attn.in_proj_weight.detach().to(device=q.device, dtype=torch.float32)
         src_in_blocks = src_in_proj.view(3, d_old, d_old)
-        dst_blocks = []
-        for b in range(3):
-            w_block = src_in_blocks[b] * alpha1.unsqueeze(0)
-            dst_blocks.append(q.T @ w_block @ q)
-        dst_layer.self_attn.in_proj_weight.copy_(
-            torch.cat(dst_blocks, dim=0).to(dst_layer.self_attn.in_proj_weight.dtype)
+        src_out_proj = src_layer.self_attn.out_proj.weight.detach().to(device=q.device, dtype=torch.float32)
+
+        dst_in_proj, dst_out_proj = rotate_attention_with_basis(
+            src_in_blocks,
+            src_out_proj,
+            q,
+            alpha1,
+            1.0,
+            rope_safe_quarot=bool(rope_safe_attn),
         )
 
-        src_out_proj = src_layer.self_attn.out_proj.weight.detach().to(device=q.device, dtype=torch.float32)
-        dst_out_proj = q.T @ src_out_proj @ q
+        dst_layer.self_attn.in_proj_weight.copy_(
+            dst_in_proj.to(dst_layer.self_attn.in_proj_weight.dtype)
+        )
         dst_layer.self_attn.out_proj.weight.copy_(dst_out_proj.to(dst_layer.self_attn.out_proj.weight.dtype))
 
         src_lin_in = src_layer.gating.linear_in.weight.detach().to(device=q.device, dtype=torch.float32)
@@ -65,6 +76,12 @@ def main():
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--atol", type=float, default=1e-3)
     parser.add_argument("--rtol", type=float, default=1e-3)
+    parser.add_argument(
+        "--rope-safe-attn",
+        type=parse_bool,
+        default=True,
+        help="If true, use RoPE-safe one-sided attention transform. If false, use legacy both-sided path.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(int(args.seed))
@@ -98,7 +115,13 @@ def main():
     base_layer = copy.deepcopy(src_layer).to(device=device, dtype=torch.float32).eval()
     rot_layer = copy.deepcopy(src_layer).to(device=device, dtype=torch.float32).eval()
 
-    rotate_layer_weights(base_layer, rot_layer, q, absorb_rms_alpha=bool(args.absorb_rms_alpha))
+    rotate_layer_weights(
+        base_layer,
+        rot_layer,
+        q,
+        absorb_rms_alpha=bool(args.absorb_rms_alpha),
+        rope_safe_attn=bool(args.rope_safe_attn),
+    )
 
     x = torch.randn(
         int(args.batch_size),
@@ -119,6 +142,7 @@ def main():
     ok = torch.allclose(out_base, out_rot_back, atol=float(args.atol), rtol=float(args.rtol))
 
     print(f"[INFO] layer={args.layer_idx} basis={args.basis_source} absorb_rms_alpha={bool(args.absorb_rms_alpha)}")
+    print(f"[INFO] rope_safe_attn={bool(args.rope_safe_attn)}")
     print(f"[INFO] max_abs={max_abs:.6e} mean_abs={mean_abs:.6e} atol={args.atol} rtol={args.rtol}")
     print(f"[INFO] allclose={ok}")
 
