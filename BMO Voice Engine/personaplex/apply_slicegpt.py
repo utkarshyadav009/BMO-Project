@@ -780,6 +780,47 @@ def set_norm_alpha_one_if_present(norm_module):
             alpha.fill_(1.0)
 
 
+def rotate_attention_with_basis(
+    src_in_blocks: torch.Tensor,
+    src_out_proj: torch.Tensor,
+    q_basis: torch.Tensor,
+    alpha: torch.Tensor,
+    alpha_scale_for_weights: float,
+    *,
+    rope_safe_quarot: bool,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Rotate attention weights into the compressed basis.
+
+    In RoPE-safe QuaRot mode (identity-only), q/k are fused so RoPE sees
+    unrotated q/k vectors, while v/out remain in the rotated residual basis.
+    """
+    w_q = src_in_blocks[0] * alpha.unsqueeze(0) * alpha_scale_for_weights
+    w_k = src_in_blocks[1] * alpha.unsqueeze(0) * alpha_scale_for_weights
+    w_v = src_in_blocks[2] * alpha.unsqueeze(0) * alpha_scale_for_weights
+
+    if rope_safe_quarot:
+        if q_basis.shape[0] != q_basis.shape[1]:
+            raise ValueError(
+                "RoPE-safe QuaRot mode requires square basis (identity mode): "
+                f"got q shape={tuple(q_basis.shape)}"
+            )
+        # q/k: input-side fusion only so RoPE acts on original q/k coordinates.
+        dst_q = w_q @ q_basis
+        dst_k = w_k @ q_basis
+        # v/out: stay in rotated basis so residual/state basis remains consistent.
+        dst_v = q_basis.T @ w_v @ q_basis
+        dst_in_proj = torch.cat([dst_q, dst_k, dst_v], dim=0)
+        dst_out_proj = q_basis.T @ src_out_proj @ q_basis
+        return dst_in_proj, dst_out_proj
+
+    dst_q = q_basis.T @ w_q @ q_basis
+    dst_k = q_basis.T @ w_k @ q_basis
+    dst_v = q_basis.T @ w_v @ q_basis
+    dst_in_proj = torch.cat([dst_q, dst_k, dst_v], dim=0)
+    dst_out_proj = q_basis.T @ src_out_proj @ q_basis
+    return dst_in_proj, dst_out_proj
+
+
 def main():
     parser = argparse.ArgumentParser(description="Apply uniform SliceGPT compression to temporal transformer")
     parser.add_argument("--bf16", default="v5_step1500.safetensors")
@@ -837,6 +878,16 @@ def main():
         help=(
             "If true, rebuild Q as block-diagonal per attention head to preserve "
             "head partition structure."
+        ),
+    )
+    parser.add_argument(
+        "--attn-rope-mode",
+        choices=["none", "auto", "quarot"],
+        default="auto",
+        help=(
+            "RoPE handling for attention rotations: none uses dense Q conjugation, "
+            "auto enables QuaRot fusion in identity mode only, quarot forces QuaRot fusion "
+            "(requires d_new == d_old)."
         ),
     )
     parser.add_argument(
@@ -1092,6 +1143,23 @@ def main():
     num_layers = len(src_model.transformer.layers)
     identity_rotation_mode = d_new == d_old
 
+    attn_rope_mode = str(args.attn_rope_mode).strip().lower()
+    use_rope_safe_quarot = False
+    if attn_rope_mode == "quarot":
+        if not identity_rotation_mode:
+            raise ValueError(
+                "--attn-rope-mode quarot currently requires d_new == d_old. "
+                f"Got d_new={d_new}, d_old={d_old}."
+            )
+        use_rope_safe_quarot = True
+    elif attn_rope_mode == "auto":
+        use_rope_safe_quarot = bool(identity_rotation_mode)
+
+    print(
+        "[INFO] Attention RoPE mode: "
+        f"mode={attn_rope_mode} quarot_active={bool(use_rope_safe_quarot)}"
+    )
+
     # Preserve original gating hidden width for easier weight transfer.
     hidden_old = int(src_model.transformer.layers[0].gating.linear_out.weight.shape[1])
     temporal_dim_feedforward = int((3 * hidden_old) // 2)
@@ -1293,19 +1361,22 @@ def main():
             # Attention in-proj: 3 blocks of [D, D] -> [3*d_new, d_new].
             src_in_proj = src_layer.self_attn.in_proj_weight.detach().to(device=work_device, dtype=torch.float32)
             src_in_blocks = src_in_proj.view(3, d_old, d_old)
-            dst_blocks = []
-            for b in range(3):
-                # Absorb RMSNorm alpha on the input columns before projection.
-                w_block = src_in_blocks[b] * alpha1.unsqueeze(0) * alpha_scale_for_weights
-                dst_blocks.append(q1.T @ w_block @ q1)
-            dst_in_proj = torch.cat(dst_blocks, dim=0)
-            dst_layer.self_attn.in_proj_weight.copy_(
-                dst_in_proj.cpu().to(dst_layer.self_attn.in_proj_weight.dtype)
-            )
 
             # Attention out-proj: [D, D] -> [d_new, d_new].
             src_out_proj = src_layer.self_attn.out_proj.weight.detach().to(device=work_device, dtype=torch.float32)
-            dst_out_proj = q1.T @ src_out_proj @ q1
+
+            dst_in_proj, dst_out_proj = rotate_attention_with_basis(
+                src_in_blocks,
+                src_out_proj,
+                q1,
+                alpha1,
+                alpha_scale_for_weights,
+                rope_safe_quarot=bool(use_rope_safe_quarot),
+            )
+
+            dst_layer.self_attn.in_proj_weight.copy_(
+                dst_in_proj.cpu().to(dst_layer.self_attn.in_proj_weight.dtype)
+            )
             dst_layer.self_attn.out_proj.weight.copy_(
                 dst_out_proj.cpu().to(dst_layer.self_attn.out_proj.weight.dtype)
             )
@@ -1429,6 +1500,8 @@ def main():
             "global_q_layer": global_q_layer,
             "global_q_norm": global_q_norm,
             "headwise_q_basis": bool(args.headwise_q_basis),
+            "attn_rope_mode": attn_rope_mode,
+            "attn_rope_quarot_active": bool(use_rope_safe_quarot),
             "global_q_bridge_out": bool(args.global_q_bridge_out),
             "rms_dim_compensation": bool(args.rms_dim_compensation),
             "preserve_head_dim": bool(args.preserve_head_dim),
