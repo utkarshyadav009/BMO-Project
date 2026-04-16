@@ -4,9 +4,6 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# Importing this module applies the same runtime monkey patches used in test runs.
-import test_rtx_edge  # noqa: F401
 from moshi.models import loaders
 
 
@@ -267,6 +264,15 @@ def parse_args():
     parser.add_argument("--lora-ckpt", type=str, default=None, help="Optional LoRA checkpoint (train_lqec.py output)")
     parser.add_argument("--report-step", type=int, default=63, help="Print detailed metrics for this rollout step")
     parser.add_argument(
+        "--runtime-patch",
+        type=parse_bool,
+        default=True,
+        help=(
+            "If true, import test_rtx_edge to apply runtime monkey patches. "
+            "If false, use the native loader/attention path for A/B diagnosis."
+        ),
+    )
+    parser.add_argument(
         "--teacher-forced",
         type=parse_bool,
         default=False,
@@ -277,6 +283,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    if bool(args.runtime_patch):
+        # Importing this module applies the same runtime monkey patches used in test runs.
+        import test_rtx_edge  # noqa: F401
+    else:
+        print("[INFO] Runtime patch disabled: using native loader/attention path.")
 
     if not torch.cuda.is_available() and args.device.startswith("cuda"):
         raise RuntimeError("CUDA is required for this drift probe")

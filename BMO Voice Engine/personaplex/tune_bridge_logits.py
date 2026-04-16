@@ -1,16 +1,55 @@
 import argparse
+import json
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 
 from moshi.models import loaders
+from moshi.models.lm import LMModel
 
 from apply_slicegpt import (
     build_forced_tokens,
     build_real_forced_tokens,
     parse_bool,
 )
+
+
+def load_lm_for_tuning(checkpoint_path: str, *, device: torch.device):
+    resolved = str(Path(checkpoint_path).resolve())
+
+    # Native checkpoints can use the standard loader directly.
+    if resolved.lower().endswith((".safetensors", ".sft", ".sfts")):
+        return loaders.get_moshi_lm(resolved, device=device, cpu_offload=False)
+
+    loaded_obj = torch.load(resolved, map_location="cpu")
+    if not (isinstance(loaded_obj, dict) and "state_dict" in loaded_obj):
+        return loaders.get_moshi_lm(resolved, device=device, cpu_offload=False)
+
+    print("[INFO] Dense payload checkpoint detected; loading embedded state_dict/config_override")
+
+    root = Path(__file__).resolve().parent
+    config_path = (root / "bmo_config.json").resolve()
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_dict = json.load(f)
+    config_dict.pop("model_type", None)
+
+    config_override = loaded_obj.get("config_override")
+    if isinstance(config_override, dict):
+        config_dict.update(config_override)
+
+    model = LMModel(device="cpu", dtype=torch.bfloat16, **config_dict)
+    model.eval()
+
+    state_dict = loaded_obj["state_dict"]
+    incompat = model.load_state_dict(state_dict, strict=False, assign=True)
+    if incompat.unexpected_keys:
+        print(f"[WARN] Dense payload unexpected keys: {len(incompat.unexpected_keys)}")
+    if incompat.missing_keys:
+        print(f"[WARN] Dense payload missing keys: {len(incompat.missing_keys)}")
+
+    model.to(device=device)
+    return model
 
 
 def parse_args():
@@ -113,13 +152,13 @@ def main():
     student_path = str((root / args.student_ckpt).resolve())
 
     print(f"[INFO] Loading teacher: {teacher_path}")
-    teacher = loaders.get_moshi_lm(teacher_path, device=device, cpu_offload=False)
+    teacher = load_lm_for_tuning(teacher_path, device=device)
     teacher.eval()
     for p in teacher.parameters():
         p.requires_grad = False
 
     print(f"[INFO] Loading student: {student_path}")
-    student = loaders.get_moshi_lm(student_path, device=device, cpu_offload=False)
+    student = load_lm_for_tuning(student_path, device=device)
     student.eval()
 
     out_proj, trainables = get_trainable_bridge_params(student, tune_bias=bool(args.tune_bias))

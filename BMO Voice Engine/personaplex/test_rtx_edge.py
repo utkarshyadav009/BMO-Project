@@ -364,6 +364,9 @@ def patched_get_moshi(*args, **kwargs):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Moshi checkpoint not found: {checkpoint_path}")
 
+    device = kwargs.get("device", "cuda")
+    cpu_offload = kwargs.get("cpu_offload", False)
+
     load_dtype = kwargs.get("dtype", torch.bfloat16)
     if isinstance(load_dtype, str):
         _dtype_map = {
@@ -379,8 +382,6 @@ def patched_get_moshi(*args, **kwargs):
         return x
 
     if checkpoint_path.lower().endswith((".safetensors", ".sft", ".sfts")):
-        device = kwargs.get("device", "cuda")
-        cpu_offload = kwargs.get("cpu_offload", False)
         print(f"[INFO] BF16 control path: loading native safetensors checkpoint: {checkpoint_path}")
         model = ORIGINAL_GET_MOSHI_LM(
             checkpoint_path,
@@ -407,6 +408,19 @@ def patched_get_moshi(*args, **kwargs):
             "dense_bf16",
             "slicegpt_dense",
         }
+
+    if force_dense:
+        print(f"[INFO] Dense checkpoint mode detected: model_mode={model_mode} (delegating to native loader)")
+        del loaded_obj
+        model = ORIGINAL_GET_MOSHI_LM(
+            checkpoint_path,
+            copy_missing_weights=True,
+            device=device,
+            dtype=load_dtype,
+            cpu_offload=cpu_offload,
+        )
+        _attach_activation_probes(model)
+        return model
 
     print("[INFO] Loading Config Skeleton...")
     from moshi.models.lm import LMModel

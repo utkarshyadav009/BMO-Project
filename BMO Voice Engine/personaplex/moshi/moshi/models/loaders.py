@@ -126,6 +126,22 @@ def _is_safetensors(path: Path | str) -> bool:
     return Path(path).suffix in (".safetensors", ".sft", ".sfts")
 
 
+def _unwrap_checkpoint_payload(loaded_obj):
+    if (
+        isinstance(loaded_obj, dict)
+        and "state_dict" in loaded_obj
+        and isinstance(loaded_obj["state_dict"], dict)
+    ):
+        config_override = loaded_obj.get("config_override")
+        if not isinstance(config_override, dict):
+            config_override = None
+        model_mode = loaded_obj.get("model_mode")
+        if model_mode is not None:
+            logger.info(f"Dense payload checkpoint mode detected: {model_mode}")
+        return loaded_obj["state_dict"], config_override
+    return loaded_obj, None
+
+
 def get_mimi(filename: str | Path,
              device: torch.device | str = 'cpu') -> MimiModel:
     """Return a pretrained Mimi model."""
@@ -185,6 +201,15 @@ def get_moshi_lm(
     # Copy to avoid mutating a shared/global dict
     lm_kwargs = dict(_lm_kwargs)
     lm_kwargs["dep_q"] = 16
+
+    preloaded_state_dict = None
+    if filename is not None and not _is_safetensors(filename):
+        with open(str(filename), "rb") as f:
+            loaded_obj = torch.load(f, map_location="cpu")
+        preloaded_state_dict, config_override = _unwrap_checkpoint_payload(loaded_obj)
+        if isinstance(config_override, dict):
+            lm_kwargs.update(config_override)
+
     if delays is not None:
         lm_kwargs["delays"] = delays
 
@@ -212,9 +237,12 @@ def get_moshi_lm(
         else:
             state_dict = load_file(filename, device=dev.type)
     else:
-        # torch checkpoint
-        with open(filename, "rb") as f:
-            state_dict = torch.load(f, map_location="cpu")
+        if preloaded_state_dict is None:
+            with open(filename, "rb") as f:
+                loaded_obj = torch.load(f, map_location="cpu")
+            state_dict, _ = _unwrap_checkpoint_payload(loaded_obj)
+        else:
+            state_dict = preloaded_state_dict
     # Patch 1: expand depformer self_attn weights if needed
     model_sd = model.state_dict()
     for name, tensor in list(state_dict.items()):
@@ -292,7 +320,8 @@ def _get_moshi_lm_with_offload(
         state_dict = load_file(filename, device="cpu")
     else:
         with open(filename, "rb") as f:
-            state_dict = torch.load(f, map_location="cpu")
+            loaded_obj = torch.load(f, map_location="cpu")
+        state_dict, _ = _unwrap_checkpoint_payload(loaded_obj)
 
     # Apply weight patches (same as non-offload path)
     model_sd = model.state_dict()
