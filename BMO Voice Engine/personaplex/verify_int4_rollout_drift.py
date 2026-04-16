@@ -10,49 +10,46 @@ import test_rtx_edge  # noqa: F401
 from moshi.models import loaders
 
 
-@torch.no_grad()
-def run_rollout(checkpoint_path: str, steps: int, seed: int, device: str = "cuda", lora_ckpt: str | None = None):
-    print(f"\n[RUN] Loading model: {checkpoint_path}")
-    model = loaders.get_moshi_lm(checkpoint_path, device=device, cpu_offload=False)
+def parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
 
-    if lora_ckpt is not None:
-        apply_lora_ckpt(model, Path(lora_ckpt).resolve())
 
-    model.eval()
-    for p in model.parameters():
-        p.requires_grad = False
-
-    K = model.num_codebooks
-    text_card = model.text_card
-    audio_card = model.card
+def build_forced_tokens(model, steps: int, seed: int) -> torch.Tensor:
+    k = int(model.num_codebooks)
+    text_card = int(model.text_card)
+    audio_card = int(model.card)
 
     g = torch.Generator(device="cpu")
-    g.manual_seed(seed)
+    g.manual_seed(int(seed))
 
-    # Deterministic forced token stream: [T, K]
     text_tokens = torch.randint(0, text_card, (steps, 1), generator=g, dtype=torch.long)
-    audio_tokens = torch.randint(0, audio_card + 1, (steps, K - 1), generator=g, dtype=torch.long)
-    forced_tokens = torch.cat([text_tokens, audio_tokens], dim=1)
+    audio_tokens = torch.randint(0, audio_card + 1, (steps, k - 1), generator=g, dtype=torch.long)
+    return torch.cat([text_tokens, audio_tokens], dim=1)
 
-    logits_steps = []
-    top1_steps = []
 
-    with model.streaming(batch_size=1):
-        for t in range(steps):
-            seq_t = forced_tokens[t].view(1, K, 1).to(device)
-            _, text_logits = model.forward_codes(seq_t)
-            logits_t = text_logits[:, 0, 0, :].float().cpu().contiguous()
-            logits_steps.append(logits_t)
-            top1_steps.append(int(torch.argmax(logits_t, dim=-1).item()))
+def register_post_bridge_hook(model):
+    cache = []
 
-    del model
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    out_norm = getattr(model, "out_norm", None)
+    if out_norm is None:
+        return cache, None
 
-    logits = torch.cat(logits_steps, dim=0)  # [T, V]
-    top1 = torch.tensor(top1_steps, dtype=torch.long)
-    return logits, top1, forced_tokens
+    def pre_hook(_module, inputs):
+        if not inputs:
+            return
+        x = inputs[0]
+        if torch.is_tensor(x):
+            cache.append(x.detach().float().reshape(-1, x.shape[-1]))
+
+    handle = out_norm.register_forward_pre_hook(pre_hook)
+    return cache, handle
 
 
 class LoRAAdapterLinear(nn.Module):
@@ -133,6 +130,131 @@ def apply_lora_ckpt(model: nn.Module, lora_ckpt_path: Path):
     print(f"[INFO] Applied LoRA checkpoint: {lora_ckpt_path.name} (wrapped={len(wrapped_modules)})")
 
 
+@torch.no_grad()
+def run_pair_rollout(
+    bf16_ckpt: str,
+    int4_ckpt: str,
+    *,
+    steps: int,
+    seed: int,
+    device: str,
+    teacher_forced: bool,
+    lora_ckpt: str | None,
+):
+    print(f"\n[RUN] Loading model: {bf16_ckpt}")
+    teacher = loaders.get_moshi_lm(bf16_ckpt, device=device, cpu_offload=False)
+    teacher.eval()
+    for p in teacher.parameters():
+        p.requires_grad = False
+
+    print(f"\n[RUN] Loading model: {int4_ckpt}")
+    student = loaders.get_moshi_lm(int4_ckpt, device=device, cpu_offload=False)
+    if lora_ckpt is not None:
+        apply_lora_ckpt(student, Path(lora_ckpt).resolve())
+    student.eval()
+    for p in student.parameters():
+        p.requires_grad = False
+
+    if int(teacher.num_codebooks) != int(student.num_codebooks):
+        raise RuntimeError(
+            f"num_codebooks mismatch: teacher={teacher.num_codebooks} student={student.num_codebooks}"
+        )
+
+    forced_tokens = build_forced_tokens(teacher, int(steps), int(seed))
+    k = int(teacher.num_codebooks)
+
+    t_bridge_cache, t_bridge_handle = register_post_bridge_hook(teacher)
+    s_bridge_cache, s_bridge_handle = register_post_bridge_hook(student)
+
+    student_prev_text = int(forced_tokens[0, 0].item())
+    per_step = []
+
+    try:
+        with teacher.streaming(batch_size=1), student.streaming(batch_size=1):
+            for t in range(int(steps)):
+                teacher_codes = forced_tokens[t].clone()
+                student_codes = forced_tokens[t].clone()
+                if not bool(teacher_forced) and t > 0:
+                    student_codes[0] = int(student_prev_text)
+
+                teacher_in_text = int(teacher_codes[0].item())
+                student_in_text = int(student_codes[0].item())
+
+                teacher_seq = teacher_codes.view(1, k, 1).to(device)
+                student_seq = student_codes.view(1, k, 1).to(device)
+
+                _, teacher_text_logits = teacher.forward_codes(teacher_seq)
+                _, student_text_logits = student.forward_codes(student_seq)
+
+                teacher_logits = teacher_text_logits[:, 0, 0, :].float().cpu().contiguous().view(-1)
+                student_logits = student_text_logits[:, 0, 0, :].float().cpu().contiguous().view(-1)
+
+                teacher_top1 = int(torch.argmax(teacher_logits, dim=-1).item())
+                student_top1 = int(torch.argmax(student_logits, dim=-1).item())
+                student_prev_text = student_top1
+
+                if not t_bridge_cache or not s_bridge_cache:
+                    raise RuntimeError("Post-bridge caches are empty; out_norm hooks did not capture activations")
+
+                teacher_post = t_bridge_cache.pop().cpu().contiguous()
+                student_post = s_bridge_cache.pop().cpu().contiguous()
+                n = min(int(teacher_post.shape[0]), int(student_post.shape[0]))
+                if n <= 0:
+                    raise RuntimeError("Invalid post-bridge activation shape captured by hooks")
+
+                teacher_vec = teacher_post[:n].reshape(-1)
+                student_vec = student_post[:n].reshape(-1)
+
+                post_diff = teacher_vec - student_vec
+                logits_diff = teacher_logits - student_logits
+
+                cos = F.cosine_similarity(teacher_vec, student_vec, dim=0).item()
+                mse = F.mse_loss(teacher_vec, student_vec).item()
+                max_abs_post_bridge = torch.max(torch.abs(post_diff)).item()
+                max_abs_logits = torch.max(torch.abs(logits_diff)).item()
+
+                kl_div = F.kl_div(
+                    F.log_softmax(student_logits.unsqueeze(0), dim=-1),
+                    F.softmax(teacher_logits.unsqueeze(0), dim=-1),
+                    reduction="batchmean",
+                ).item()
+
+                topk = 5
+                t_topk = set(torch.topk(teacher_logits, k=topk).indices.tolist())
+                s_topk = set(torch.topk(student_logits, k=topk).indices.tolist())
+                overlap_pct = (100.0 * len(t_topk.intersection(s_topk))) / float(topk)
+
+                per_step.append(
+                    {
+                        "step": t,
+                        "cos": cos,
+                        "mse": mse,
+                        "max_abs_post_bridge": max_abs_post_bridge,
+                        "max_abs_logits": max_abs_logits,
+                        "kl_div": kl_div,
+                        "top5_overlap_pct": overlap_pct,
+                        "top1_same": int(teacher_top1 == student_top1),
+                        "bf16_top1": teacher_top1,
+                        "int4_top1": student_top1,
+                        "teacher_in_text": teacher_in_text,
+                        "student_in_text": student_in_text,
+                    }
+                )
+    finally:
+        if t_bridge_handle is not None:
+            t_bridge_handle.remove()
+        if s_bridge_handle is not None:
+            s_bridge_handle.remove()
+
+        del teacher
+        del student
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    return per_step
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bf16", "--bf16-ckpt", dest="bf16", default="v5_step1500.safetensors")
@@ -144,6 +266,12 @@ def parse_args():
     parser.add_argument("--catastrophic-mse", type=float, default=0.1)
     parser.add_argument("--lora-ckpt", type=str, default=None, help="Optional LoRA checkpoint (train_lqec.py output)")
     parser.add_argument("--report-step", type=int, default=63, help="Print detailed metrics for this rollout step")
+    parser.add_argument(
+        "--teacher-forced",
+        type=parse_bool,
+        default=False,
+        help="If true, student uses teacher forced input tokens each step. If false, student self-feeds text token.",
+    )
     return parser.parse_args()
 
 
@@ -153,60 +281,83 @@ def main():
     if not torch.cuda.is_available() and args.device.startswith("cuda"):
         raise RuntimeError("CUDA is required for this drift probe")
 
-    bf16_logits, bf16_top1, forced = run_rollout(args.bf16, args.steps, args.seed, args.device, lora_ckpt=None)
-    int4_logits, int4_top1, _ = run_rollout(args.int4, args.steps, args.seed, args.device, lora_ckpt=args.lora_ckpt)
+    per_step = run_pair_rollout(
+        args.bf16,
+        args.int4,
+        steps=int(args.steps),
+        seed=int(args.seed),
+        device=args.device,
+        teacher_forced=bool(args.teacher_forced),
+        lora_ckpt=args.lora_ckpt,
+    )
 
-    assert bf16_logits.shape == int4_logits.shape
+    mean_cos = sum(x["cos"] for x in per_step) / len(per_step)
+    mean_mse = sum(x["mse"] for x in per_step) / len(per_step)
+    mean_kl = sum(x["kl_div"] for x in per_step) / len(per_step)
+    mean_top5 = sum(x["top5_overlap_pct"] for x in per_step) / len(per_step)
 
-    per_step = []
-    for t in range(args.steps):
-        a = bf16_logits[t]
-        b = int4_logits[t]
-        cos = F.cosine_similarity(a, b, dim=0).item()
-        mse = F.mse_loss(a, b).item()
-        max_abs = torch.max(torch.abs(a - b)).item()
-        top1_same = int(bf16_top1[t].item() == int4_top1[t].item())
-        per_step.append((t, cos, mse, max_abs, top1_same, int(bf16_top1[t].item()), int(int4_top1[t].item())))
+    worst_cos = min(per_step, key=lambda x: x["cos"])
+    worst_mse = max(per_step, key=lambda x: x["mse"])
+    top1_match_rate = sum(x["top1_same"] for x in per_step) / len(per_step)
 
-    mean_cos = sum(x[1] for x in per_step) / len(per_step)
-    mean_mse = sum(x[2] for x in per_step) / len(per_step)
-    worst_cos = min(per_step, key=lambda x: x[1])
-    worst_mse = max(per_step, key=lambda x: x[2])
-    top1_match_rate = sum(x[4] for x in per_step) / len(per_step)
-
-    catastrophic_steps = [x for x in per_step if x[1] < args.catastrophic_cos or x[2] > args.catastrophic_mse]
+    catastrophic_steps = [
+        x for x in per_step if x["cos"] < args.catastrophic_cos or x["mse"] > args.catastrophic_mse
+    ]
 
     if 0 <= args.report_step < len(per_step):
-        t, cos, mse, max_abs, top1_same, bf_tok, i4_tok = per_step[args.report_step]
+        row = per_step[args.report_step]
         print("\n=== REPORT STEP ===")
         print(
-            f"step={t:02d} cos={cos:.6f} mse={mse:.6f} max_abs={max_abs:.6f} "
-            f"top1_same={top1_same} bf16_top1={bf_tok} int4_top1={i4_tok}"
+            f"step={row['step']:02d} cos={row['cos']:.6f} mse={row['mse']:.6f} "
+            f"max_abs_post_bridge={row['max_abs_post_bridge']:.6f} "
+            f"max_abs_logits={row['max_abs_logits']:.6f} "
+            f"kl_div={row['kl_div']:.6f} top5_overlap_pct={row['top5_overlap_pct']:.2f} "
+            f"top1_same={row['top1_same']} bf16_top1={row['bf16_top1']} int4_top1={row['int4_top1']} "
+            f"teacher_in_text={row['teacher_in_text']} student_in_text={row['student_in_text']}"
         )
 
     print("\n=== ROLLOUT DRIFT SUMMARY ===")
     print(f"Steps: {args.steps}")
+    print(f"Teacher forced mode: {bool(args.teacher_forced)}")
     print(f"Mean cosine: {mean_cos:.6f}")
     print(f"Mean MSE: {mean_mse:.6f}")
+    print(f"Mean KL(student||teacher): {mean_kl:.6f}")
+    print(f"Mean top-5 overlap: {mean_top5:.2f}%")
     print(f"Top-1 agreement: {top1_match_rate * 100:.2f}%")
-    print(f"Worst cosine: step={worst_cos[0]} cos={worst_cos[1]:.6f} mse={worst_cos[2]:.6f} max_abs={worst_cos[3]:.6f}")
-    print(f"Worst MSE: step={worst_mse[0]} mse={worst_mse[2]:.6f} cos={worst_mse[1]:.6f} max_abs={worst_mse[3]:.6f}")
+    print(
+        "Worst cosine: "
+        f"step={worst_cos['step']} cos={worst_cos['cos']:.6f} mse={worst_cos['mse']:.6f} "
+        f"max_abs_post_bridge={worst_cos['max_abs_post_bridge']:.6f} "
+        f"max_abs_logits={worst_cos['max_abs_logits']:.6f}"
+    )
+    print(
+        "Worst MSE: "
+        f"step={worst_mse['step']} mse={worst_mse['mse']:.6f} cos={worst_mse['cos']:.6f} "
+        f"max_abs_post_bridge={worst_mse['max_abs_post_bridge']:.6f} "
+        f"max_abs_logits={worst_mse['max_abs_logits']:.6f}"
+    )
     print(
         f"Catastrophic steps (cos<{args.catastrophic_cos} or mse>{args.catastrophic_mse}): {len(catastrophic_steps)}"
     )
 
     print("\n=== FIRST 20 STEPS ===")
-    for t, cos, mse, max_abs, top1_same, bf_tok, i4_tok in per_step[:20]:
+    for row in per_step[:20]:
         print(
-            f"step={t:02d} cos={cos:.6f} mse={mse:.6f} max_abs={max_abs:.6f} "
-            f"top1_same={top1_same} bf16_top1={bf_tok} int4_top1={i4_tok}"
+            f"step={row['step']:02d} cos={row['cos']:.6f} mse={row['mse']:.6f} "
+            f"max_abs_post_bridge={row['max_abs_post_bridge']:.6f} "
+            f"max_abs_logits={row['max_abs_logits']:.6f} kl_div={row['kl_div']:.6f} "
+            f"top5_overlap_pct={row['top5_overlap_pct']:.2f} top1_same={row['top1_same']} "
+            f"bf16_top1={row['bf16_top1']} int4_top1={row['int4_top1']}"
         )
 
     print("\n=== WORST 10 STEPS BY COSINE ===")
-    for t, cos, mse, max_abs, top1_same, bf_tok, i4_tok in sorted(per_step, key=lambda x: x[1])[:10]:
+    for row in sorted(per_step, key=lambda x: x["cos"])[:10]:
         print(
-            f"step={t:02d} cos={cos:.6f} mse={mse:.6f} max_abs={max_abs:.6f} "
-            f"top1_same={top1_same} bf16_top1={bf_tok} int4_top1={i4_tok}"
+            f"step={row['step']:02d} cos={row['cos']:.6f} mse={row['mse']:.6f} "
+            f"max_abs_post_bridge={row['max_abs_post_bridge']:.6f} "
+            f"max_abs_logits={row['max_abs_logits']:.6f} kl_div={row['kl_div']:.6f} "
+            f"top5_overlap_pct={row['top5_overlap_pct']:.2f} top1_same={row['top1_same']} "
+            f"bf16_top1={row['bf16_top1']} int4_top1={row['int4_top1']}"
         )
 
 

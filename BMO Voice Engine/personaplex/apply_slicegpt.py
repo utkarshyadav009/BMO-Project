@@ -178,6 +178,29 @@ def resolve_local_path(root: Path, value: str) -> Path:
     return p.resolve()
 
 
+AUDIO_FILE_SUFFIXES = {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac", ".opus"}
+
+
+def collect_audio_files(root: Path, dataset_dir: str, max_files: int = 0) -> list[Path]:
+    dataset_path = resolve_local_path(root, dataset_dir)
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"High-density dataset directory not found: {dataset_path}")
+
+    files = []
+    for path in dataset_path.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in AUDIO_FILE_SUFFIXES:
+            files.append(path.resolve())
+
+    files.sort()
+    if max_files and max_files > 0:
+        files = files[: int(max_files)]
+    if not files:
+        raise FileNotFoundError(f"No audio files found under: {dataset_path}")
+    return files
+
+
 def build_forced_tokens(model, steps: int, seed: int, batch_size: int = 1) -> torch.Tensor:
     g = torch.Generator(device="cpu")
     g.manual_seed(int(seed))
@@ -192,10 +215,16 @@ def build_forced_tokens(model, steps: int, seed: int, batch_size: int = 1) -> to
 
 
 @torch.no_grad()
-def _encode_audio_frames_with_mimi(mimi, wav_path: Path, max_steps: int) -> list[torch.Tensor]:
+def _encode_audio_frames_with_mimi(
+    mimi,
+    wav_path: Path,
+    max_steps: int,
+    *,
+    pad_audio: bool = False,
+) -> list[torch.Tensor]:
     frame_size = int(mimi.sample_rate / mimi.frame_rate)
     sample_pcm = load_audio(str(wav_path), mimi.sample_rate)
-    samples = _iterate_audio(sample_pcm, frame_size, max_len=max_steps, pad=True)
+    samples = _iterate_audio(sample_pcm, frame_size, max_len=max_steps, pad=bool(pad_audio))
     encoded_iter = encode_from_sphn(mimi, samples, max_batch=1)
 
     frames = []
@@ -222,6 +251,11 @@ def build_real_forced_tokens(
     mimi_weight: str,
     tokenizer_path: str,
     voice_ratio: float,
+    high_density_ls: bool,
+    dataset_dir: str,
+    min_keep_rows: int,
+    max_audio_files: int,
+    allow_audio_reuse: bool,
 ) -> torch.Tensor:
     if spm is None:
         raise RuntimeError(
@@ -249,7 +283,8 @@ def build_real_forced_tokens(
 
     print(
         "[INFO] Building real-token LS stream: "
-        f"input_wav={in_wav_path} voice_prompt_wav={voice_wav_path}"
+        f"input_wav={in_wav_path} voice_prompt_wav={voice_wav_path} "
+        f"high_density={bool(high_density_ls)}"
     )
     print(f"[INFO] Loading Mimi for LS token extraction: {mimi_path}")
 
@@ -260,16 +295,77 @@ def build_real_forced_tokens(
 
     tokenizer = spm.SentencePieceProcessor(str(tok_path))
 
+    base_audio_paths: list[Path] = []
+    if voice_wav_path is not None:
+        base_audio_paths.append(voice_wav_path)
+    base_audio_paths.append(in_wav_path)
+
+    dense_audio_paths: list[Path] = []
+    if bool(high_density_ls):
+        all_dense = collect_audio_files(root, dataset_dir, max_files=int(max_audio_files))
+        excluded = {p.resolve() for p in base_audio_paths}
+        dense_audio_paths = [p for p in all_dense if p.resolve() not in excluded]
+        print(
+            "[INFO] High-density LS audio pool: "
+            f"dataset_dir={resolve_local_path(root, dataset_dir)} total_files={len(all_dense)} "
+            f"usable_files={len(dense_audio_paths)}"
+        )
+
+    target_steps = int(steps)
+    if bool(high_density_ls):
+        target_steps = max(target_steps, int(min_keep_rows))
+
     audio_frames: list[torch.Tensor] = []
     try:
-        if voice_wav_path is not None and steps > 1:
-            voice_steps = int(round(float(voice_ratio) * float(steps)))
-            voice_steps = max(1, min(voice_steps, steps - 1))
-            input_steps = max(1, steps - voice_steps)
-            audio_frames.extend(_encode_audio_frames_with_mimi(mimi, voice_wav_path, voice_steps))
-            audio_frames.extend(_encode_audio_frames_with_mimi(mimi, in_wav_path, input_steps))
+        if not bool(high_density_ls):
+            if voice_wav_path is not None and target_steps > 1:
+                voice_steps = int(round(float(voice_ratio) * float(target_steps)))
+                voice_steps = max(1, min(voice_steps, target_steps - 1))
+                input_steps = max(1, target_steps - voice_steps)
+                audio_frames.extend(
+                    _encode_audio_frames_with_mimi(mimi, voice_wav_path, voice_steps, pad_audio=False)
+                )
+                audio_frames.extend(
+                    _encode_audio_frames_with_mimi(mimi, in_wav_path, input_steps, pad_audio=False)
+                )
+            else:
+                audio_frames.extend(_encode_audio_frames_with_mimi(mimi, in_wav_path, target_steps, pad_audio=False))
         else:
-            audio_frames.extend(_encode_audio_frames_with_mimi(mimi, in_wav_path, steps))
+            ordered_paths = list(base_audio_paths)
+            ordered_paths.extend(dense_audio_paths)
+            if not ordered_paths:
+                raise RuntimeError("High-density LS requested but no audio paths are available")
+
+            pass_idx = 0
+            while len(audio_frames) < target_steps:
+                before = len(audio_frames)
+                for wav_path in ordered_paths:
+                    if len(audio_frames) >= target_steps:
+                        break
+                    remaining = target_steps - len(audio_frames)
+                    encoded = _encode_audio_frames_with_mimi(mimi, wav_path, remaining, pad_audio=False)
+                    if encoded:
+                        audio_frames.extend(encoded)
+
+                pass_idx += 1
+                if len(audio_frames) >= target_steps:
+                    break
+                if len(audio_frames) == before:
+                    break
+                if not bool(allow_audio_reuse):
+                    break
+
+            if audio_frames and len(audio_frames) < target_steps:
+                base_frames = list(audio_frames)
+                idx = 0
+                while len(audio_frames) < target_steps:
+                    audio_frames.append(base_frames[idx % len(base_frames)])
+                    idx += 1
+
+            print(
+                "[INFO] High-density LS stream coverage: "
+                f"target_steps={target_steps} built_frames={len(audio_frames)} passes={pass_idx}"
+            )
     finally:
         del mimi
         if torch.cuda.is_available():
@@ -333,7 +429,10 @@ def fit_output_projection_least_squares(
     audio_pad_token: int | None = None,
     center_before_solve: bool = True,
     calibrate_gain: bool = True,
+    gain_mode: str = "scalar",
+    gain_clamp_max: float = 0.0,
     apply_bias_correction: bool = True,
+    rank1_mean_shift: bool = True,
 ) -> int:
     out_norm = getattr(src_model, "out_norm", None)
     out_proj = getattr(getattr(tgt_model, "transformer", None), "output_proj", None)
@@ -368,6 +467,7 @@ def fit_output_projection_least_squares(
     gram_zz = torch.zeros((d_new, d_new), device=accum_device, dtype=torch.float32)
     gram_xz = torch.zeros((d_old, d_new), device=accum_device, dtype=torch.float32)
     sum_x = torch.zeros((d_old,), device=accum_device, dtype=torch.float32)
+    sum_x2 = torch.zeros((d_old,), device=accum_device, dtype=torch.float32)
     sum_z = torch.zeros((d_new,), device=accum_device, dtype=torch.float32)
     sum_x_sq = 0.0
     total_rows = 0
@@ -459,6 +559,30 @@ def fit_output_projection_least_squares(
     progress_interval = max(1, total_steps // 16)
     t_start = time.perf_counter()
 
+    def map_step_mask(step_mask: torch.Tensor, n_rows: int, expected_batch: int, out_device: torch.device) -> torch.Tensor:
+        step_mask = step_mask.detach().to(dtype=torch.bool, device="cpu").view(-1)
+        b = int(step_mask.numel())
+        if n_rows <= 0:
+            return torch.zeros((0,), dtype=torch.bool, device=out_device)
+
+        if b == n_rows:
+            return step_mask.to(device=out_device)
+        if b > 0 and n_rows % b == 0:
+            return step_mask.repeat_interleave(n_rows // b).to(device=out_device)
+        if b > 0 and b % n_rows == 0:
+            group = b // n_rows
+            return step_mask.view(n_rows, group).any(dim=1).to(device=out_device)
+        if n_rows == 1:
+            return torch.tensor([bool(step_mask.any().item())], dtype=torch.bool, device=out_device)
+
+        keep_ratio = float(step_mask.float().mean().item()) if b > 0 else 0.0
+        keep_n = int(round(keep_ratio * float(n_rows)))
+        keep_n = max(0, min(n_rows, keep_n))
+        out = torch.zeros((n_rows,), dtype=torch.bool, device=out_device)
+        if keep_n > 0:
+            out[:keep_n] = True
+        return out
+
     try:
         with src_model.streaming(batch_size=int(batch_size)), tgt_model.streaming(batch_size=int(batch_size)):
             for t in range(total_steps):
@@ -488,26 +612,18 @@ def fit_output_projection_least_squares(
                 if n <= 0:
                     continue
 
+                x = x[:n]
+                z = z[:n]
+                total_rows += n
+
                 if speech_keep_mask is not None:
-                    step_mask = speech_keep_mask[t]
-                    n = min(n, int(step_mask.shape[0]))
-                    if n <= 0:
-                        continue
-                    x = x[:n]
-                    z = z[:n]
-                    total_rows += n
-                    step_mask = step_mask[:n]
-                    step_mask = step_mask.to(device=x.device, dtype=torch.bool)
-                    keep_n = int(step_mask.sum().item())
+                    row_mask = map_step_mask(speech_keep_mask[t], n, int(batch_size), x.device)
+                    keep_n = int(row_mask.sum().item())
                     masked_rows += n - keep_n
                     if keep_n <= 0:
                         continue
-                    x = x[step_mask]
-                    z = z[step_mask]
-                else:
-                    x = x[:n]
-                    z = z[:n]
-                    total_rows += n
+                    x = x[row_mask]
+                    z = z[row_mask]
 
                 if x.device != accum_device:
                     x = x.to(accum_device, non_blocking=True)
@@ -516,6 +632,7 @@ def fit_output_projection_least_squares(
                 gram_zz.add_(z.T @ z)
                 gram_xz.add_(x.T @ z)
                 sum_x.add_(x.sum(dim=0))
+                sum_x2.add_((x * x).sum(dim=0))
                 sum_z.add_(z.sum(dim=0))
                 sum_x_sq += float((x * x).sum().item())
                 sample_count += int(x.shape[0])
@@ -556,17 +673,45 @@ def fit_output_projection_least_squares(
     solved_t = torch.linalg.solve(solve_zz + reg * eye, solve_xz.T)
     fitted_w = solved_t.T.contiguous()
 
+    gm = str(gain_mode).strip().lower()
+    if not calibrate_gain:
+        gm = "none"
+    if gm not in {"none", "scalar", "per_channel"}:
+        raise ValueError(f"Unsupported gain_mode: {gain_mode}")
+
     gamma = 1.0
-    if calibrate_gain:
-        teacher_center_energy = sum_x_sq - float(sample_count) * float(torch.dot(mean_x, mean_x).item())
-        teacher_center_energy = max(teacher_center_energy, 1e-8)
+    gain_vec = None
 
-        student_projected_cov = fitted_w @ gram_zz_centered @ fitted_w.T
-        student_center_energy = float(torch.trace(student_projected_cov).item())
-        student_center_energy = max(student_center_energy, 1e-8)
+    teacher_center_energy = sum_x_sq - float(sample_count) * float(torch.dot(mean_x, mean_x).item())
+    teacher_center_energy = max(teacher_center_energy, 1e-8)
 
+    student_projected_cov = fitted_w @ gram_zz_centered @ fitted_w.T
+    student_center_energy = float(torch.trace(student_projected_cov).item())
+    student_center_energy = max(student_center_energy, 1e-8)
+
+    if gm == "scalar":
         gamma = (teacher_center_energy / student_center_energy) ** 0.5
         fitted_w.mul_(float(gamma))
+    elif gm == "per_channel":
+        teacher_var = (sum_x2 / float(sample_count)) - (mean_x * mean_x)
+        teacher_var = torch.clamp(teacher_var, min=0.0)
+
+        cov_zz = gram_zz_centered / float(max(1, sample_count - 1))
+        cov_zz = 0.5 * (cov_zz + cov_zz.T)
+
+        student_var = torch.sum((fitted_w @ cov_zz) * fitted_w, dim=1)
+        student_var = torch.clamp(student_var, min=0.0)
+
+        std_teacher = torch.sqrt(teacher_var + 1e-8)
+        std_student = torch.sqrt(student_var + 1e-8)
+        gain_vec = std_teacher / torch.clamp_min(std_student, 1e-8)
+
+        if float(gain_clamp_max) > 1.0:
+            clamp_max = float(gain_clamp_max)
+            clamp_min = 1.0 / clamp_max
+            gain_vec = torch.clamp(gain_vec, min=clamp_min, max=clamp_max)
+
+        fitted_w = fitted_w * gain_vec.unsqueeze(1)
 
     fitted_bias = None
     if apply_bias_correction:
@@ -574,6 +719,15 @@ def fit_output_projection_least_squares(
         if isinstance(out_proj_bias, torch.Tensor):
             mean_student_projected = torch.mv(fitted_w, mean_z)
             fitted_bias = mean_x - mean_student_projected
+        elif rank1_mean_shift:
+            mean_student_projected = torch.mv(fitted_w, mean_z)
+            delta_mean = mean_x - mean_student_projected
+            mean_z_norm2 = float(torch.dot(mean_z, mean_z).item())
+            if mean_z_norm2 > 1e-12:
+                # Apply a minimal rank-1 correction so W * mean(z) matches mean(x) without a bias term.
+                fitted_w.add_(torch.outer(delta_mean, mean_z) / mean_z_norm2)
+            else:
+                print("[WARN] Output-proj LS rank-1 mean-shift skipped: mean(z) norm is near zero")
         else:
             print("[WARN] Output-proj LS bias correction requested but output_proj has no bias parameter")
 
@@ -596,12 +750,16 @@ def fit_output_projection_least_squares(
         else 0.0
     )
     bias_norm = float(torch.linalg.vector_norm(fitted_bias).item()) if fitted_bias is not None else 0.0
+    gain_min = float(gain_vec.min().item()) if gain_vec is not None else gamma
+    gain_max = float(gain_vec.max().item()) if gain_vec is not None else gamma
+    gain_mean = float(gain_vec.mean().item()) if gain_vec is not None else gamma
 
     print(
         "[INFO] Output-proj LS fit applied: "
         f"samples={sample_count} batch={batch_size} ridge={ridge:.2e} "
         f"reg_boost={reg_boost:.3f} effective_reg={reg:.6e} "
-        f"centered={bool(center_before_solve)} gain={gamma:.6f} "
+        f"centered={bool(center_before_solve)} gain_mode={gm} gain={gamma:.6f} "
+        f"gain_min={gain_min:.6f} gain_max={gain_max:.6f} gain_mean={gain_mean:.6f} "
         f"teacher_center_norm={teacher_center_norm:.4f} student_center_norm={student_center_norm:.4f} "
         f"bias_norm={bias_norm:.4f}"
     )
@@ -805,6 +963,53 @@ def main():
         default=True,
         help="If true, apply mean-shift correction via output_proj bias when available.",
     )
+    parser.add_argument(
+        "--high-density-ls",
+        type=parse_bool,
+        default=False,
+        help="If true, build a long multi-file real-token stream for bridge LS calibration.",
+    )
+    parser.add_argument(
+        "--fit-dataset-dir",
+        default="bmo_dataset_clean",
+        help="Dataset directory scanned recursively for high-density LS audio clips.",
+    )
+    parser.add_argument(
+        "--fit-min-keep-rows",
+        type=int,
+        default=20000,
+        help="Minimum active rows targeted by high-density LS mode.",
+    )
+    parser.add_argument(
+        "--fit-max-audio-files",
+        type=int,
+        default=0,
+        help="Maximum number of dataset audio files for high-density LS (0 means all).",
+    )
+    parser.add_argument(
+        "--fit-allow-audio-reuse",
+        type=parse_bool,
+        default=True,
+        help="If true, high-density LS cycles through dataset clips until enough frames are built.",
+    )
+    parser.add_argument(
+        "--fit-per-channel-gain",
+        type=parse_bool,
+        default=False,
+        help="If true, apply diagonal per-output-channel gain instead of a single scalar gain.",
+    )
+    parser.add_argument(
+        "--fit-gain-clamp-max",
+        type=float,
+        default=0.0,
+        help="Optional max absolute gain multiplier for per-channel gain (<=1 disables clamping).",
+    )
+    parser.add_argument(
+        "--fit-rank1-mean-shift",
+        type=parse_bool,
+        default=True,
+        help="If true and output_proj has no bias, apply rank-1 mean-shift correction to weights.",
+    )
     args = parser.parse_args()
 
     if args.device.startswith("cuda") and not torch.cuda.is_available():
@@ -815,6 +1020,12 @@ def main():
         raise ValueError(f"fit-batch-size must be > 0, got {args.fit_batch_size}")
     if float(args.fit_voice_ratio) < 0.0 or float(args.fit_voice_ratio) >= 1.0:
         raise ValueError(f"fit-voice-ratio must be in [0, 1), got {args.fit_voice_ratio}")
+    if int(args.fit_min_keep_rows) <= 0:
+        raise ValueError(f"fit-min-keep-rows must be > 0, got {args.fit_min_keep_rows}")
+    if int(args.fit_max_audio_files) < 0:
+        raise ValueError(f"fit-max-audio-files must be >= 0, got {args.fit_max_audio_files}")
+    if float(args.fit_gain_clamp_max) < 0.0:
+        raise ValueError(f"fit-gain-clamp-max must be >= 0, got {args.fit_gain_clamp_max}")
 
     torch_dtype = parse_dtype(args.dtype)
     work_device = torch.device(args.device)
@@ -853,8 +1064,8 @@ def main():
         raise ValueError(f"dim={d_old} must be divisible by num_heads={orig_num_heads}")
     orig_head_dim = d_old // orig_num_heads
     d_new = int(args.d_new)
-    if d_new <= 0 or d_new >= d_old:
-        raise ValueError(f"d_new must be in (0, {d_old}), got {d_new}")
+    if d_new <= 0 or d_new > d_old:
+        raise ValueError(f"d_new must be in (0, {d_old}], got {d_new}")
     if args.headwise_q_basis and d_new % orig_num_heads != 0:
         raise ValueError(
             f"d_new={d_new} must be divisible by num_heads={orig_num_heads} when --headwise-q-basis is enabled"
@@ -983,9 +1194,21 @@ def main():
             headwise_q_basis=bool(args.headwise_q_basis),
         )
 
+    identity_rotation_mode = d_new == d_old
+
     with torch.no_grad():
         tgt_model.transformer.input_proj.weight.copy_(q_in.T.detach().cpu().to(tgt_model.transformer.input_proj.weight.dtype))
-        tgt_model.transformer.output_proj.weight.copy_(q_out.detach().cpu().to(tgt_model.transformer.output_proj.weight.dtype))
+        if identity_rotation_mode:
+            # Full-width rotation sanity mode: keep the bridge as an exact transpose map.
+            q_final_t = q_out.T.contiguous()
+            tgt_model.transformer.output_proj.weight.copy_(
+                q_final_t.detach().cpu().to(tgt_model.transformer.output_proj.weight.dtype)
+            )
+            print("[INFO] Full-width identity mode: output bridge set analytically to Q_final^T")
+        else:
+            tgt_model.transformer.output_proj.weight.copy_(
+                q_out.detach().cpu().to(tgt_model.transformer.output_proj.weight.dtype)
+            )
 
     src_layers = src_model.transformer.layers
     tgt_layers = tgt_model.transformer.layers
@@ -1093,45 +1316,75 @@ def main():
                 dst_lin_out.cpu().to(dst_layer.gating.linear_out.weight.dtype)
             )
 
-    if args.fit_output_proj_ls:
-        fit_forced_tokens = None
-        if args.fit_token_source == "real":
-            fit_forced_tokens = build_real_forced_tokens(
-                src_model,
-                root=root,
-                steps=int(args.fit_steps),
-                batch_size=int(args.fit_batch_size),
-                extract_device=work_device,
-                input_wav=args.fit_input_wav,
-                voice_prompt_wav=args.fit_voice_prompt_wav,
-                text_prompt=args.fit_text_prompt,
-                mimi_weight=args.fit_mimi_weight,
-                tokenizer_path=args.fit_tokenizer,
-                voice_ratio=float(args.fit_voice_ratio),
-            )
+    fit_steps_effective = int(args.fit_steps)
 
-        print(
-            "[INFO] Calibrating output projection (bridge) with least squares: "
-            f"steps={args.fit_steps} batch={args.fit_batch_size} "
-            f"seed={args.fit_seed} ridge={args.fit_ridge} token_source={args.fit_token_source} "
-            f"mask_audio_pad={args.fit_mask_audio_pad} center={args.fit_center_solve} "
-            f"gain={args.fit_gain_calibration} bias={args.fit_bias_correction}"
-        )
-        fit_output_projection_least_squares(
-            src_model,
-            tgt_model,
-            steps=int(args.fit_steps),
-            batch_size=int(args.fit_batch_size),
-            seed=int(args.fit_seed),
-            device=work_device,
-            ridge=float(args.fit_ridge),
-            forced_tokens=fit_forced_tokens,
-            mask_audio_pad=bool(args.fit_mask_audio_pad),
-            audio_pad_token=int(src_model.card),
-            center_before_solve=bool(args.fit_center_solve),
-            calibrate_gain=bool(args.fit_gain_calibration),
-            apply_bias_correction=bool(args.fit_bias_correction),
-        )
+    if args.fit_output_proj_ls:
+        if identity_rotation_mode:
+            print("[INFO] Skipping output-proj LS fit: d_new equals d_old (identity rotation mode)")
+        else:
+            if bool(args.high_density_ls) and args.fit_token_source != "real":
+                raise ValueError("--high-density-ls requires --fit-token-source real")
+
+            if bool(args.high_density_ls):
+                target_steps = int(args.fit_min_keep_rows) + 256
+                if fit_steps_effective < target_steps:
+                    print(
+                        "[INFO] High-density LS raised fit-steps to satisfy keep-row target: "
+                        f"requested={fit_steps_effective} effective={target_steps}"
+                    )
+                    fit_steps_effective = target_steps
+
+            fit_forced_tokens = None
+            if args.fit_token_source == "real":
+                fit_forced_tokens = build_real_forced_tokens(
+                    src_model,
+                    root=root,
+                    steps=int(fit_steps_effective),
+                    batch_size=int(args.fit_batch_size),
+                    extract_device=work_device,
+                    input_wav=args.fit_input_wav,
+                    voice_prompt_wav=args.fit_voice_prompt_wav,
+                    text_prompt=args.fit_text_prompt,
+                    mimi_weight=args.fit_mimi_weight,
+                    tokenizer_path=args.fit_tokenizer,
+                    voice_ratio=float(args.fit_voice_ratio),
+                    high_density_ls=bool(args.high_density_ls),
+                    dataset_dir=args.fit_dataset_dir,
+                    min_keep_rows=int(args.fit_min_keep_rows),
+                    max_audio_files=int(args.fit_max_audio_files),
+                    allow_audio_reuse=bool(args.fit_allow_audio_reuse),
+                )
+
+            gain_mode = "none"
+            if bool(args.fit_gain_calibration):
+                gain_mode = "per_channel" if (bool(args.fit_per_channel_gain) or bool(args.high_density_ls)) else "scalar"
+
+            print(
+                "[INFO] Calibrating output projection (bridge) with least squares: "
+                f"steps={fit_steps_effective} batch={args.fit_batch_size} "
+                f"seed={args.fit_seed} ridge={args.fit_ridge} token_source={args.fit_token_source} "
+                f"mask_audio_pad={args.fit_mask_audio_pad} center={args.fit_center_solve} "
+                f"gain={args.fit_gain_calibration} gain_mode={gain_mode} bias={args.fit_bias_correction} "
+                f"high_density={args.high_density_ls}"
+            )
+            fit_output_projection_least_squares(
+                src_model,
+                tgt_model,
+                steps=int(fit_steps_effective),
+                batch_size=int(args.fit_batch_size),
+                seed=int(args.fit_seed),
+                device=work_device,
+                ridge=float(args.fit_ridge),
+                forced_tokens=fit_forced_tokens,
+                mask_audio_pad=bool(args.fit_mask_audio_pad),
+                audio_pad_token=int(src_model.card),
+                center_before_solve=bool(args.fit_center_solve),
+                calibrate_gain=bool(args.fit_gain_calibration),
+                gain_mode=gain_mode,
+                gain_clamp_max=float(args.fit_gain_clamp_max),
+                apply_bias_correction=bool(args.fit_bias_correction),
+                rank1_mean_shift=bool(args.fit_rank1_mean_shift),
+            )
 
     export_sd = {}
     for key, value in tgt_model.state_dict().items():
@@ -1170,7 +1423,8 @@ def main():
             "preserve_head_dim": bool(args.preserve_head_dim),
             "inner_num_heads": inner_num_heads,
             "fit_output_proj_ls": bool(args.fit_output_proj_ls),
-            "fit_steps": int(args.fit_steps),
+            "fit_steps": int(fit_steps_effective),
+            "fit_steps_requested": int(args.fit_steps),
             "fit_batch_size": int(args.fit_batch_size),
             "fit_seed": int(args.fit_seed),
             "fit_ridge": float(args.fit_ridge),
@@ -1184,7 +1438,16 @@ def main():
             "fit_mask_audio_pad": bool(args.fit_mask_audio_pad),
             "fit_center_solve": bool(args.fit_center_solve),
             "fit_gain_calibration": bool(args.fit_gain_calibration),
+            "fit_per_channel_gain": bool(args.fit_per_channel_gain),
+            "fit_gain_clamp_max": float(args.fit_gain_clamp_max),
             "fit_bias_correction": bool(args.fit_bias_correction),
+            "fit_rank1_mean_shift": bool(args.fit_rank1_mean_shift),
+            "high_density_ls": bool(args.high_density_ls),
+            "fit_dataset_dir": args.fit_dataset_dir,
+            "fit_min_keep_rows": int(args.fit_min_keep_rows),
+            "fit_max_audio_files": int(args.fit_max_audio_files),
+            "fit_allow_audio_reuse": bool(args.fit_allow_audio_reuse),
+            "identity_rotation_mode": bool(identity_rotation_mode),
         },
     }
 
