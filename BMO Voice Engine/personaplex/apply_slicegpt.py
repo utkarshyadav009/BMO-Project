@@ -1196,6 +1196,12 @@ def main():
             headwise_q_basis=bool(args.headwise_q_basis),
         )
 
+    if identity_rotation_mode:
+        # Full-width sanity gate must decode with the same basis used by input projection.
+        q_out = q_in
+        if not bool(args.global_q_bridge_out):
+            print("[INFO] Full-width identity mode: forcing bridge-out basis to match bridge-in basis")
+
     if not hasattr(tgt_model.transformer, "input_proj") or not hasattr(tgt_model.transformer, "output_proj"):
         raise RuntimeError(
             "Target transformer is missing input/output projection bridges. "
@@ -1205,12 +1211,11 @@ def main():
     with torch.no_grad():
         tgt_model.transformer.input_proj.weight.copy_(q_in.T.detach().cpu().to(tgt_model.transformer.input_proj.weight.dtype))
         if identity_rotation_mode:
-            # Full-width rotation sanity mode: keep the bridge as an exact transpose map.
-            q_final_t = q_out.T.contiguous()
+            # Linear uses y = x @ W^T, so decode with W=Q to realize y = z @ Q^T.
             tgt_model.transformer.output_proj.weight.copy_(
-                q_final_t.detach().cpu().to(tgt_model.transformer.output_proj.weight.dtype)
+                q_out.detach().cpu().to(tgt_model.transformer.output_proj.weight.dtype)
             )
-            print("[INFO] Full-width identity mode: output bridge set analytically to Q_final^T")
+            print("[INFO] Full-width identity mode: output bridge set analytically to Q_final")
         else:
             tgt_model.transformer.output_proj.weight.copy_(
                 q_out.detach().cpu().to(tgt_model.transformer.output_proj.weight.dtype)
