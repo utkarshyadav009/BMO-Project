@@ -306,6 +306,7 @@ class LMModel(StreamingContainer):
         existing_text_padding_id: Optional[int] = None,
         temporal_inner_dim: Optional[int] = None,
         temporal_dim_feedforward: Optional[int] = None,
+        force_temporal_projected: bool = False,
         context: Optional[int] = None,
         device=None,
         dtype=None,
@@ -345,7 +346,7 @@ class LMModel(StreamingContainer):
         main_kwargs = {
             k: v for k, v in kwargs.items() if not k.startswith(depformer_prefix)
         }
-        if temporal_inner_dim is not None and temporal_inner_dim != dim:
+        if temporal_inner_dim is not None and (force_temporal_projected or temporal_inner_dim != dim):
             temporal_ff = temporal_dim_feedforward
             if temporal_ff is None:
                 temporal_ff = int(hidden_scale * dim)

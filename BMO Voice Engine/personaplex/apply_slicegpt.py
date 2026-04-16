@@ -1090,6 +1090,7 @@ def main():
         )
 
     num_layers = len(src_model.transformer.layers)
+    identity_rotation_mode = d_new == d_old
 
     # Preserve original gating hidden width for easier weight transfer.
     hidden_old = int(src_model.transformer.layers[0].gating.linear_out.weight.shape[1])
@@ -1104,6 +1105,7 @@ def main():
     cfg_override["temporal_inner_dim"] = d_new
     cfg_override["temporal_dim_feedforward"] = temporal_dim_feedforward
     cfg_override["num_heads"] = inner_num_heads
+    cfg_override["force_temporal_projected"] = bool(identity_rotation_mode)
 
     print(
         "[INFO] Building compressed target architecture: "
@@ -1194,7 +1196,11 @@ def main():
             headwise_q_basis=bool(args.headwise_q_basis),
         )
 
-    identity_rotation_mode = d_new == d_old
+    if not hasattr(tgt_model.transformer, "input_proj") or not hasattr(tgt_model.transformer, "output_proj"):
+        raise RuntimeError(
+            "Target transformer is missing input/output projection bridges. "
+            "Enable force_temporal_projected in LMModel config for full-width sanity mode."
+        )
 
     with torch.no_grad():
         tgt_model.transformer.input_proj.weight.copy_(q_in.T.detach().cpu().to(tgt_model.transformer.input_proj.weight.dtype))
