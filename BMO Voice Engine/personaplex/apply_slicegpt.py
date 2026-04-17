@@ -26,6 +26,15 @@ def parse_dtype(name: str) -> torch.dtype:
     raise ValueError(f"Unsupported dtype: {name}")
 
 
+def parse_compute_dtype(name: str) -> torch.dtype:
+    lowered = str(name).strip().lower()
+    if lowered == "float32":
+        return torch.float32
+    if lowered == "float64":
+        return torch.float64
+    raise ValueError(f"Unsupported compute dtype: {name}")
+
+
 def parse_bool(value):
     if isinstance(value, bool):
         return value
@@ -55,6 +64,7 @@ def build_headwise_q_matrix(
     d_new: int,
     num_heads: int,
     device: torch.device,
+    compute_dtype: torch.dtype,
 ) -> torch.Tensor:
     if d_old % num_heads != 0:
         raise ValueError(f"d_old={d_old} must be divisible by num_heads={num_heads}")
@@ -66,8 +76,8 @@ def build_headwise_q_matrix(
     head_old = d_old // num_heads
     head_new = d_new // num_heads
 
-    q_full = q_full.to(device=device, dtype=torch.float32)
-    eigvals = eigvals.to(device=device, dtype=torch.float32).view(-1)
+    q_full = q_full.to(device=device, dtype=compute_dtype)
+    eigvals = eigvals.to(device=device, dtype=compute_dtype).view(-1)
     if eigvals.shape[0] != q_full.shape[1]:
         raise ValueError(
             f"eigenvalue count mismatch: expected {q_full.shape[1]}, got {eigvals.shape[0]}"
@@ -75,7 +85,7 @@ def build_headwise_q_matrix(
 
     # Reconstruct per-head covariance blocks from Q * sqrt(lambda) without building full covariance.
     weighted = q_full * torch.sqrt(torch.clamp_min(eigvals, 0.0)).unsqueeze(0)
-    q_head = torch.zeros((d_old, d_new), device=device, dtype=torch.float32)
+    q_head = torch.zeros((d_old, d_new), device=device, dtype=compute_dtype)
     for h in range(num_heads):
         r0 = h * head_old
         r1 = r0 + head_old
@@ -100,6 +110,7 @@ def load_q_matrix(
     *,
     num_heads: int,
     headwise_q_basis: bool,
+    compute_dtype: torch.dtype,
 ) -> torch.Tensor:
     key, entry = get_eigenspectrum_entry(eig_payload, layer_idx, norm_name)
 
@@ -114,17 +125,25 @@ def load_q_matrix(
         raise ValueError(f"Q matrix too narrow for requested d_new={d_new} at {key}")
 
     if not headwise_q_basis:
-        return q[:, :d_new].to(device=device, dtype=torch.float32)
+        return q[:, :d_new].to(device=device, dtype=compute_dtype)
 
     eigvals = entry.get("eigenvalues")
     if not torch.is_tensor(eigvals):
         raise TypeError(f"Missing eigenvalues for headwise basis at {key}")
 
-    return build_headwise_q_matrix(q, eigvals, d_old, d_new, num_heads, device)
+    return build_headwise_q_matrix(
+        q,
+        eigvals,
+        d_old,
+        d_new,
+        num_heads,
+        device,
+        compute_dtype,
+    )
 
 
 def compress_norm_alpha(alpha: torch.Tensor, qk: torch.Tensor) -> torch.Tensor:
-    a = alpha.detach().float().view(-1)
+    a = alpha.detach().to(device=qk.device, dtype=qk.dtype).view(-1)
     # Best diagonal fit in compressed basis for diag(alpha) @ Qk.
     projected = a.unsqueeze(1) * qk
     out = torch.linalg.vector_norm(projected, dim=0)
@@ -766,11 +785,16 @@ def fit_output_projection_least_squares(
     return sample_count
 
 
-def get_rms_alpha_or_ones(norm_module, d_old: int, device: torch.device) -> torch.Tensor:
+def get_rms_alpha_or_ones(
+    norm_module,
+    d_old: int,
+    device: torch.device,
+    compute_dtype: torch.dtype,
+) -> torch.Tensor:
     alpha = getattr(norm_module, "alpha", None)
     if isinstance(alpha, torch.Tensor):
-        return alpha.detach().to(device=device, dtype=torch.float32).view(-1)
-    return torch.ones((d_old,), device=device, dtype=torch.float32)
+        return alpha.detach().to(device=device, dtype=compute_dtype).view(-1)
+    return torch.ones((d_old,), device=device, dtype=compute_dtype)
 
 
 def set_norm_alpha_one_if_present(norm_module):
@@ -788,11 +812,14 @@ def rotate_attention_with_basis(
     alpha_scale_for_weights: float,
     *,
     rope_safe_quarot: bool,
+    rope_safe_v_mode: str = "one-sided",
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Rotate attention weights into the compressed basis.
 
-    In RoPE-safe identity mode, in-proj is input-side-only and out-proj is
-    output-side-only so RoPE acts on native q/k coordinates.
+    In RoPE-safe identity mode, q/k are input-side-only so RoPE acts on native
+    q/k coordinates. Value/output branch can be either:
+    - one-sided: v input-side-only, out output-side-only
+    - two-sided: v/out both-sided conjugation in rotated space
     """
     w_q = src_in_blocks[0] * alpha.unsqueeze(0) * alpha_scale_for_weights
     w_k = src_in_blocks[1] * alpha.unsqueeze(0) * alpha_scale_for_weights
@@ -804,14 +831,24 @@ def rotate_attention_with_basis(
                 "RoPE-safe QuaRot mode requires square basis (identity mode): "
                 f"got q shape={tuple(q_basis.shape)}"
             )
+        v_mode = str(rope_safe_v_mode).strip().lower()
+        if v_mode not in {"one-sided", "two-sided"}:
+            raise ValueError(
+                "Invalid rope_safe_v_mode: "
+                f"{rope_safe_v_mode}. Expected one of ['one-sided', 'two-sided']"
+            )
         # Input-side-only fusion for q/k/v so attention projections consume rotated residual
-        # but produce native attention channels where RoPE is defined.
+        # but produce native q/k channels where RoPE is defined.
         dst_q = w_q @ q_basis
         dst_k = w_k @ q_basis
-        dst_v = w_v @ q_basis
+        if v_mode == "two-sided":
+            dst_v = q_basis.T @ w_v @ q_basis
+            dst_out_proj = q_basis.T @ src_out_proj @ q_basis
+        else:
+            dst_v = w_v @ q_basis
+            # Output-side-only projection maps native attention output back to rotated residual basis.
+            dst_out_proj = q_basis.T @ src_out_proj
         dst_in_proj = torch.cat([dst_q, dst_k, dst_v], dim=0)
-        # Output-side-only projection maps native attention output back to rotated residual basis.
-        dst_out_proj = q_basis.T @ src_out_proj
         return dst_in_proj, dst_out_proj
 
     dst_q = q_basis.T @ w_q @ q_basis
@@ -889,6 +926,25 @@ def main():
             "RoPE handling for attention rotations: none uses dense Q conjugation, "
             "auto enables QuaRot fusion in identity mode only, quarot forces QuaRot fusion "
             "(requires d_new == d_old)."
+        ),
+    )
+    parser.add_argument(
+        "--rope-safe-v-mode",
+        choices=["one-sided", "two-sided"],
+        default="one-sided",
+        help=(
+            "Value/output transform mode when --attn-rope-mode enables RoPE-safe path: "
+            "one-sided uses v=input-side and out=output-side; two-sided uses both-sided "
+            "conjugation for v/out."
+        ),
+    )
+    parser.add_argument(
+        "--rotation-math-dtype",
+        choices=["float32", "float64"],
+        default="float32",
+        help=(
+            "Compute dtype used for SliceGPT basis/weight rotation math before final checkpoint cast. "
+            "Use float64 to reduce numerical drift in identity diagnostics."
         ),
     )
     parser.add_argument(
@@ -1145,6 +1201,8 @@ def main():
     identity_rotation_mode = d_new == d_old
 
     attn_rope_mode = str(args.attn_rope_mode).strip().lower()
+    rope_safe_v_mode = str(args.rope_safe_v_mode).strip().lower()
+    rotation_math_dtype = parse_compute_dtype(args.rotation_math_dtype)
     use_rope_safe_quarot = False
     if attn_rope_mode == "quarot":
         if not identity_rotation_mode:
@@ -1158,8 +1216,10 @@ def main():
 
     print(
         "[INFO] Attention RoPE mode: "
-        f"mode={attn_rope_mode} quarot_active={bool(use_rope_safe_quarot)}"
+        f"mode={attn_rope_mode} quarot_active={bool(use_rope_safe_quarot)} "
+        f"rope_safe_v_mode={rope_safe_v_mode}"
     )
+    print(f"[INFO] Rotation math dtype: {str(rotation_math_dtype).replace('torch.', '')}")
 
     # Preserve original gating hidden width for easier weight transfer.
     hidden_old = int(src_model.transformer.layers[0].gating.linear_out.weight.shape[1])
@@ -1226,6 +1286,7 @@ def main():
             work_device,
             num_heads=orig_num_heads,
             headwise_q_basis=bool(args.headwise_q_basis),
+            compute_dtype=rotation_math_dtype,
         )
 
     if q_global is not None:
@@ -1242,6 +1303,7 @@ def main():
                 work_device,
                 num_heads=orig_num_heads,
                 headwise_q_basis=bool(args.headwise_q_basis),
+                compute_dtype=rotation_math_dtype,
             )
     else:
         q_in = load_q_matrix(
@@ -1253,6 +1315,7 @@ def main():
             work_device,
             num_heads=orig_num_heads,
             headwise_q_basis=bool(args.headwise_q_basis),
+            compute_dtype=rotation_math_dtype,
         )
         q_out = load_q_matrix(
             eig_payload,
@@ -1263,6 +1326,7 @@ def main():
             work_device,
             num_heads=orig_num_heads,
             headwise_q_basis=bool(args.headwise_q_basis),
+            compute_dtype=rotation_math_dtype,
         )
 
     if identity_rotation_mode:
@@ -1270,6 +1334,9 @@ def main():
         q_out = q_in
         if not bool(args.global_q_bridge_out):
             print("[INFO] Full-width identity mode: forcing bridge-out basis to match bridge-in basis")
+
+    q_in = q_in.to(device=work_device, dtype=rotation_math_dtype)
+    q_out = q_out.to(device=work_device, dtype=rotation_math_dtype)
 
     if not hasattr(tgt_model.transformer, "input_proj") or not hasattr(tgt_model.transformer, "output_proj"):
         raise RuntimeError(
@@ -1311,6 +1378,7 @@ def main():
                     work_device,
                     num_heads=orig_num_heads,
                     headwise_q_basis=bool(args.headwise_q_basis),
+                    compute_dtype=rotation_math_dtype,
                 )
                 q1 = q_layer
                 q2 = q_layer
@@ -1324,6 +1392,7 @@ def main():
                 work_device,
                 num_heads=orig_num_heads,
                 headwise_q_basis=bool(args.headwise_q_basis),
+                compute_dtype=rotation_math_dtype,
             )
             q2 = load_q_matrix(
                 eig_payload,
@@ -1334,6 +1403,7 @@ def main():
                 work_device,
                 num_heads=orig_num_heads,
                 headwise_q_basis=bool(args.headwise_q_basis),
+                compute_dtype=rotation_math_dtype,
             )
 
         src_layer = src_layers[i]
@@ -1342,14 +1412,24 @@ def main():
 
         with torch.no_grad():
             if args.absorb_rms_alpha:
-                alpha1 = get_rms_alpha_or_ones(src_layer.norm1, d_old, work_device)
-                alpha2 = get_rms_alpha_or_ones(src_layer.norm2, d_old, work_device)
+                alpha1 = get_rms_alpha_or_ones(
+                    src_layer.norm1,
+                    d_old,
+                    work_device,
+                    rotation_math_dtype,
+                )
+                alpha2 = get_rms_alpha_or_ones(
+                    src_layer.norm2,
+                    d_old,
+                    work_device,
+                    rotation_math_dtype,
+                )
                 set_norm_alpha_one_if_present(dst_layer.norm1)
                 set_norm_alpha_one_if_present(dst_layer.norm2)
                 alpha_scale_for_weights = norm_dim_scale if args.rms_dim_compensation else 1.0
             else:
-                alpha1 = torch.ones((d_old,), device=work_device, dtype=torch.float32)
-                alpha2 = torch.ones((d_old,), device=work_device, dtype=torch.float32)
+                alpha1 = torch.ones((d_old,), device=work_device, dtype=rotation_math_dtype)
+                alpha2 = torch.ones((d_old,), device=work_device, dtype=rotation_math_dtype)
                 alpha_scale_for_weights = 1.0
                 alpha_scale_for_norm = (float(d_new) / float(d_old)) ** 0.5 if args.rms_dim_compensation else 1.0
                 if hasattr(src_layer.norm1, "alpha") and hasattr(dst_layer.norm1, "alpha"):
@@ -1360,11 +1440,17 @@ def main():
                     dst_layer.norm2.alpha.copy_((a2 * alpha_scale_for_norm).cpu().to(dst_layer.norm2.alpha.dtype))
 
             # Attention in-proj: 3 blocks of [D, D] -> [3*d_new, d_new].
-            src_in_proj = src_layer.self_attn.in_proj_weight.detach().to(device=work_device, dtype=torch.float32)
+            src_in_proj = src_layer.self_attn.in_proj_weight.detach().to(
+                device=work_device,
+                dtype=rotation_math_dtype,
+            )
             src_in_blocks = src_in_proj.view(3, d_old, d_old)
 
             # Attention out-proj: [D, D] -> [d_new, d_new].
-            src_out_proj = src_layer.self_attn.out_proj.weight.detach().to(device=work_device, dtype=torch.float32)
+            src_out_proj = src_layer.self_attn.out_proj.weight.detach().to(
+                device=work_device,
+                dtype=rotation_math_dtype,
+            )
 
             dst_in_proj, dst_out_proj = rotate_attention_with_basis(
                 src_in_blocks,
@@ -1373,6 +1459,7 @@ def main():
                 alpha1,
                 alpha_scale_for_weights,
                 rope_safe_quarot=bool(use_rope_safe_quarot),
+                rope_safe_v_mode=rope_safe_v_mode,
             )
 
             if i == 0 and bool(use_rope_safe_quarot):
@@ -1400,7 +1487,10 @@ def main():
             )
 
             # Gating linear_in: [2H, D] -> [2H, d_new] (preserve hidden width when possible).
-            src_lin_in = src_layer.gating.linear_in.weight.detach().to(device=work_device, dtype=torch.float32)
+            src_lin_in = src_layer.gating.linear_in.weight.detach().to(
+                device=work_device,
+                dtype=rotation_math_dtype,
+            )
             src_lin_in = src_lin_in * alpha2.unsqueeze(0) * alpha_scale_for_weights
             dst_lin_in = src_lin_in @ q2
             dst_lin_in = pad_or_trim_rows(dst_lin_in, dst_layer.gating.linear_in.weight.shape[0])
@@ -1409,7 +1499,10 @@ def main():
             )
 
             # Gating linear_out: [D, H] -> [d_new, H].
-            src_lin_out = src_layer.gating.linear_out.weight.detach().to(device=work_device, dtype=torch.float32)
+            src_lin_out = src_layer.gating.linear_out.weight.detach().to(
+                device=work_device,
+                dtype=rotation_math_dtype,
+            )
             dst_lin_out = q2.T @ src_lin_out
             dst_lin_out = pad_or_trim_cols(dst_lin_out, dst_layer.gating.linear_out.weight.shape[1])
             dst_layer.gating.linear_out.weight.copy_(
@@ -1520,6 +1613,8 @@ def main():
             "headwise_q_basis": bool(args.headwise_q_basis),
             "attn_rope_mode": attn_rope_mode,
             "attn_rope_quarot_active": bool(use_rope_safe_quarot),
+            "rope_safe_v_mode": rope_safe_v_mode,
+            "rotation_math_dtype": str(rotation_math_dtype).replace("torch.", ""),
             "global_q_bridge_out": bool(args.global_q_bridge_out),
             "rms_dim_compensation": bool(args.rms_dim_compensation),
             "preserve_head_dim": bool(args.preserve_head_dim),
@@ -1568,7 +1663,12 @@ def main():
     print(f"[INFO] Saved SliceGPT checkpoint: {out_path}")
     print(f"[INFO] Temporal bytes (approx): src={src_temporal_gb:.3f} GB -> dst={dst_temporal_gb:.3f} GB")
     if src_temporal_gb > 0:
-        print(f"[INFO] Temporal reduction: {(1.0 - dst_temporal_gb / src_temporal_gb) * 100.0:.2f}%")
+        ratio = dst_temporal_gb / src_temporal_gb
+        delta_pct = (ratio - 1.0) * 100.0
+        if ratio <= 1.0:
+            print(f"[INFO] Temporal reduction: {(1.0 - ratio) * 100.0:.2f}%")
+        else:
+            print(f"[INFO] Temporal growth: {delta_pct:.2f}%")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ BF16_CKPT="${BF16_CKPT:-v5_step1500.safetensors}"
 EIGENVECTORS="${EIGENVECTORS:-bmo_slicegpt_eigenvectors.pt}"
 CONFIG="${CONFIG:-bmo_config.json}"
 OUT_CKPT="${OUT_CKPT:-bmo_slicegpt_4096_identity_fp32.pt}"
+ROPE_SAFE_V_MODE="${ROPE_SAFE_V_MODE:-one-sided}"
+ROTATION_MATH_DTYPE="${ROTATION_MATH_DTYPE:-float32}"
 
 DEVICE_EXPORT="${DEVICE_EXPORT:-cuda:0}"
 DEVICE_EVAL="${DEVICE_EVAL:-cuda}"
@@ -32,6 +34,8 @@ TF64_LOG="fp32_teacher_forced.log"
 echo "[STARTING FP32 IDENTITY DIAGNOSTIC PACK]"
 echo "[INFO] PYTHONPATH=${PYTHONPATH}"
 echo "[INFO] runtime_patch=${RUNTIME_PATCH}"
+echo "[INFO] rope_safe_v_mode=${ROPE_SAFE_V_MODE}"
+echo "[INFO] rotation_math_dtype=${ROTATION_MATH_DTYPE}"
 
 echo "[RUNNING: FP32 IDENTITY EXPORT]"
 python apply_slicegpt.py \
@@ -43,6 +47,8 @@ python apply_slicegpt.py \
   --dtype float32 \
   --device "${DEVICE_EXPORT}" \
   --attn-rope-mode quarot \
+  --rope-safe-v-mode "${ROPE_SAFE_V_MODE}" \
+  --rotation-math-dtype "${ROTATION_MATH_DTYPE}" \
   | tee "${EXPORT_LOG}"
 
 echo "[RUNNING: FP32 STEP-0 STAGE PROBE]"

@@ -21,6 +21,7 @@ def rotate_layer_weights(
     q: torch.Tensor,
     absorb_rms_alpha: bool,
     rope_safe_attn: bool,
+    rope_safe_v_mode: str,
 ):
     d_old = int(q.shape[0])
     if absorb_rms_alpha:
@@ -44,6 +45,7 @@ def rotate_layer_weights(
             alpha1,
             1.0,
             rope_safe_quarot=bool(rope_safe_attn),
+            rope_safe_v_mode=rope_safe_v_mode,
         )
 
         dst_layer.self_attn.in_proj_weight.copy_(
@@ -81,6 +83,12 @@ def main():
         type=parse_bool,
         default=True,
         help="If true, use RoPE-safe one-sided attention transform. If false, use legacy both-sided path.",
+    )
+    parser.add_argument(
+        "--rope-safe-v-mode",
+        choices=["one-sided", "two-sided"],
+        default="one-sided",
+        help="Value/output transform mode used only when --rope-safe-attn is true.",
     )
     args = parser.parse_args()
 
@@ -121,6 +129,7 @@ def main():
         q,
         absorb_rms_alpha=bool(args.absorb_rms_alpha),
         rope_safe_attn=bool(args.rope_safe_attn),
+        rope_safe_v_mode=str(args.rope_safe_v_mode).strip().lower(),
     )
 
     x = torch.randn(
@@ -143,6 +152,7 @@ def main():
 
     print(f"[INFO] layer={args.layer_idx} basis={args.basis_source} absorb_rms_alpha={bool(args.absorb_rms_alpha)}")
     print(f"[INFO] rope_safe_attn={bool(args.rope_safe_attn)}")
+    print(f"[INFO] rope_safe_v_mode={str(args.rope_safe_v_mode).strip().lower()}")
     print(f"[INFO] max_abs={max_abs:.6e} mean_abs={mean_abs:.6e} atol={args.atol} rtol={args.rtol}")
     print(f"[INFO] allclose={ok}")
 

@@ -1,5 +1,6 @@
 import argparse
 import gc
+import os
 from pathlib import Path
 import torch
 import torch.nn as nn
@@ -360,6 +361,19 @@ def run_pair_rollout(
         f"teacher={str(teacher_dt).replace('torch.', '')} "
         f"student={str(student_dt).replace('torch.', '') if student_dt is not None else 'auto'}"
     )
+
+    compact_env = os.environ.get("MOSHI_STREAMING_COMPACT_KV", "<unset>")
+    print(f"[INFO] compact_kv_env={compact_env}")
+
+    teacher_layers = get_temporal_layers(teacher)
+    student_layers = get_temporal_layers(student)
+    if teacher_layers and student_layers:
+        t_attn = getattr(teacher_layers[0], "self_attn", None)
+        s_attn = getattr(student_layers[0], "self_attn", None)
+        t_compact = getattr(t_attn, "compact_kv_cache", None)
+        s_compact = getattr(s_attn, "compact_kv_cache", None)
+        if t_compact is not None and s_compact is not None:
+            print(f"[INFO] compact_kv_layer0: teacher={bool(t_compact)} student={bool(s_compact)}")
 
     if int(teacher.num_codebooks) != int(student.num_codebooks):
         raise RuntimeError(

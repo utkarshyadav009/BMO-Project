@@ -32,6 +32,7 @@ See `StreamingTransformer` for more information.
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+import os
 import typing as tp
 
 from einops import rearrange
@@ -352,6 +353,8 @@ class StreamingMultiheadAttention(StreamingModule[_MHAState]):
         self.context = context
         self.rope = rope
         self.num_heads = num_heads
+        compact_env = os.environ.get("MOSHI_STREAMING_COMPACT_KV", "0").strip().lower()
+        self.compact_kv_cache = compact_env in {"1", "true", "yes", "on"}
 
         out_dim = embed_dim
         out_dim = 3 * embed_dim
@@ -422,7 +425,32 @@ class StreamingMultiheadAttention(StreamingModule[_MHAState]):
         if self.rope:
             q, k = self.rope(q, k, offset, time_before_heads=False)
 
-        k, v, pos_k = self._complete_kv(k, v)
+        prior_cache_len = 0
+        if state is not None and self.compact_kv_cache:
+            prior_cache_len = int(state.kv_cache.end_offset.item())
+
+        kv_res = self._complete_kv(k, v)
+
+        if state is not None and self.compact_kv_cache and prior_cache_len == 0:
+            # First streaming token should be mathematically identical to non-streaming.
+            # Bypass cache read path for this case while still writing k/v into cache above.
+            k, v, pos_k = KVCacheResult.from_kv(k, v)
+        else:
+            k, v, pos_k = kv_res
+            if state is not None and self.compact_kv_cache:
+                valid = pos_k >= 0
+                if bool(valid.any()):
+                    if not bool(valid.all()):
+                        valid_idx = torch.nonzero(valid, as_tuple=False).squeeze(-1)
+                        k = k.index_select(2, valid_idx)
+                        v = v.index_select(2, valid_idx)
+                        pos_k = pos_k.index_select(0, valid_idx)
+                else:
+                    # Keep a minimal valid slot if cache state is unexpectedly empty.
+                    k = k[:, :, :1, :]
+                    v = v[:, :, :1, :]
+                    pos_k = torch.zeros((1,), device=q.device, dtype=torch.long)
+
         if self.causal:
             pos_k = pos_k.view(1, -1)
             pos_q = offset + torch.arange(T, device=q.device, dtype=torch.long).view(
