@@ -11,7 +11,6 @@ try:
 except Exception:
     spm = None
 
-from moshi import offline
 from moshi.models import loaders
 from moshi.models.lm import load_audio, _iterate_audio, encode_from_sphn
 
@@ -36,6 +35,13 @@ def parse_bool(value):
     if lowered in {"0", "false", "no", "n", "off"}:
         return False
     raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+
+def wrap_with_system_tags(text: str) -> str:
+    cleaned = str(text).strip()
+    if cleaned.startswith("<system>") and cleaned.endswith("<system>"):
+        return cleaned
+    return f"<system> {cleaned} <system>"
 
 
 def resolve_local_path(root: Path, value: str) -> Path:
@@ -147,7 +153,7 @@ def build_forced_tokens(
     forced = torch.full((steps, k), audio_pad, dtype=torch.long)
     forced[:, 0] = text_pad
 
-    text_ids = tokenizer.encode(offline.wrap_with_system_tags(text_prompt))
+    text_ids = tokenizer.encode(wrap_with_system_tags(text_prompt))
     for t in range(min(int(steps), len(text_ids))):
         forced[t, 0] = int(text_ids[t])
 
