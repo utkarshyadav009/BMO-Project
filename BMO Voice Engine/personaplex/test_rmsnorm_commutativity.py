@@ -25,8 +25,8 @@ def rotate_layer_weights(
 ):
     d_old = int(q.shape[0])
     if absorb_rms_alpha:
-        alpha1 = get_rms_alpha_or_ones(src_layer.norm1, d_old, q.device)
-        alpha2 = get_rms_alpha_or_ones(src_layer.norm2, d_old, q.device)
+        alpha1 = get_rms_alpha_or_ones(src_layer.norm1, d_old, q.device, q.dtype)
+        alpha2 = get_rms_alpha_or_ones(src_layer.norm2, d_old, q.device, q.dtype)
         set_norm_alpha_one_if_present(dst_layer.norm1)
         set_norm_alpha_one_if_present(dst_layer.norm2)
     else:
@@ -117,6 +117,7 @@ def main():
         device,
         num_heads=num_heads,
         headwise_q_basis=bool(args.headwise_q_basis),
+        compute_dtype=torch.float32,
     ).to(device=device, dtype=torch.float32)
 
     src_layer = model.transformer.layers[int(args.layer_idx)]
