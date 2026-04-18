@@ -11,5 +11,7 @@ unset BMO_ENABLE_RUNTIME_PATCHES
 echo "=== REGRESSION SUITE ==="
 python test_commutativity_regression.py
 python test_identity_regression.py
+echo "--- Running offline audio regression ---"
+python test_offline_regression.py
 echo "=== ALL REGRESSION TESTS PASSED ==="
 
