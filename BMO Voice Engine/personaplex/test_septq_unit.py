@@ -51,6 +51,8 @@ def run_case(
         ratio_p=ratio_p,
         block_size=block_size,
         hessian_damp=hessian_damp,
+        quant_min_range=1e-6,
+        log_per_column_stats=False,
     )
     elapsed = time.perf_counter() - t0
 

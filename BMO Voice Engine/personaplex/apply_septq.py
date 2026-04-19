@@ -354,6 +354,8 @@ def collect_inputs_for_entries(
     entries: List[Dict[str, Any]],
     device: str,
     max_samples: int,
+    collect_progress_every_tokens: int = 0,
+    progress_label: str = "collect_inputs",
 ) -> Dict[str, torch.Tensor]:
     buffers: Dict[str, List[torch.Tensor]] = {e["name"]: [] for e in entries}
     counts: Dict[str, int] = {e["name"]: 0 for e in entries}
@@ -476,12 +478,32 @@ def collect_inputs_for_entries(
         )
         handles.append(hook)
 
+    processed_tokens = 0
+    collect_start = time.perf_counter()
+
     with torch.no_grad():
         for seq in sequences:
             with model.streaming(batch_size=1):
                 for t in range(seq.shape[0]):
                     token = seq[t].view(1, seq.shape[1], 1).to(device=device)
                     model.forward_codes(token)
+                    processed_tokens += 1
+
+                    if (
+                        collect_progress_every_tokens > 0
+                        and processed_tokens % collect_progress_every_tokens == 0
+                    ):
+                        min_count = min(counts.values()) if counts else 0
+                        max_count = max(counts.values()) if counts else 0
+                        elapsed = time.perf_counter() - collect_start
+                        print(
+                            f"[INFO] {progress_label} calibration capture: "
+                            f"tokens={processed_tokens} "
+                            f"min_samples={min_count}/{max_samples} "
+                            f"max_samples={max_count}/{max_samples} "
+                            f"elapsed={elapsed:.1f}s"
+                        )
+
                     if _all_collectors_full(counts, max_samples):
                         break
             if _all_collectors_full(counts, max_samples):
@@ -504,6 +526,7 @@ def quantize_vector_rtn_affine(
     bits: int,
     scale: float | None = None,
     zero_point: float | None = None,
+    min_range: float = 1e-6,
 ) -> tuple[torch.Tensor, float, float]:
     # Eq. (2): affine RTN quantization with scale/zero-point and clipping.
     qmin = 0
@@ -512,12 +535,16 @@ def quantize_vector_rtn_affine(
     if scale is None or zero_point is None:
         w_min = float(w.min().item())
         w_max = float(w.max().item())
-        if w_max - w_min <= 1e-12:
-            return w.clone(), 1.0, 0.0
+        span = w_max - w_min
+        if span <= float(min_range):
+            center = 0.5 * (w_max + w_min)
+            half = 0.5 * float(min_range)
+            w_min = center - half
+            w_max = center + half
 
         inferred_scale = (w_max - w_min) / float(qmax - qmin)
         if inferred_scale <= 0.0:
-            return w.clone(), 1.0, 0.0
+            inferred_scale = float(min_range) / float(max(1, qmax - qmin))
 
         scale = float(inferred_scale)
         zero_point = float(round(-w_min / scale))
@@ -525,7 +552,7 @@ def quantize_vector_rtn_affine(
     scale = float(scale)
     zero_point = float(zero_point)
     if scale <= 0.0:
-        return w.clone(), 1.0, 0.0
+        scale = float(min_range) / float(max(1, qmax - qmin))
 
     zero_point = float(max(qmin, min(qmax, zero_point)))
 
@@ -541,6 +568,7 @@ def find_affine_params_mse(
     grid_steps: int = 64,
     min_shrink: float = 0.20,
     sample_size: int = 262144,
+    min_range: float = 1e-6,
 ) -> tuple[float, float]:
     qmin = 0.0
     qmax = float((1 << bits) - 1)
@@ -559,16 +587,17 @@ def find_affine_params_mse(
 
     max_abs = float(sample.abs().max().item())
     if max_abs <= 0.0:
-        return 1.0, zero_point
+        floor_scale = float(min_range) / float(max(1e-6, half_levels))
+        return floor_scale, zero_point
 
     levels = max(half_levels, 1e-6)
-    best_scale = max_abs / levels
+    best_scale = max(max_abs / levels, float(min_range) / levels)
     best_mse = float("inf")
 
     shrink_values = torch.linspace(1.0, min_shrink, steps=max(2, int(grid_steps)))
     for shrink in shrink_values.tolist():
         clipped_abs = max_abs * float(shrink)
-        scale = clipped_abs / levels
+        scale = max(clipped_abs / levels, float(min_range) / levels)
         if scale <= 0.0:
             continue
         q = torch.clamp(torch.round(sample / scale + zero_point), qmin, qmax)
@@ -596,10 +625,28 @@ def compute_hessian_inverse(
     h = h + damp * torch.eye(h.shape[0], dtype=h.dtype)
 
     if os.environ.get("SEPTQ_LOG_HESSIAN_COND", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        cond_exact = os.environ.get("SEPTQ_HESSIAN_COND_EXACT", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         try:
-            cond = torch.linalg.cond(h)
+            cond_dim = int(os.environ.get("SEPTQ_HESSIAN_COND_DIM", "1024"))
+        except ValueError:
+            cond_dim = 1024
+
+        cond_input = h
+        cond_label = "H"
+        if not cond_exact and cond_dim > 0 and h.shape[0] > cond_dim:
+            idx = torch.linspace(0, h.shape[0] - 1, steps=cond_dim).round().long()
+            cond_input = h.index_select(0, idx).index_select(1, idx)
+            cond_label = f"H_sub(dim={cond_dim},full_dim={h.shape[0]})"
+
+        try:
+            cond = torch.linalg.cond(cond_input)
             log10_cond = float(torch.log10(cond.clamp_min(1e-12)).item())
-            print(f"[DEBUG] log10_cond(H)={log10_cond:.4f}")
+            print(f"[DEBUG] log10_cond({cond_label})={log10_cond:.4f}")
         except RuntimeError as exc:
             print(f"[WARN] Failed to compute Hessian condition number: {exc}")
 
@@ -664,6 +711,8 @@ def septq_quantize_weight(
     ratio_p: float,
     block_size: int,
     hessian_damp: float,
+    quant_min_range: float,
+    log_per_column_stats: bool,
 ) -> tuple[torch.Tensor, Dict[str, float | int]]:
     w = weight.detach().float().cpu().contiguous()
     x = activations.detach().float().cpu().contiguous()
@@ -672,7 +721,11 @@ def septq_quantize_weight(
 
     h_inv, h_inv_chol, damp_used = compute_hessian_inverse(x, hessian_damp=hessian_damp)
 
-    quant_scale, quant_zero_point = find_affine_params_mse(w, bits=bits)
+    quant_scale, quant_zero_point = find_affine_params_mse(
+        w,
+        bits=bits,
+        min_range=quant_min_range,
+    )
 
     w_rtn = torch.empty_like(w)
     for j in range(in_dim):
@@ -681,7 +734,13 @@ def septq_quantize_weight(
             bits,
             scale=quant_scale,
             zero_point=quant_zero_point,
+            min_range=quant_min_range,
         )
+
+    col_ranges = w.max(dim=0).values - w.min(dim=0).values
+    min_col_range = float(col_ranges.min().item()) if col_ranges.numel() > 0 else 0.0
+    col_diff = (w_rtn - w).abs().max(dim=0).values
+    unquantized_cols = int((col_diff <= 1e-12).sum().item())
 
     mask, reserved_elements = build_static_global_mask(
         weight=w,
@@ -706,6 +765,7 @@ def septq_quantize_weight(
                 bits,
                 scale=quant_scale,
                 zero_point=quant_zero_point,
+                min_range=quant_min_range,
             )
 
             m_col = mask[:, j]
@@ -732,7 +792,7 @@ def septq_quantize_weight(
     cos = 1.0 if denom <= 0.0 else float(torch.sum(w * q).item() / denom)
     cos = max(-1.0, min(1.0, cos))
 
-    return q, {
+    out = {
         "mse": mse,
         "cos": cos,
         # Kept for compatibility with downstream logging keys.
@@ -743,7 +803,13 @@ def septq_quantize_weight(
         "hessian_damp": float(damp_used),
         "quant_scale": float(quant_scale),
         "quant_zero_point": float(quant_zero_point),
+        "unquantized_cols": int(unquantized_cols),
+        "min_col_range": float(min_col_range),
     }
+    if log_per_column_stats:
+        out["col_range_median"] = float(col_ranges.median().item()) if col_ranges.numel() > 0 else 0.0
+        out["col_range_max"] = float(col_ranges.max().item()) if col_ranges.numel() > 0 else 0.0
+    return q, out
 
 
 def get_entry_weight_tensor(entry: Dict[str, Any]) -> torch.Tensor:
@@ -789,6 +855,10 @@ def sanitize_layer_stats(layer_stats: List[Dict[str, Any]]) -> List[Dict[str, An
                     "hessian_damp": float(m.get("hessian_damp", 0.0)),
                     "quant_scale": float(m.get("quant_scale", 0.0)),
                     "quant_zero_point": float(m.get("quant_zero_point", 0.0)),
+                    "unquantized_cols": int(m.get("unquantized_cols", 0)),
+                    "min_col_range": float(m.get("min_col_range", 0.0)),
+                    "col_range_median": float(m.get("col_range_median", 0.0)),
+                    "col_range_max": float(m.get("col_range_max", 0.0)),
                     "calibration_samples": int(m.get("calibration_samples", 0)),
                 }
             )
@@ -817,9 +887,26 @@ def main() -> None:
     parser.add_argument("--skip-first-n-temporal", type=int, default=1)
     parser.add_argument("--skip-last-n-temporal", type=int, default=2)
     parser.add_argument("--calibration-clips", required=True)
-    parser.add_argument("--max-clips", type=int, default=64)
+    parser.add_argument("--max-clips", type=int, default=800)
     parser.add_argument("--max-steps-per-clip", type=int, default=750)
     parser.add_argument("--max-calibration-samples", type=int, default=32768)
+    parser.add_argument(
+        "--collect-progress-every-tokens",
+        type=int,
+        default=2048,
+        help="Print calibration capture progress every N processed tokens; 0 disables.",
+    )
+    parser.add_argument(
+        "--quant-min-range",
+        type=float,
+        default=1e-6,
+        help="Minimum value range enforced when deriving affine RTN parameters.",
+    )
+    parser.add_argument(
+        "--log-per-column-stats",
+        action="store_true",
+        help="Log additional per-column range diagnostics for quantization debugging.",
+    )
     parser.add_argument(
         "--no-copy-missing-weights",
         action="store_true",
@@ -840,6 +927,12 @@ def main() -> None:
         sys.exit(1)
     if args.max_calibration_samples <= 0:
         print("[ERROR] --max-calibration-samples must be > 0")
+        sys.exit(1)
+    if args.collect_progress_every_tokens < 0:
+        print("[ERROR] --collect-progress-every-tokens must be >= 0")
+        sys.exit(1)
+    if args.quant_min_range <= 0.0:
+        print("[ERROR] --quant-min-range must be > 0")
         sys.exit(1)
     if args.ratio_p < 0.0 or args.ratio_p > 1.0:
         print("[ERROR] --ratio-p must be in [0, 1]")
@@ -875,6 +968,26 @@ def main() -> None:
     print(f"[INFO] Input checkpoint: {input_path}")
     print(f"[INFO] Output checkpoint: {output_path}")
     print(f"[INFO] bits={args.bits} ratio_p={args.ratio_p} block_size={args.block_size}")
+    print(
+        f"[INFO] max_clips={args.max_clips} max_steps_per_clip={args.max_steps_per_clip} "
+        f"max_calibration_samples={args.max_calibration_samples}"
+    )
+    print(
+        f"[INFO] hessian_damp={args.hessian_damp} quant_min_range={args.quant_min_range} "
+        f"log_per_column_stats={bool(args.log_per_column_stats)}"
+    )
+    print(
+        f"[INFO] collect_progress_every_tokens={args.collect_progress_every_tokens}"
+    )
+    if os.environ.get("SEPTQ_LOG_HESSIAN_COND", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        cond_mode = "exact" if os.environ.get("SEPTQ_HESSIAN_COND_EXACT", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        } else "submatrix"
+        cond_dim = os.environ.get("SEPTQ_HESSIAN_COND_DIM", "1024")
+        print(f"[INFO] Hessian cond logging mode={cond_mode} cond_dim={cond_dim}")
     print(
         f"[INFO] skip_first_n_temporal={args.skip_first_n_temporal} "
         f"skip_last_n_temporal={args.skip_last_n_temporal}"
@@ -958,13 +1071,30 @@ def main() -> None:
             continue
 
         print(f"[INFO] Quantizing layer {layer_idx}: {layer_name} ({len(entries)} module(s))")
+        collect_t0 = time.perf_counter()
         inputs = collect_inputs_for_entries(
             model=model,
             sequences=sequences,
             entries=entries,
             device=str(args.device),
             max_samples=int(args.max_calibration_samples),
+            collect_progress_every_tokens=int(args.collect_progress_every_tokens),
+            progress_label=f"{layer_name}",
         )
+        collect_elapsed = time.perf_counter() - collect_t0
+        if inputs:
+            sample_counts = sorted(int(v.shape[0]) for v in inputs.values())
+            p50 = sample_counts[len(sample_counts) // 2]
+            print(
+                f"[INFO] Collected inputs for {layer_name}: modules={len(sample_counts)} "
+                f"min={sample_counts[0]} p50={p50} max={sample_counts[-1]} "
+                f"elapsed={collect_elapsed:.1f}s"
+            )
+        else:
+            print(
+                f"[WARN] No calibration inputs captured for {layer_name} after "
+                f"{collect_elapsed:.1f}s"
+            )
 
         module_stats: List[Dict[str, Any]] = []
         for entry in entries:
@@ -991,6 +1121,11 @@ def main() -> None:
                     "Target >= 8192 (prefer 16384+) for stable Hessian statistics."
                 )
 
+            print(
+                f"[INFO]   -> Quantizing {name}: X={tuple(x.shape)} W={tuple(weight.shape)}"
+            )
+            module_t0 = time.perf_counter()
+
             q_weight, stats = septq_quantize_weight(
                 weight=weight,
                 activations=x,
@@ -998,7 +1133,22 @@ def main() -> None:
                 ratio_p=float(args.ratio_p),
                 block_size=int(args.block_size),
                 hessian_damp=float(args.hessian_damp),
+                quant_min_range=float(args.quant_min_range),
+                log_per_column_stats=bool(args.log_per_column_stats),
             )
+            module_elapsed = time.perf_counter() - module_t0
+
+            if int(stats.get("unquantized_cols", 0)) > 0:
+                print(
+                    f"[WARN] {name} has {int(stats['unquantized_cols'])} effectively unquantized columns. "
+                    "Inspect quantization range and activation statistics."
+                )
+            if float(stats.get("min_col_range", 0.0)) < float(args.quant_min_range):
+                print(
+                    f"[WARN] {name} min column range {float(stats['min_col_range']):.3e} "
+                    f"is below quant floor {float(args.quant_min_range):.3e}."
+                )
+
             assign_entry_weight(entry, q_weight)
 
             mod = {
@@ -1012,6 +1162,10 @@ def main() -> None:
                 "hessian_damp": float(stats["hessian_damp"]),
                 "quant_scale": float(stats["quant_scale"]),
                 "quant_zero_point": float(stats["quant_zero_point"]),
+                "unquantized_cols": int(stats["unquantized_cols"]),
+                "min_col_range": float(stats["min_col_range"]),
+                "col_range_median": float(stats.get("col_range_median", 0.0)),
+                "col_range_max": float(stats.get("col_range_max", 0.0)),
                 "calibration_samples": int(x.shape[0]),
             }
             module_stats.append(mod)
@@ -1019,7 +1173,9 @@ def main() -> None:
             print(
                 f"[INFO]   {name}: cos={mod['cos']:.6f} mse={mod['mse']:.6e} "
                 f"reserved={mod['reserved_elements']}/{mod['total_elements']} "
-                f"samples={mod['calibration_samples']}"
+                f"samples={mod['calibration_samples']} "
+                f"unquantized_cols={mod['unquantized_cols']} "
+                f"elapsed={module_elapsed:.1f}s"
             )
 
         if module_stats:
