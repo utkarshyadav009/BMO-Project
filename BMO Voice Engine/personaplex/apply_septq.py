@@ -6,10 +6,10 @@ from typing import Any, Callable, Dict, List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from safetensors import safe_open
 
 from moshi.models import loaders
-from moshi.models.compression import MimiModel
 from moshi.models.lm import LMModel, _iterate_audio, encode_from_sphn, load_audio
 
 
@@ -121,7 +121,7 @@ def gather_audio_files(calibration_path: Path, max_clips: int) -> List[Path]:
 
 
 def encode_clip_to_audio_frames(
-    mimi: MimiModel,
+    mimi,
     clip_path: Path,
     max_steps_per_clip: int,
 ) -> List[torch.Tensor]:
@@ -158,9 +158,8 @@ def build_calibration_sequences(
     if not mimi_weight.exists():
         raise FileNotFoundError(f"Mimi weight not found: {mimi_weight}")
 
-    mimi = MimiModel.from_pretrained(str(mimi_weight), device=device)
-    mimi.eval()
-    mimi.set_num_codebooks(8)
+    # Use the same stable Mimi loader path as offline/server for version compatibility.
+    mimi = loaders.get_mimi(str(mimi_weight), device)
 
     num_codebooks = int(model.num_codebooks)
     num_audio_codebooks = int(model.num_audio_codebooks)
@@ -217,6 +216,12 @@ def get_module_name_map(model: nn.Module) -> Dict[int, str]:
     return out
 
 
+def _is_activation_gating_module(module: nn.Module) -> bool:
+    linear_in = getattr(module, "linear_in", None)
+    linear_out = getattr(module, "linear_out", None)
+    return isinstance(linear_in, nn.Linear) and isinstance(linear_out, nn.Linear)
+
+
 def build_quantization_entries(
     temporal_layers: List[nn.Module],
     selected_indices: List[int],
@@ -245,13 +250,59 @@ def build_quantization_entries(
                 )
 
         for sub_name, sub_module in layer.named_modules():
+            full_name = layer_name if not sub_name else f"{layer_name}.{sub_name}"
+
+            if _is_activation_gating_module(sub_module):
+                gating_module = sub_module
+                lin_in = gating_module.linear_in
+                lin_out = gating_module.linear_out
+                lin_in_w = getattr(lin_in, "weight", None)
+                lin_out_w = getattr(lin_out, "weight", None)
+                if not torch.is_tensor(lin_in_w) or lin_in_w.ndim != 2:
+                    continue
+                if not torch.is_tensor(lin_out_w) or lin_out_w.ndim != 2:
+                    continue
+
+                linear_in_name = f"{full_name}.linear_in.weight"
+                linear_out_name = f"{full_name}.linear_out.weight"
+
+                entries.append(
+                    {
+                        "name": linear_in_name,
+                        "kind": "linear",
+                        "hook_module": gating_module,
+                        "hook_kind": "gating_parent",
+                        "gating_role": "linear_in",
+                        "gating_pair_name": linear_out_name,
+                        "module": lin_in,
+                        "in_features": int(lin_in_w.shape[1]),
+                    }
+                )
+                entries.append(
+                    {
+                        "name": linear_out_name,
+                        "kind": "linear",
+                        "hook_module": gating_module,
+                        "hook_kind": "gating_parent",
+                        "gating_role": "linear_out",
+                        "gating_pair_name": linear_in_name,
+                        "module": lin_out,
+                        "in_features": int(lin_out_w.shape[1]),
+                    }
+                )
+                continue
+
             if not isinstance(sub_module, nn.Linear):
                 continue
 
-            full_name = layer_name if not sub_name else f"{layer_name}.{sub_name}"
+            if ".gating." in full_name and (
+                full_name.endswith("linear_in") or full_name.endswith("linear_out")
+            ):
+                # Captured via parent ActivationGating forward hook.
+                continue
+
             allowed = (
                 "self_attn.out_proj" in full_name
-                or "gating" in full_name
                 or full_name.endswith("linear1")
                 or full_name.endswith("linear2")
             )
@@ -267,6 +318,7 @@ def build_quantization_entries(
                     "name": f"{full_name}.weight",
                     "kind": "linear",
                     "hook_module": sub_module,
+                    "hook_kind": "pre_input",
                     "module": sub_module,
                     "in_features": int(w.shape[1]),
                 }
@@ -304,9 +356,36 @@ def collect_inputs_for_entries(
 ) -> Dict[str, torch.Tensor]:
     buffers: Dict[str, List[torch.Tensor]] = {e["name"]: [] for e in entries}
     counts: Dict[str, int] = {e["name"]: 0 for e in entries}
+    entry_by_name: Dict[str, Dict[str, Any]] = {e["name"]: e for e in entries}
     handles = []
 
-    def make_hook(name: str, in_features: int) -> Callable[[nn.Module, tuple[Any, ...]], None]:
+    def _append_flat(name: str, flat: torch.Tensor) -> None:
+        if name not in counts:
+            return
+        if counts[name] >= max_samples:
+            return
+        if flat.ndim == 1:
+            flat = flat.view(1, -1)
+        else:
+            flat = flat.reshape(-1, flat.shape[-1])
+
+        expected = int(entry_by_name[name]["in_features"])
+        if flat.shape[-1] != expected:
+            return
+
+        remain = max_samples - counts[name]
+        if remain <= 0:
+            return
+        if flat.shape[0] > remain:
+            flat = flat[:remain]
+        if flat.shape[0] <= 0:
+            return
+
+        cpu_flat = flat.to(device="cpu", dtype=torch.float32).contiguous()
+        buffers[name].append(cpu_flat)
+        counts[name] += int(cpu_flat.shape[0])
+
+    def make_pre_hook(name: str) -> Callable[[nn.Module, tuple[Any, ...]], None]:
         def hook_fn(_module: nn.Module, inputs: tuple[Any, ...]) -> None:
             if counts[name] >= max_samples:
                 return
@@ -315,33 +394,84 @@ def collect_inputs_for_entries(
             x = inputs[0]
             if not torch.is_tensor(x):
                 return
-
-            flat = x.detach()
-            if flat.ndim == 1:
-                flat = flat.view(1, -1)
-            else:
-                flat = flat.reshape(-1, flat.shape[-1])
-
-            if flat.shape[-1] != in_features:
-                return
-
-            remain = max_samples - counts[name]
-            if remain <= 0:
-                return
-            if flat.shape[0] > remain:
-                flat = flat[:remain]
-            if flat.shape[0] <= 0:
-                return
-
-            cpu_flat = flat.to(device="cpu", dtype=torch.float32).contiguous()
-            buffers[name].append(cpu_flat)
-            counts[name] += int(cpu_flat.shape[0])
+            _append_flat(name, x.detach())
 
         return hook_fn
 
+    def make_gating_hook(
+        linear_in_name: str,
+        linear_out_name: str,
+    ) -> Callable[[nn.Module, tuple[Any, ...], Any], None]:
+        def hook_fn(module: nn.Module, inputs: tuple[Any, ...], _output: Any) -> None:
+            if not inputs:
+                return
+            x = inputs[0]
+            if not torch.is_tensor(x):
+                return
+
+            x_detached = x.detach()
+            if counts[linear_in_name] < max_samples:
+                _append_flat(linear_in_name, x_detached)
+
+            if counts[linear_out_name] >= max_samples:
+                return
+
+            linear_in = getattr(module, "linear_in", None)
+            activation = getattr(module, "activation", None)
+            if not isinstance(linear_in, nn.Linear) or activation is None:
+                return
+
+            x_linear = x_detached
+            if x_linear.dtype != linear_in.weight.dtype:
+                x_linear = x_linear.to(linear_in.weight.dtype)
+
+            lin_in_out = F.linear(x_linear, linear_in.weight)
+            if lin_in_out.ndim == 2:
+                lin_in_out = lin_in_out.unsqueeze(1)
+            if lin_in_out.ndim != 3:
+                return
+
+            bsz, steps, _ = lin_in_out.shape
+            split = lin_in_out.view(bsz, steps, 2, -1)
+            lin_out_in = activation(split[..., 0, :]) * split[..., 1, :]
+            _append_flat(linear_out_name, lin_out_in)
+
+        return hook_fn
+
+    gating_groups: Dict[int, Dict[str, Any]] = {}
     for e in entries:
-        hook = e["hook_module"].register_forward_pre_hook(
-            make_hook(name=e["name"], in_features=e["in_features"])
+        hook_kind = str(e.get("hook_kind", "pre_input"))
+        if hook_kind == "gating_parent":
+            module = e["hook_module"]
+            key = id(module)
+            group = gating_groups.setdefault(
+                key,
+                {
+                    "module": module,
+                    "linear_in_name": None,
+                    "linear_out_name": None,
+                },
+            )
+            role = str(e.get("gating_role", ""))
+            if role == "linear_in":
+                group["linear_in_name"] = e["name"]
+            elif role == "linear_out":
+                group["linear_out_name"] = e["name"]
+            continue
+
+        hook = e["hook_module"].register_forward_pre_hook(make_pre_hook(name=e["name"]))
+        handles.append(hook)
+
+    for group in gating_groups.values():
+        linear_in_name = group["linear_in_name"]
+        linear_out_name = group["linear_out_name"]
+        if not linear_in_name or not linear_out_name:
+            continue
+        hook = group["module"].register_forward_hook(
+            make_gating_hook(
+                linear_in_name=linear_in_name,
+                linear_out_name=linear_out_name,
+            )
         )
         handles.append(hook)
 
@@ -397,25 +527,35 @@ def quantize_vector_rtn_affine(
 def compute_hessian_inverse(
     activations: torch.Tensor,
     hessian_damp: float,
-) -> tuple[torch.Tensor, float]:
+) -> tuple[torch.Tensor, torch.Tensor, float]:
     x = activations.detach().float().cpu().contiguous()
     if x.ndim != 2:
         x = x.reshape(-1, x.shape[-1])
 
-    n = max(1, int(x.shape[0]))
-    h = 2.0 * (x.t() @ x) / float(n)
-    diag = torch.diag(h)
-    auto_damp = 1e-4 * float(diag.mean().item()) + 1e-8
-    damp = float(hessian_damp) if hessian_damp > 0.0 else auto_damp
-    h = h + torch.eye(h.shape[0], dtype=h.dtype) * damp
+    h = 2.0 * (x.t() @ x)
+    mean_diag = float(torch.mean(torch.diag(h)).item())
+    damp_ratio = float(hessian_damp) if hessian_damp > 0.0 else 0.01
+    damp = damp_ratio * max(mean_diag, 1e-8)
+    h = h + damp * torch.eye(h.shape[0], dtype=h.dtype)
 
     try:
-        chol = torch.linalg.cholesky(h)
-        h_inv = torch.cholesky_inverse(chol)
+        h_inv = torch.linalg.inv(h)
     except RuntimeError:
         h_inv = torch.linalg.pinv(h)
 
-    return h_inv.contiguous(), float(damp)
+    h_inv = 0.5 * (h_inv + h_inv.t())
+
+    try:
+        # SEPTQ/GPTQ-style update path uses cholesky(inv(H), upper=True).
+        h_inv_chol = torch.linalg.cholesky(h_inv, upper=True)
+    except RuntimeError:
+        jitter = 1e-8
+        h_inv_chol = torch.linalg.cholesky(
+            h_inv + jitter * torch.eye(h_inv.shape[0], dtype=h_inv.dtype),
+            upper=True,
+        )
+
+    return h_inv.contiguous(), h_inv_chol.contiguous(), float(damp)
 
 
 def build_static_global_mask(
@@ -463,7 +603,7 @@ def septq_quantize_weight(
 
     out_dim, in_dim = w.shape
 
-    h_inv, damp_used = compute_hessian_inverse(x, hessian_damp=hessian_damp)
+    h_inv, h_inv_chol, damp_used = compute_hessian_inverse(x, hessian_damp=hessian_damp)
 
     w_rtn = torch.empty_like(w)
     for j in range(in_dim):
@@ -495,18 +635,18 @@ def septq_quantize_weight(
 
             q[:, j] = q_col
 
-            denom = float(h_inv[j, j].item())
+            denom = float(h_inv_chol[j, j].item())
             if abs(denom) < 1e-10:
                 denom = 1e-10 if denom >= 0 else -1e-10
 
             err = (w_work[:, j] - q_col) / denom
             e[:, j - start] = err
 
-            h_row = h_inv[j, j:end].to(w_work.dtype)
+            h_row = h_inv_chol[j, j:end].to(w_work.dtype)
             w_work[:, j:end] -= err.unsqueeze(1) * h_row.unsqueeze(0)
 
         if end < in_dim:
-            w_work[:, end:] -= e @ h_inv[start:end, end:].to(w_work.dtype)
+            w_work[:, end:] -= e @ h_inv_chol[start:end, end:].to(w_work.dtype)
 
     if reserved_elements > 0:
         q[mask] = w[mask]
@@ -594,11 +734,12 @@ def main() -> None:
         default=0.0,
         help="Damping added to Hessian diagonal before inversion; <=0 uses automatic damping.",
     )
+    parser.add_argument("--skip-first-n-temporal", type=int, default=1)
     parser.add_argument("--skip-last-n-temporal", type=int, default=2)
     parser.add_argument("--calibration-clips", required=True)
-    parser.add_argument("--max-clips", type=int, default=8)
-    parser.add_argument("--max-steps-per-clip", type=int, default=128)
-    parser.add_argument("--max-calibration-samples", type=int, default=2048)
+    parser.add_argument("--max-clips", type=int, default=64)
+    parser.add_argument("--max-steps-per-clip", type=int, default=750)
+    parser.add_argument("--max-calibration-samples", type=int, default=32768)
     parser.add_argument(
         "--no-copy-missing-weights",
         action="store_true",
@@ -645,11 +786,19 @@ def main() -> None:
     if not calibration_files:
         print(f"[ERROR] No calibration audio files found in: {calibration_path}")
         sys.exit(1)
+    if len(calibration_files) < 50:
+        print(
+            f"[WARN] calibration files selected is below 50 ({len(calibration_files)}). "
+            "For 2-bit runs, use >=50 clips when available."
+        )
 
     print(f"[INFO] Input checkpoint: {input_path}")
     print(f"[INFO] Output checkpoint: {output_path}")
     print(f"[INFO] bits={args.bits} ratio_p={args.ratio_p} block_size={args.block_size}")
-    print(f"[INFO] skip_last_n_temporal={args.skip_last_n_temporal}")
+    print(
+        f"[INFO] skip_first_n_temporal={args.skip_first_n_temporal} "
+        f"skip_last_n_temporal={args.skip_last_n_temporal}"
+    )
     print(f"[INFO] calibration files selected: {len(calibration_files)}")
 
     model = loaders.get_moshi_lm(
@@ -668,14 +817,22 @@ def main() -> None:
 
     layer_name_map = get_module_name_map(model)
 
-    skip_n = max(0, int(args.skip_last_n_temporal))
-    quant_layer_count = max(0, len(temporal_layers) - skip_n)
+    skip_first_n = max(0, int(args.skip_first_n_temporal))
+    skip_last_n = max(0, int(args.skip_last_n_temporal))
+
+    start_idx = min(skip_first_n, len(temporal_layers))
+    end_idx = max(start_idx, len(temporal_layers) - skip_last_n)
+
+    selected_indices = list(range(start_idx, end_idx))
+    quant_layer_count = len(selected_indices)
     if quant_layer_count <= 0:
-        print("[ERROR] No temporal layers left after skip rule. Reduce --skip-last-n-temporal.")
+        print(
+            "[ERROR] No temporal layers left after skip rule. "
+            "Reduce --skip-first-n-temporal and/or --skip-last-n-temporal."
+        )
         sys.exit(1)
 
-    selected_indices = list(range(quant_layer_count))
-    skipped_indices = list(range(quant_layer_count, len(temporal_layers)))
+    skipped_indices = list(range(0, start_idx)) + list(range(end_idx, len(temporal_layers)))
     skipped_layers = [
         layer_name_map.get(id(temporal_layers[idx]), f"transformer.layers.{idx}")
         for idx in skipped_indices
@@ -748,6 +905,12 @@ def main() -> None:
                 skipped_modules.append(name)
                 continue
 
+            if int(x.shape[0]) < 8192:
+                print(
+                    f"[WARN] Low calibration samples for {name}: {int(x.shape[0])}. "
+                    "Target >= 8192 (prefer 16384+) for stable Hessian statistics."
+                )
+
             q_weight, stats = septq_quantize_weight(
                 weight=weight,
                 activations=x,
@@ -773,7 +936,8 @@ def main() -> None:
             quantized_modules += 1
             print(
                 f"[INFO]   {name}: cos={mod['cos']:.6f} mse={mod['mse']:.6e} "
-                f"reserved={mod['reserved_elements']}/{mod['total_elements']}"
+                f"reserved={mod['reserved_elements']}/{mod['total_elements']} "
+                f"samples={mod['calibration_samples']}"
             )
 
         if module_stats:
@@ -817,7 +981,8 @@ def main() -> None:
             "bits": int(args.bits),
             "ratio_p": float(args.ratio_p),
             "block_size": int(args.block_size),
-            "skip_last_n_temporal": int(skip_n),
+            "skip_first_n_temporal": int(skip_first_n),
+            "skip_last_n_temporal": int(skip_last_n),
             "skip_depformer": True,
             "skip_embeddings": True,
             "calibration_source": str(calibration_path),
