@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -501,27 +502,83 @@ def collect_inputs_for_entries(
 def quantize_vector_rtn_affine(
     w: torch.Tensor,
     bits: int,
+    scale: float | None = None,
+    zero_point: float | None = None,
 ) -> tuple[torch.Tensor, float, float]:
     # Eq. (2): affine RTN quantization with scale/zero-point and clipping.
     qmin = 0
     qmax = (1 << bits) - 1
 
-    w_min = float(w.min().item())
-    w_max = float(w.max().item())
-    if w_max - w_min <= 1e-12:
+    if scale is None or zero_point is None:
+        w_min = float(w.min().item())
+        w_max = float(w.max().item())
+        if w_max - w_min <= 1e-12:
+            return w.clone(), 1.0, 0.0
+
+        inferred_scale = (w_max - w_min) / float(qmax - qmin)
+        if inferred_scale <= 0.0:
+            return w.clone(), 1.0, 0.0
+
+        scale = float(inferred_scale)
+        zero_point = float(round(-w_min / scale))
+
+    scale = float(scale)
+    zero_point = float(zero_point)
+    if scale <= 0.0:
         return w.clone(), 1.0, 0.0
 
-    scale = (w_max - w_min) / float(qmax - qmin)
-    if scale <= 0.0 or not torch.isfinite(torch.tensor(scale)):
-        return w.clone(), 1.0, 0.0
-
-    zero_point = round(-w_min / scale)
     zero_point = float(max(qmin, min(qmax, zero_point)))
 
     q = torch.round(w / scale + zero_point)
     q = torch.clamp(q, qmin, qmax)
     dequant = scale * (q - zero_point)
     return dequant, float(scale), float(zero_point)
+
+
+def find_affine_params_mse(
+    w: torch.Tensor,
+    bits: int,
+    grid_steps: int = 64,
+    min_shrink: float = 0.20,
+    sample_size: int = 262144,
+) -> tuple[float, float]:
+    qmin = 0.0
+    qmax = float((1 << bits) - 1)
+    half_levels = (qmax - qmin) / 2.0
+    zero_point = (qmax + qmin) / 2.0
+
+    flat = w.detach().reshape(-1).float().cpu()
+    if flat.numel() == 0:
+        return 1.0, zero_point
+
+    if flat.numel() > sample_size:
+        step = max(1, int(flat.numel() // sample_size))
+        sample = flat[::step][:sample_size]
+    else:
+        sample = flat
+
+    max_abs = float(sample.abs().max().item())
+    if max_abs <= 0.0:
+        return 1.0, zero_point
+
+    levels = max(half_levels, 1e-6)
+    best_scale = max_abs / levels
+    best_mse = float("inf")
+
+    shrink_values = torch.linspace(1.0, min_shrink, steps=max(2, int(grid_steps)))
+    for shrink in shrink_values.tolist():
+        clipped_abs = max_abs * float(shrink)
+        scale = clipped_abs / levels
+        if scale <= 0.0:
+            continue
+        q = torch.clamp(torch.round(sample / scale + zero_point), qmin, qmax)
+        deq = scale * (q - zero_point)
+        mse = float(torch.mean((sample - deq) ** 2).item())
+        if mse < best_mse:
+            best_mse = mse
+            best_scale = float(scale)
+
+    return float(best_scale), float(zero_point)
 
 
 def compute_hessian_inverse(
@@ -537,6 +594,14 @@ def compute_hessian_inverse(
     damp_ratio = float(hessian_damp) if hessian_damp > 0.0 else 0.01
     damp = damp_ratio * max(mean_diag, 1e-8)
     h = h + damp * torch.eye(h.shape[0], dtype=h.dtype)
+
+    if os.environ.get("SEPTQ_LOG_HESSIAN_COND", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            cond = torch.linalg.cond(h)
+            log10_cond = float(torch.log10(cond.clamp_min(1e-12)).item())
+            print(f"[DEBUG] log10_cond(H)={log10_cond:.4f}")
+        except RuntimeError as exc:
+            print(f"[WARN] Failed to compute Hessian condition number: {exc}")
 
     try:
         h_inv = torch.linalg.inv(h)
@@ -554,6 +619,8 @@ def compute_hessian_inverse(
             h_inv + jitter * torch.eye(h_inv.shape[0], dtype=h_inv.dtype),
             upper=True,
         )
+
+    print(torch.allclose(h_inv_chol, torch.triu(h_inv_chol), atol=1e-6))
 
     return h_inv.contiguous(), h_inv_chol.contiguous(), float(damp)
 
@@ -605,9 +672,16 @@ def septq_quantize_weight(
 
     h_inv, h_inv_chol, damp_used = compute_hessian_inverse(x, hessian_damp=hessian_damp)
 
+    quant_scale, quant_zero_point = find_affine_params_mse(w, bits=bits)
+
     w_rtn = torch.empty_like(w)
     for j in range(in_dim):
-        w_rtn[:, j], _, _ = quantize_vector_rtn_affine(w[:, j], bits)
+        w_rtn[:, j], _, _ = quantize_vector_rtn_affine(
+            w[:, j],
+            bits,
+            scale=quant_scale,
+            zero_point=quant_zero_point,
+        )
 
     mask, reserved_elements = build_static_global_mask(
         weight=w,
@@ -627,7 +701,12 @@ def septq_quantize_weight(
         e = torch.zeros((out_dim, end - start), dtype=w.dtype)
 
         for j in range(start, end):
-            q_col, _, _ = quantize_vector_rtn_affine(w_work[:, j], bits)
+            q_col, _, _ = quantize_vector_rtn_affine(
+                w_work[:, j],
+                bits,
+                scale=quant_scale,
+                zero_point=quant_zero_point,
+            )
 
             m_col = mask[:, j]
             if torch.any(m_col):
@@ -648,9 +727,6 @@ def septq_quantize_weight(
         if end < in_dim:
             w_work[:, end:] -= e @ h_inv_chol[start:end, end:].to(w_work.dtype)
 
-    if reserved_elements > 0:
-        q[mask] = w[mask]
-
     mse = float(torch.mean((w - q) ** 2).item())
     denom = float((torch.norm(w) * torch.norm(q)).item())
     cos = 1.0 if denom <= 0.0 else float(torch.sum(w * q).item() / denom)
@@ -665,6 +741,8 @@ def septq_quantize_weight(
         "reserved_elements": int(reserved_elements),
         "total_elements": int(w.numel()),
         "hessian_damp": float(damp_used),
+        "quant_scale": float(quant_scale),
+        "quant_zero_point": float(quant_zero_point),
     }
 
 
@@ -709,6 +787,8 @@ def sanitize_layer_stats(layer_stats: List[Dict[str, Any]]) -> List[Dict[str, An
                         m.get("total_elements", m.get("total_cols", 0))
                     ),
                     "hessian_damp": float(m.get("hessian_damp", 0.0)),
+                    "quant_scale": float(m.get("quant_scale", 0.0)),
+                    "quant_zero_point": float(m.get("quant_zero_point", 0.0)),
                     "calibration_samples": int(m.get("calibration_samples", 0)),
                 }
             )
@@ -930,6 +1010,8 @@ def main() -> None:
                 "reserved_elements": int(stats["reserved_elements"]),
                 "total_elements": int(stats["total_elements"]),
                 "hessian_damp": float(stats["hessian_damp"]),
+                "quant_scale": float(stats["quant_scale"]),
+                "quant_zero_point": float(stats["quant_zero_point"]),
                 "calibration_samples": int(x.shape[0]),
             }
             module_stats.append(mod)

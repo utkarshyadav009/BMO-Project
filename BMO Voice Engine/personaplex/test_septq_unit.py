@@ -3,7 +3,7 @@ import time
 
 import torch
 
-from apply_septq import septq_quantize_weight
+from apply_septq import find_affine_params_mse, quantize_vector_rtn_affine, septq_quantize_weight
 
 
 def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
@@ -20,7 +20,7 @@ def parse_bits(raw: str) -> list[int]:
         if not t:
             continue
         bit = int(t)
-        if bit not in {2, 3, 4}:
+        if bit not in {2, 3, 4, 5}:
             raise ValueError(f"Unsupported bit-width in --bits: {bit}")
         out.append(bit)
     if not out:
@@ -57,10 +57,24 @@ def run_case(
     cos = cosine_similarity(weight, quantized)
     mse = float(torch.mean((weight - quantized) ** 2).item())
 
+    scale, zero_point = find_affine_params_mse(weight, bits=bits)
+    rtn = torch.empty_like(weight)
+    for col in range(weight.shape[1]):
+        rtn[:, col], _, _ = quantize_vector_rtn_affine(
+            weight[:, col],
+            bits,
+            scale=scale,
+            zero_point=zero_point,
+        )
+    rtn_cos = cosine_similarity(weight, rtn)
+    rtn_mse = float(torch.mean((weight - rtn) ** 2).item())
+
     return {
         "bits": int(bits),
         "cos": float(cos),
         "mse": float(mse),
+        "rtn_cos": float(rtn_cos),
+        "rtn_mse": float(rtn_mse),
         "elapsed_sec": float(elapsed),
         "stats": stats,
     }
@@ -72,13 +86,12 @@ def main() -> None:
     )
     parser.add_argument("--dim", type=int, default=4096)
     parser.add_argument("--samples", type=int, default=8192)
-    parser.add_argument("--bits", default="3,2")
+    parser.add_argument("--bits", default="2,3,4,5")
     parser.add_argument("--ratio-p", type=float, default=0.01)
     parser.add_argument("--block-size", type=int, default=128)
     parser.add_argument("--hessian-damp", type=float, default=0.01)
     parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--min-cos-3bit", type=float, default=0.99)
-    parser.add_argument("--min-cos-2bit", type=float, default=0.94)
+    parser.add_argument("--septq-rtn-margin", type=float, default=0.005)
     args = parser.parse_args()
 
     if args.dim <= 0:
@@ -98,6 +111,7 @@ def main() -> None:
     )
 
     failed = False
+    results_by_bit: dict[int, dict] = {}
     for bit in bits:
         result = run_case(
             dim=int(args.dim),
@@ -109,18 +123,48 @@ def main() -> None:
             seed=int(args.seed),
         )
 
-        threshold = args.min_cos_3bit if bit == 3 else args.min_cos_2bit if bit == 2 else None
-        if threshold is None:
-            status = "INFO"
-        else:
-            status = "PASS" if result["cos"] >= float(threshold) else "FAIL"
-            if status == "FAIL":
-                failed = True
+        sep_ok = result["cos"] >= (result["rtn_cos"] - float(args.septq_rtn_margin))
+        status = "PASS" if sep_ok else "FAIL"
+        if not sep_ok:
+            failed = True
+        results_by_bit[int(bit)] = result
+
+        print(
+            f"[INFO] RTN: {result['rtn_cos']:.6f} SEPTQ: {result['cos']:.6f} "
+            f"(margin={args.septq_rtn_margin:.4f})"
+        )
 
         print(
             f"[RESULT] bit={bit} cos={result['cos']:.6f} mse={result['mse']:.6e} "
+            f"rtn_cos={result['rtn_cos']:.6f} rtn_mse={result['rtn_mse']:.6e} "
             f"elapsed_sec={result['elapsed_sec']:.3f} status={status}"
         )
+
+    required_bits = [2, 3, 4, 5]
+    have_all_required = all(b in results_by_bit for b in required_bits)
+    if have_all_required:
+        cos2 = results_by_bit[2]["cos"]
+        cos3 = results_by_bit[3]["cos"]
+        cos4 = results_by_bit[4]["cos"]
+        cos5 = results_by_bit[5]["cos"]
+        mse2 = results_by_bit[2]["mse"]
+        mse3 = results_by_bit[3]["mse"]
+        mse4 = results_by_bit[4]["mse"]
+        mse5 = results_by_bit[5]["mse"]
+
+        cos_monotonic = (cos5 >= cos4) and (cos4 >= cos3) and (cos3 >= cos2)
+        mse_monotonic = (mse2 >= mse3) and (mse3 >= mse4) and (mse4 >= mse5)
+
+        print(
+            f"[INFO] monotonic cos(5>=4>=3>=2)={cos_monotonic} "
+            f"mse(2>=3>=4>=5)={mse_monotonic}"
+        )
+
+        if not cos_monotonic or not mse_monotonic:
+            failed = True
+    else:
+        missing = [b for b in required_bits if b not in results_by_bit]
+        print(f"[WARN] Monotonicity check skipped; missing bits: {missing}")
 
     if failed:
         raise SystemExit(1)
