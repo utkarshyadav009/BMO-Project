@@ -217,6 +217,28 @@ def get_module_name_map(model: nn.Module) -> Dict[int, str]:
     return out
 
 
+def parse_skip_module_filters(raw: str) -> List[str]:
+    text = str(raw).strip()
+    if not text:
+        return []
+    lowered = text.lower()
+    if lowered in {"none", "off", "false", "0"}:
+        return []
+    out: List[str] = []
+    for token in text.split(","):
+        t = token.strip()
+        if t:
+            out.append(t)
+    return out
+
+
+def _entry_matches_skip_filters(name: str, skip_module_filters: List[str]) -> bool:
+    for pattern in skip_module_filters:
+        if pattern and pattern in name:
+            return True
+    return False
+
+
 def _is_activation_gating_module(module: nn.Module) -> bool:
     linear_in = getattr(module, "linear_in", None)
     linear_out = getattr(module, "linear_out", None)
@@ -227,6 +249,7 @@ def build_quantization_entries(
     temporal_layers: List[nn.Module],
     selected_indices: List[int],
     name_map: Dict[int, str],
+    skip_module_filters: List[str],
 ) -> Dict[int, Dict[str, Any]]:
     by_layer: Dict[int, Dict[str, Any]] = {}
 
@@ -333,9 +356,18 @@ def build_quantization_entries(
             seen.add(e["name"])
             deduped.append(e)
 
+        excluded_entries: List[str] = []
+        filtered_entries: List[Dict[str, Any]] = []
+        for e in deduped:
+            if _entry_matches_skip_filters(e["name"], skip_module_filters):
+                excluded_entries.append(str(e["name"]))
+                continue
+            filtered_entries.append(e)
+
         by_layer[idx] = {
             "layer_name": layer_name,
-            "entries": deduped,
+            "entries": filtered_entries,
+            "excluded_entries": excluded_entries,
         }
 
     return by_layer
@@ -891,6 +923,15 @@ def main() -> None:
     parser.add_argument("--max-steps-per-clip", type=int, default=750)
     parser.add_argument("--max-calibration-samples", type=int, default=32768)
     parser.add_argument(
+        "--skip-modules",
+        default="self_attn.out_proj",
+        help=(
+            "Comma-separated substrings for module names to keep at original precision "
+            "(excluded from quantization), e.g. 'self_attn.out_proj,gating.linear_out'. "
+            "Use 'none' to disable."
+        ),
+    )
+    parser.add_argument(
         "--collect-progress-every-tokens",
         type=int,
         default=2048,
@@ -992,6 +1033,8 @@ def main() -> None:
         f"[INFO] skip_first_n_temporal={args.skip_first_n_temporal} "
         f"skip_last_n_temporal={args.skip_last_n_temporal}"
     )
+    skip_module_filters = parse_skip_module_filters(args.skip_modules)
+    print(f"[INFO] skip_modules={skip_module_filters if skip_module_filters else []}")
     print(f"[INFO] calibration files selected: {len(calibration_files)}")
 
     model = loaders.get_moshi_lm(
@@ -1046,15 +1089,25 @@ def main() -> None:
         temporal_layers=temporal_layers,
         selected_indices=selected_indices,
         name_map=layer_name_map,
+        skip_module_filters=skip_module_filters,
     )
 
     layer_stats: List[Dict[str, Any]] = []
     quantized_modules = 0
     skipped_modules: List[str] = []
+    excluded_modules: List[str] = []
 
     for layer_idx in selected_indices:
         layer_name = layer_plan[layer_idx]["layer_name"]
         entries = layer_plan[layer_idx]["entries"]
+        excluded_entries = list(layer_plan[layer_idx].get("excluded_entries", []))
+
+        if excluded_entries:
+            excluded_modules.extend(excluded_entries)
+            print(
+                f"[INFO] Preserving BF16 modules in {layer_name}: {len(excluded_entries)} "
+                f"(matched --skip-modules)"
+            )
 
         if not entries:
             print(f"[WARN] No quantizable modules found in {layer_name}; skipping layer")
@@ -1209,6 +1262,7 @@ def main() -> None:
     removed_keys = sorted(input_key_set - output_key_set)
 
     source_cfg = read_config_override_from_payload(input_path)
+    excluded_modules = sorted(set(excluded_modules))
     payload = {
         "state_dict": export_sd,
         "config_override": source_cfg,
@@ -1227,6 +1281,8 @@ def main() -> None:
             "calibration_clip_count": int(len(sequences)),
             "calibration_total_steps": int(calibration_steps),
             "calibration_files": [str(p) for p in calibration_files],
+            "skip_modules_filters": skip_module_filters,
+            "excluded_modules": excluded_modules,
             "skipped_temporal_layers": skipped_layers,
             "skipped_modules": skipped_modules,
             "per_layer_stats": sanitize_layer_stats(layer_stats),
@@ -1269,6 +1325,7 @@ def main() -> None:
     print(f"[RESULT] calibration_total_steps = {calibration_steps}")
     print(f"[RESULT] quantized_temporal_layers = {quant_layer_count}")
     print(f"[RESULT] quantized_modules = {quantized_modules}")
+    print(f"[RESULT] excluded_modules = {len(excluded_modules)}")
     print(f"[RESULT] elapsed_sec = {elapsed:.3f}")
 
 
