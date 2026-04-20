@@ -8,7 +8,40 @@ import torch
 import torch.nn.functional as F
 
 from moshi.models import loaders
-from verify_int4_rollout_drift import build_forced_tokens, parse_bool, parse_dtype, register_post_bridge_hook
+from verify_int4_rollout_drift import (
+    build_forced_tokens,
+    get_temporal_layers,
+    parse_bool,
+    parse_dtype,
+    register_post_bridge_hook,
+)
+
+
+def _unwrap_tensor_output(output):
+    if torch.is_tensor(output):
+        return output
+    if isinstance(output, (tuple, list)) and len(output) > 0 and torch.is_tensor(output[0]):
+        return output[0]
+    return None
+
+
+def register_temporal_layer_hooks(model):
+    layers = get_temporal_layers(model)
+    caches: List[List[torch.Tensor]] = [[] for _ in layers]
+    handles = []
+
+    for layer_idx, layer in enumerate(layers):
+        def _hook(_module, _inputs, output, idx=layer_idx):
+            y = _unwrap_tensor_output(output)
+            if not torch.is_tensor(y):
+                return
+            if y.ndim == 1:
+                y = y.view(1, -1)
+            caches[idx].append(y.detach().float().reshape(-1, y.shape[-1]).cpu().contiguous())
+
+        handles.append(layer.register_forward_hook(_hook))
+
+    return caches, handles, int(len(layers))
 
 
 def run_zs_drift(
@@ -26,7 +59,7 @@ def run_zs_drift(
     voice_ratio: float,
     teacher_dtype: str,
     student_dtype: str,
-) -> List[Dict[str, float | int]]:
+) -> Dict[str, Any]:
     teacher_dt = parse_dtype(teacher_dtype)
     student_dt = None if str(student_dtype).strip().lower() == "auto" else parse_dtype(student_dtype)
 
@@ -82,8 +115,24 @@ def run_zs_drift(
     k = int(teacher.num_codebooks)
     t_bridge_cache, t_bridge_handle = register_post_bridge_hook(teacher)
     s_bridge_cache, s_bridge_handle = register_post_bridge_hook(student)
+    t_layer_cache, t_layer_handles, t_layer_count = register_temporal_layer_hooks(teacher)
+    s_layer_cache, s_layer_handles, s_layer_count = register_temporal_layer_hooks(student)
+
+    layer_count = min(int(t_layer_count), int(s_layer_count))
+    if layer_count <= 0:
+        raise RuntimeError("Temporal layer hooks are unavailable; could not capture per-layer z_s drift")
+    if int(t_layer_count) != int(s_layer_count):
+        print(
+            "[WARN] Temporal layer count mismatch: "
+            f"teacher={t_layer_count} student={s_layer_count}; using first {layer_count}"
+        )
+    print(
+        "[INFO] Temporal layer hooks enabled: "
+        f"teacher={t_layer_count} student={s_layer_count} using={layer_count}"
+    )
 
     per_step: List[Dict[str, float | int]] = []
+    per_step_layer: List[Dict[str, float | int]] = []
 
     try:
         with teacher.streaming(batch_size=1), student.streaming(batch_size=1):
@@ -122,11 +171,46 @@ def run_zs_drift(
                         "max_abs": max_abs,
                     }
                 )
+
+                for layer_idx in range(int(layer_count)):
+                    if not t_layer_cache[layer_idx] or not s_layer_cache[layer_idx]:
+                        raise RuntimeError(
+                            "Layer hook caches are empty at step "
+                            f"{t}, layer {layer_idx}; temporal forward outputs were not captured"
+                        )
+
+                    teacher_layer = t_layer_cache[layer_idx].pop().contiguous()
+                    student_layer = s_layer_cache[layer_idx].pop().contiguous()
+
+                    rows = min(int(teacher_layer.shape[0]), int(student_layer.shape[0]))
+                    dims = min(int(teacher_layer.shape[-1]), int(student_layer.shape[-1]))
+                    if rows <= 0 or dims <= 0:
+                        raise RuntimeError(
+                            f"Invalid temporal layer activation shape at step {t}, layer {layer_idx}"
+                        )
+
+                    teacher_vec = teacher_layer[:rows, :dims].reshape(-1)
+                    student_vec = student_layer[:rows, :dims].reshape(-1)
+                    layer_diff = teacher_vec - student_vec
+
+                    per_step_layer.append(
+                        {
+                            "step": int(t),
+                            "layer": int(layer_idx),
+                            "cos": float(F.cosine_similarity(teacher_vec, student_vec, dim=0).item()),
+                            "mse": float(F.mse_loss(teacher_vec, student_vec).item()),
+                            "max_abs": float(torch.max(torch.abs(layer_diff)).item()),
+                        }
+                    )
     finally:
         if t_bridge_handle is not None:
             t_bridge_handle.remove()
         if s_bridge_handle is not None:
             s_bridge_handle.remove()
+        for handle in t_layer_handles:
+            handle.remove()
+        for handle in s_layer_handles:
+            handle.remove()
 
         del teacher
         del student
@@ -134,7 +218,11 @@ def run_zs_drift(
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    return per_step
+    return {
+        "per_step": per_step,
+        "per_step_layer": per_step_layer,
+        "layer_count": int(layer_count),
+    }
 
 
 def summarize_steps(rows: List[Dict[str, float | int]]) -> Dict[str, Any]:
@@ -174,6 +262,97 @@ def summarize_steps(rows: List[Dict[str, float | int]]) -> Dict[str, Any]:
         "worst_cos_value": float(rows[worst_cos_idx]["cos"]),
         "worst_mse_step": int(rows[worst_mse_idx]["step"]),
         "worst_mse_value": float(rows[worst_mse_idx]["mse"]),
+    }
+
+
+def summarize_layer_steps(rows: List[Dict[str, float | int]], cliff_threshold: float) -> Dict[str, Any]:
+    if not rows:
+        raise RuntimeError("No temporal per-layer z_s drift rows captured")
+
+    layers = sorted({int(r["layer"]) for r in rows})
+    per_layer: List[Dict[str, float | int]] = []
+
+    for layer_idx in layers:
+        layer_rows = [r for r in rows if int(r["layer"]) == int(layer_idx)]
+        cos = torch.tensor([float(r["cos"]) for r in layer_rows], dtype=torch.float32)
+        mse = torch.tensor([float(r["mse"]) for r in layer_rows], dtype=torch.float32)
+        max_abs = torch.tensor([float(r["max_abs"]) for r in layer_rows], dtype=torch.float32)
+
+        q = torch.tensor([0.10, 0.50, 0.90], dtype=torch.float32)
+        cos_q = torch.quantile(cos, q)
+        mse_q = torch.quantile(mse, q)
+        max_abs_q = torch.quantile(max_abs, q)
+
+        per_layer.append(
+            {
+                "layer": int(layer_idx),
+                "steps": int(len(layer_rows)),
+                "cos_min": float(cos.min().item()),
+                "cos_p10": float(cos_q[0].item()),
+                "cos_median": float(cos_q[1].item()),
+                "cos_p90": float(cos_q[2].item()),
+                "cos_mean": float(cos.mean().item()),
+                "mse_min": float(mse.min().item()),
+                "mse_p10": float(mse_q[0].item()),
+                "mse_median": float(mse_q[1].item()),
+                "mse_p90": float(mse_q[2].item()),
+                "mse_mean": float(mse.mean().item()),
+                "max_abs_min": float(max_abs.min().item()),
+                "max_abs_p10": float(max_abs_q[0].item()),
+                "max_abs_median": float(max_abs_q[1].item()),
+                "max_abs_p90": float(max_abs_q[2].item()),
+                "max_abs_mean": float(max_abs.mean().item()),
+            }
+        )
+
+    if not per_layer:
+        raise RuntimeError("No temporal per-layer summaries were produced")
+
+    layer0_med = float(per_layer[0]["cos_median"])
+    cumulative_positive_drop = 0.0
+    for idx, row in enumerate(per_layer):
+        if idx == 0:
+            row["drop_from_prev_median"] = 0.0
+            row["cumulative_positive_drop_median"] = 0.0
+            row["cumulative_drop_from_layer0_median"] = 0.0
+            continue
+        prev_med = float(per_layer[idx - 1]["cos_median"])
+        cur_med = float(row["cos_median"])
+        drop_prev = prev_med - cur_med
+        cumulative_positive_drop += max(0.0, drop_prev)
+        row["drop_from_prev_median"] = float(drop_prev)
+        row["cumulative_positive_drop_median"] = float(cumulative_positive_drop)
+        row["cumulative_drop_from_layer0_median"] = float(layer0_med - cur_med)
+
+    first_below = -1
+    for row in per_layer:
+        if float(row["cos_median"]) < float(cliff_threshold):
+            first_below = int(row["layer"])
+            break
+
+    drift_mode_hint = "none"
+    if first_below >= 0:
+        first_idx = int(first_below)
+        if first_idx <= 1:
+            drift_mode_hint = "early_cliff"
+        else:
+            first_drop = float(per_layer[first_idx]["drop_from_prev_median"])
+            tail_pos_drops = [
+                max(0.0, float(per_layer[i]["drop_from_prev_median"]))
+                for i in range(first_idx + 1, len(per_layer))
+            ]
+            tail_mean = float(sum(tail_pos_drops) / len(tail_pos_drops)) if tail_pos_drops else 0.0
+            if first_drop >= max(0.0025, 3.0 * tail_mean):
+                drift_mode_hint = "sharp_cliff"
+            else:
+                drift_mode_hint = "smooth_decay"
+
+    return {
+        "layers": int(len(per_layer)),
+        "cliff_threshold": float(cliff_threshold),
+        "first_layer_below_threshold": int(first_below),
+        "drift_mode_hint": str(drift_mode_hint),
+        "per_layer": per_layer,
     }
 
 
@@ -236,6 +415,12 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="How many lowest-cosine steps to print.",
     )
+    parser.add_argument(
+        "--layer-cliff-threshold",
+        type=float,
+        default=0.995,
+        help="Layer median cosine threshold used to detect first cliff layer.",
+    )
     return parser.parse_args()
 
 
@@ -256,7 +441,7 @@ def main() -> None:
     if not torch.cuda.is_available() and str(args.device).startswith("cuda"):
         raise RuntimeError("CUDA is required when --device is cuda")
 
-    rows = run_zs_drift(
+    run_payload = run_zs_drift(
         teacher_ckpt=str(args.teacher),
         student_ckpt=str(args.student),
         steps=int(args.steps),
@@ -271,8 +456,11 @@ def main() -> None:
         teacher_dtype=str(args.teacher_dtype),
         student_dtype=str(args.student_dtype),
     )
+    rows = list(run_payload["per_step"])
+    layer_rows = list(run_payload["per_step_layer"])
 
     summary = summarize_steps(rows)
+    layer_summary = summarize_layer_steps(layer_rows, cliff_threshold=float(args.layer_cliff_threshold))
 
     print("\n=== Z_S DRIFT SUMMARY ===")
     print(f"[RESULT] steps = {summary['steps']}")
@@ -309,6 +497,33 @@ def main() -> None:
         f"(median>={float(args.min_median_cos):.6f} and min>={float(args.min_step_cos):.6f})"
     )
 
+    print("\n=== PER-LAYER Z_S DRIFT (TEMPORAL) ===")
+    print(f"[RESULT] temporal_layers = {int(layer_summary['layers'])}")
+    print(f"[RESULT] layer_cliff_threshold = {float(layer_summary['cliff_threshold']):.6f}")
+    print(f"[RESULT] first_layer_below_threshold = {int(layer_summary['first_layer_below_threshold'])}")
+    print(f"[RESULT] drift_mode_hint = {str(layer_summary['drift_mode_hint'])}")
+
+    first_layer_idx = int(layer_summary["first_layer_below_threshold"])
+    if first_layer_idx >= 0:
+        first_layer_row = next(
+            (r for r in layer_summary["per_layer"] if int(r["layer"]) == first_layer_idx),
+            None,
+        )
+        if first_layer_row is not None:
+            print(
+                f"[RESULT] first_layer_cos_median = {float(first_layer_row['cos_median']):.6f} "
+                f"first_layer_cos_min = {float(first_layer_row['cos_min']):.6f}"
+            )
+
+    for row in layer_summary["per_layer"]:
+        print(
+            f"layer={int(row['layer']):02d} "
+            f"cos_median={float(row['cos_median']):.6f} "
+            f"cos_min={float(row['cos_min']):.6f} "
+            f"drop_prev={float(row['drop_from_prev_median']):+.6f} "
+            f"cum_drop={float(row['cumulative_positive_drop_median']):.6f}"
+        )
+
     worst_k = max(1, int(args.report_worst_k))
     print(f"\n=== WORST {worst_k} STEPS BY COSINE ===")
     for row in sorted(rows, key=lambda r: float(r["cos"]))[:worst_k]:
@@ -322,12 +537,15 @@ def main() -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "summary": summary,
+            "layer_summary": layer_summary,
             "thresholds": {
                 "min_median_cos": float(args.min_median_cos),
                 "min_step_cos": float(args.min_step_cos),
+                "layer_cliff_threshold": float(args.layer_cliff_threshold),
             },
             "pass_threshold": bool(threshold_ok),
             "per_step": rows,
+            "per_step_layer": layer_rows,
         }
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"[RESULT] wrote_json = {out_path}")

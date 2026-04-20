@@ -232,6 +232,50 @@ def parse_skip_module_filters(raw: str) -> List[str]:
     return out
 
 
+def parse_quantize_layers(raw: str, total_layers: int) -> List[int]:
+    text = str(raw).strip()
+    if not text:
+        return []
+    if total_layers <= 0:
+        raise ValueError("No temporal layers available for selection")
+
+    selected: set[int] = set()
+    for token in text.split(","):
+        part = token.strip()
+        if not part:
+            continue
+
+        if "-" in part:
+            left, right = part.split("-", 1)
+            try:
+                start = int(left.strip())
+                end = int(right.strip())
+            except ValueError as exc:
+                raise ValueError(f"Invalid layer range token: '{part}'") from exc
+
+            if start > end:
+                raise ValueError(f"Invalid descending layer range: '{part}'")
+
+            for idx in range(start, end + 1):
+                selected.add(int(idx))
+        else:
+            try:
+                selected.add(int(part))
+            except ValueError as exc:
+                raise ValueError(f"Invalid layer index token: '{part}'") from exc
+
+    if not selected:
+        raise ValueError("--quantize-layers resolved to an empty selection")
+
+    bad = sorted(i for i in selected if i < 0 or i >= int(total_layers))
+    if bad:
+        raise ValueError(
+            f"--quantize-layers contains out-of-range indices {bad}; expected [0, {int(total_layers) - 1}]"
+        )
+
+    return sorted(selected)
+
+
 def _entry_matches_skip_filters(name: str, skip_module_filters: List[str]) -> bool:
     for pattern in skip_module_filters:
         if pattern and pattern in name:
@@ -918,6 +962,14 @@ def main() -> None:
     )
     parser.add_argument("--skip-first-n-temporal", type=int, default=1)
     parser.add_argument("--skip-last-n-temporal", type=int, default=2)
+    parser.add_argument(
+        "--quantize-layers",
+        default="",
+        help=(
+            "Explicit temporal layer indices/ranges to quantize, e.g. '16-31' or '0,1,4-7'. "
+            "When provided, overrides --skip-first-n-temporal and --skip-last-n-temporal."
+        ),
+    )
     parser.add_argument("--calibration-clips", required=True)
     parser.add_argument("--max-clips", type=int, default=800)
     parser.add_argument("--max-steps-per-clip", type=int, default=750)
@@ -1033,6 +1085,8 @@ def main() -> None:
         f"[INFO] skip_first_n_temporal={args.skip_first_n_temporal} "
         f"skip_last_n_temporal={args.skip_last_n_temporal}"
     )
+    if str(args.quantize_layers).strip():
+        print(f"[INFO] quantize_layers={str(args.quantize_layers).strip()}")
     skip_module_filters = parse_skip_module_filters(args.skip_modules)
     print(f"[INFO] skip_modules={skip_module_filters if skip_module_filters else []}")
     print(f"[INFO] calibration files selected: {len(calibration_files)}")
@@ -1053,22 +1107,49 @@ def main() -> None:
 
     layer_name_map = get_module_name_map(model)
 
+    selection_mode = "skip_window"
     skip_first_n = max(0, int(args.skip_first_n_temporal))
     skip_last_n = max(0, int(args.skip_last_n_temporal))
+    selected_indices: List[int]
+    quantize_layers_arg = str(args.quantize_layers).strip()
 
-    start_idx = min(skip_first_n, len(temporal_layers))
-    end_idx = max(start_idx, len(temporal_layers) - skip_last_n)
+    if quantize_layers_arg:
+        selection_mode = "explicit"
+        try:
+            selected_indices = parse_quantize_layers(quantize_layers_arg, len(temporal_layers))
+        except ValueError as exc:
+            print(f"[ERROR] {exc}")
+            sys.exit(1)
+        selected_set = set(selected_indices)
+        skipped_indices = [idx for idx in range(len(temporal_layers)) if idx not in selected_set]
+    else:
+        start_idx = min(skip_first_n, len(temporal_layers))
+        end_idx = max(start_idx, len(temporal_layers) - skip_last_n)
+        selected_indices = list(range(start_idx, end_idx))
+        skipped_indices = list(range(0, start_idx)) + list(range(end_idx, len(temporal_layers)))
 
-    selected_indices = list(range(start_idx, end_idx))
     quant_layer_count = len(selected_indices)
     if quant_layer_count <= 0:
-        print(
-            "[ERROR] No temporal layers left after skip rule. "
-            "Reduce --skip-first-n-temporal and/or --skip-last-n-temporal."
-        )
+        if selection_mode == "explicit":
+            print("[ERROR] --quantize-layers selected zero temporal layers")
+        else:
+            print(
+                "[ERROR] No temporal layers left after skip rule. "
+                "Reduce --skip-first-n-temporal and/or --skip-last-n-temporal."
+            )
         sys.exit(1)
 
-    skipped_indices = list(range(0, start_idx)) + list(range(end_idx, len(temporal_layers)))
+    if selection_mode == "explicit":
+        print(
+            f"[INFO] explicit temporal layer selection active: count={quant_layer_count} "
+            f"first={selected_indices[0]} last={selected_indices[-1]}"
+        )
+    else:
+        print(
+            f"[INFO] skip-window temporal selection active: count={quant_layer_count} "
+            f"start={selected_indices[0]} end={selected_indices[-1]}"
+        )
+
     skipped_layers = [
         layer_name_map.get(id(temporal_layers[idx]), f"transformer.layers.{idx}")
         for idx in skipped_indices
@@ -1273,8 +1354,11 @@ def main() -> None:
             "bits": int(args.bits),
             "ratio_p": float(args.ratio_p),
             "block_size": int(args.block_size),
-            "skip_first_n_temporal": int(skip_first_n),
-            "skip_last_n_temporal": int(skip_last_n),
+            "selection_mode": str(selection_mode),
+            "quantize_layers_arg": str(quantize_layers_arg),
+            "selected_temporal_layers": [int(i) for i in selected_indices],
+            "skip_first_n_temporal": int(skip_first_n) if selection_mode == "skip_window" else None,
+            "skip_last_n_temporal": int(skip_last_n) if selection_mode == "skip_window" else None,
             "skip_depformer": True,
             "skip_embeddings": True,
             "calibration_source": str(calibration_path),
