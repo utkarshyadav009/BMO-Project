@@ -651,7 +651,7 @@ def find_affine_params_mse(
     half_levels = (qmax - qmin) / 2.0
     zero_point = (qmax + qmin) / 2.0
 
-    flat = w.detach().reshape(-1).float().cpu()
+    flat = w.detach().reshape(-1).to(dtype=torch.float32).contiguous()
     if flat.numel() == 0:
         return 1.0, zero_point
 
@@ -670,7 +670,12 @@ def find_affine_params_mse(
     best_scale = max(max_abs / levels, float(min_range) / levels)
     best_mse = float("inf")
 
-    shrink_values = torch.linspace(1.0, min_shrink, steps=max(2, int(grid_steps)))
+    shrink_values = torch.linspace(
+        1.0,
+        min_shrink,
+        steps=max(2, int(grid_steps)),
+        device=sample.device,
+    )
     for shrink in shrink_values.tolist():
         clipped_abs = max_abs * float(shrink)
         scale = max(clipped_abs / levels, float(min_range) / levels)
@@ -689,8 +694,10 @@ def find_affine_params_mse(
 def compute_hessian_inverse(
     activations: torch.Tensor,
     hessian_damp: float,
+    device: str | torch.device | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, float]:
-    x = activations.detach().float().cpu().contiguous()
+    target_device = torch.device(device) if device is not None else activations.device
+    x = activations.detach().to(device=target_device, dtype=torch.float32).contiguous()
     if x.ndim != 2:
         x = x.reshape(-1, x.shape[-1])
 
@@ -698,7 +705,7 @@ def compute_hessian_inverse(
     mean_diag = float(torch.mean(torch.diag(h)).item())
     damp_ratio = float(hessian_damp) if hessian_damp > 0.0 else 0.01
     damp = damp_ratio * max(mean_diag, 1e-8)
-    h = h + damp * torch.eye(h.shape[0], dtype=h.dtype)
+    h = h + damp * torch.eye(h.shape[0], dtype=h.dtype, device=h.device)
 
     if os.environ.get("SEPTQ_LOG_HESSIAN_COND", "0").strip().lower() in {"1", "true", "yes", "on"}:
         cond_exact = os.environ.get("SEPTQ_HESSIAN_COND_EXACT", "0").strip().lower() in {
@@ -715,7 +722,11 @@ def compute_hessian_inverse(
         cond_input = h
         cond_label = "H"
         if not cond_exact and cond_dim > 0 and h.shape[0] > cond_dim:
-            idx = torch.linspace(0, h.shape[0] - 1, steps=cond_dim).round().long()
+            idx = (
+                torch.linspace(0, h.shape[0] - 1, steps=cond_dim, device=h.device)
+                .round()
+                .long()
+            )
             cond_input = h.index_select(0, idx).index_select(1, idx)
             cond_label = f"H_sub(dim={cond_dim},full_dim={h.shape[0]})"
 
@@ -739,7 +750,7 @@ def compute_hessian_inverse(
     except RuntimeError:
         jitter = 1e-8
         h_inv_chol = torch.linalg.cholesky(
-            h_inv + jitter * torch.eye(h_inv.shape[0], dtype=h_inv.dtype),
+            h_inv + jitter * torch.eye(h_inv.shape[0], dtype=h_inv.dtype, device=h_inv.device),
             upper=True,
         )
 
@@ -754,11 +765,11 @@ def build_static_global_mask(
     h_inv: torch.Tensor,
     ratio_p: float,
 ) -> tuple[torch.Tensor, int]:
-    w = weight.detach().float().cpu().contiguous()
-    wq = weight_rtn.detach().float().cpu().contiguous()
+    w = weight.detach().to(dtype=torch.float32).contiguous()
+    wq = weight_rtn.detach().to(device=w.device, dtype=torch.float32).contiguous()
     in_dim = int(w.shape[1])
 
-    diag = torch.diag(h_inv).abs().clamp_min(1e-12)
+    diag = torch.diag(h_inv.to(device=w.device, dtype=w.dtype)).abs().clamp_min(1e-12)
     if int(diag.numel()) != in_dim:
         raise ValueError(
             f"H^-1 diag size mismatch: got {int(diag.numel())}, expected {in_dim}"
@@ -789,13 +800,25 @@ def septq_quantize_weight(
     hessian_damp: float,
     quant_min_range: float,
     log_per_column_stats: bool,
+    device: str | torch.device | None = None,
 ) -> tuple[torch.Tensor, Dict[str, float | int]]:
-    w = weight.detach().float().cpu().contiguous()
-    x = activations.detach().float().cpu().contiguous()
+    if device is None:
+        quant_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        quant_device = torch.device(device)
+        if quant_device.type == "cuda" and not torch.cuda.is_available():
+            quant_device = torch.device("cpu")
+
+    w = weight.detach().to(device=quant_device, dtype=torch.float32).contiguous()
+    x = activations.detach().to(device=quant_device, dtype=torch.float32).contiguous()
 
     out_dim, in_dim = w.shape
 
-    h_inv, h_inv_chol, damp_used = compute_hessian_inverse(x, hessian_damp=hessian_damp)
+    h_inv, h_inv_chol, damp_used = compute_hessian_inverse(
+        x,
+        hessian_damp=hessian_damp,
+        device=quant_device,
+    )
 
     quant_scale, quant_zero_point = find_affine_params_mse(
         w,
@@ -833,7 +856,7 @@ def septq_quantize_weight(
         if end <= start:
             continue
 
-        e = torch.zeros((out_dim, end - start), dtype=w.dtype)
+        e = torch.zeros((out_dim, end - start), dtype=w.dtype, device=w.device)
 
         for j in range(start, end):
             q_col, _, _ = quantize_vector_rtn_affine(
@@ -885,7 +908,7 @@ def septq_quantize_weight(
     if log_per_column_stats:
         out["col_range_median"] = float(col_ranges.median().item()) if col_ranges.numel() > 0 else 0.0
         out["col_range_max"] = float(col_ranges.max().item()) if col_ranges.numel() > 0 else 0.0
-    return q, out
+    return q.to(device="cpu").contiguous(), out
 
 
 def get_entry_weight_tensor(entry: Dict[str, Any]) -> torch.Tensor:
@@ -1269,6 +1292,7 @@ def main() -> None:
                 hessian_damp=float(args.hessian_damp),
                 quant_min_range=float(args.quant_min_range),
                 log_per_column_stats=bool(args.log_per_column_stats),
+                device=str(args.device),
             )
             module_elapsed = time.perf_counter() - module_t0
 
