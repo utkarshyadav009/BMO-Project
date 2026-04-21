@@ -43,6 +43,43 @@ def parse_dtype(name: str) -> torch.dtype:
     raise argparse.ArgumentTypeError("dtype must be one of: bfloat16, float16, float32")
 
 
+def resolve_runtime_device(requested: str) -> str:
+    dev = str(requested).strip().lower()
+    if not dev:
+        return "cpu"
+
+    if not dev.startswith("cuda"):
+        return dev
+
+    if not torch.cuda.is_available():
+        raise SystemExit("[ERROR] CUDA device requested but torch.cuda.is_available() is False")
+
+    visible = int(torch.cuda.device_count())
+    if visible <= 0:
+        raise SystemExit("[ERROR] CUDA device requested but no CUDA devices are visible")
+
+    if dev == "cuda":
+        return "cuda:0"
+
+    if ":" not in dev:
+        return "cuda:0"
+
+    _, ordinal_text = dev.split(":", 1)
+    try:
+        ordinal = int(ordinal_text)
+    except ValueError as exc:
+        raise SystemExit(f"[ERROR] Invalid --device value: {requested}") from exc
+
+    if ordinal < 0 or ordinal >= visible:
+        raise SystemExit(
+            "[ERROR] Invalid CUDA device ordinal for current visibility: "
+            f"requested={requested} visible_count={visible}. "
+            "If CUDA_VISIBLE_DEVICES is set to a single GPU, use --device cuda or --device cuda:0."
+        )
+
+    return f"cuda:{ordinal}"
+
+
 def unwrap_zs(z: torch.Tensor) -> torch.Tensor:
     if z.ndim == 1:
         return z.view(1, -1)
@@ -95,6 +132,50 @@ def register_zs_hook(model: nn.Module, keep_grad: bool) -> tuple[Dict[str, torch
 
     handle = out_norm.register_forward_pre_hook(pre_hook)
     return cache, handle
+
+
+def _detach_streaming_obj_inplace(obj: Any, visited: set[int]) -> Any:
+    if obj is None:
+        return None
+
+    obj_id = id(obj)
+    if obj_id in visited:
+        return obj
+    visited.add(obj_id)
+
+    if torch.is_tensor(obj):
+        return obj.detach()
+
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            obj[k] = _detach_streaming_obj_inplace(obj[k], visited)
+        return obj
+
+    if isinstance(obj, list):
+        for idx in range(len(obj)):
+            obj[idx] = _detach_streaming_obj_inplace(obj[idx], visited)
+        return obj
+
+    if hasattr(obj, "__dict__"):
+        for name, value in vars(obj).items():
+            detached = _detach_streaming_obj_inplace(value, visited)
+            if detached is not value:
+                setattr(obj, name, detached)
+        return obj
+
+    return obj
+
+
+def detach_model_streaming_state_(model: nn.Module) -> None:
+    getter = getattr(model, "get_streaming_state", None)
+    if getter is None:
+        return
+    state_by_name = getter()
+    visited: set[int] = set()
+    for state in state_by_name.values():
+        if state is None:
+            continue
+        _detach_streaming_obj_inplace(state, visited)
 
 
 def fake_quantize_affine_ste(w: torch.Tensor, bits: int, min_range: float) -> torch.Tensor:
@@ -387,6 +468,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--max-train-steps", type=int, default=1000)
     parser.add_argument("--min-train-steps", type=int, default=500)
+    parser.add_argument(
+        "--train-max-steps-per-clip",
+        type=int,
+        default=0,
+        help="If >0, truncate each training clip to this many token steps to reduce memory.",
+    )
     parser.add_argument("--grad-clip-norm", type=float, default=1.0)
     parser.add_argument("--temperature", type=float, default=1.0)
 
@@ -425,8 +512,7 @@ def main() -> None:
     if int(args.flatline_window) <= 0:
         raise SystemExit("[ERROR] --flatline-window must be > 0")
 
-    if str(args.device).startswith("cuda") and not torch.cuda.is_available():
-        raise SystemExit("[ERROR] CUDA device requested but torch.cuda.is_available() is False")
+    runtime_device = resolve_runtime_device(str(args.device))
 
     random.seed(int(args.seed))
     torch.manual_seed(int(args.seed))
@@ -456,17 +542,19 @@ def main() -> None:
     print(f"[INFO] teacher = {teacher_path}")
     print(f"[INFO] student_init = {student_init_path}")
     print(f"[INFO] out_dir = {out_dir}")
-    print(f"[INFO] device = {args.device}")
+    print(f"[INFO] device = {runtime_device}")
     print(
         f"[INFO] bits={args.bits} train_layers={args.train_layers} "
         f"max_train_steps={args.max_train_steps} warmup_steps={args.warmup_steps}"
     )
+    if int(args.train_max_steps_per_clip) > 0:
+        print(f"[INFO] train_max_steps_per_clip = {int(args.train_max_steps_per_clip)}")
 
     print("[INFO] Loading teacher model...")
     teacher = loaders.get_moshi_lm(
         str(teacher_path),
         copy_missing_weights=not bool(args.no_copy_missing_weights),
-        device=str(args.device),
+        device=runtime_device,
         dtype=teacher_dtype,
         cpu_offload=False,
     )
@@ -477,7 +565,7 @@ def main() -> None:
     student = loaders.get_moshi_lm(
         str(student_init_path),
         copy_missing_weights=not bool(args.no_copy_missing_weights),
-        device=str(args.device),
+        device=runtime_device,
         dtype=student_dtype,
         cpu_offload=False,
     )
@@ -529,7 +617,7 @@ def main() -> None:
         model=teacher,
         calibration_files=calibration_files,
         mimi_weight=mimi_weight,
-        device=str(args.device),
+        device=runtime_device,
         max_steps_per_clip=int(args.max_steps_per_clip),
     )
     if not sequences:
@@ -585,7 +673,7 @@ def main() -> None:
             sequences=sequences,
             teacher_cache=teacher_cache,
             student_cache=student_cache,
-            device=str(args.device),
+            device=runtime_device,
             max_eval_clips=int(args.eval_clips),
             max_eval_steps_per_clip=int(args.eval_max_steps_per_clip),
             temperature=float(args.temperature),
@@ -612,14 +700,19 @@ def main() -> None:
                 clip_idx = next_clip_index()
                 seq = sequences[clip_idx]
                 seq_steps = int(seq.shape[0])
+                if int(args.train_max_steps_per_clip) > 0:
+                    seq_steps = min(seq_steps, int(args.train_max_steps_per_clip))
+                if seq_steps <= 0:
+                    print(f"[WARN] Step {step}: clip {clip_idx} has 0 usable steps; skipping")
+                    continue
 
                 optimizer.zero_grad(set_to_none=True)
-                total_kl = torch.zeros((), device=str(args.device), dtype=torch.float32)
                 valid_steps = 0
+                kl_sum = 0.0
 
                 with teacher.streaming(batch_size=1), student.streaming(batch_size=1):
                     for t in range(seq_steps):
-                        token = seq[t].view(1, seq.shape[1], 1).to(device=str(args.device))
+                        token = seq[t].view(1, seq.shape[1], 1).to(device=runtime_device)
 
                         teacher_cache["value"] = None
                         student_cache["value"] = None
@@ -634,15 +727,19 @@ def main() -> None:
                             continue
 
                         kl_t = zs_kl_div(s_z, t_z, temperature=float(args.temperature))
-                        total_kl = total_kl + kl_t
+                        kl_sum += float(kl_t.item())
+                        # Backprop per token to avoid retaining an entire-clip graph in memory.
+                        (kl_t / float(seq_steps)).backward()
+                        # Truncated-BPTT style detach for streaming caches to avoid
+                        # reusing freed graph references on the next token step.
+                        detach_model_streaming_state_(student)
                         valid_steps += 1
 
                 if valid_steps <= 0:
                     print(f"[WARN] Step {step}: no valid z_s captures; skipping optimizer step")
                     continue
 
-                loss = total_kl / float(valid_steps)
-                loss.backward()
+                loss_value = float(kl_sum / max(1, valid_steps))
 
                 if float(args.grad_clip_norm) > 0.0:
                     torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=float(args.grad_clip_norm))
@@ -654,7 +751,7 @@ def main() -> None:
                     current_lr = float(optimizer.param_groups[0]["lr"])
                     print(
                         f"[TRAIN] step={step} clip_idx={clip_idx} seq_steps={seq_steps} "
-                        f"kl={float(loss.item()):.6e} lr={current_lr:.3e}"
+                        f"kl={loss_value:.6e} lr={current_lr:.3e}"
                     )
 
                 run_eval = (step % int(args.checkpoint_every) == 0) or (step == int(args.max_train_steps))
@@ -668,7 +765,7 @@ def main() -> None:
                     sequences=sequences,
                     teacher_cache=teacher_cache,
                     student_cache=student_cache,
-                    device=str(args.device),
+                    device=runtime_device,
                     max_eval_clips=int(args.eval_clips),
                     max_eval_steps_per_clip=int(args.eval_max_steps_per_clip),
                     temperature=float(args.temperature),
@@ -705,7 +802,7 @@ def main() -> None:
                     "flatline_median_cos": float(args.flatline_median_cos),
                     "flatline_window": int(args.flatline_window),
                     "eval_metrics": eval_metrics,
-                    "loss_kl": float(loss.item()),
+                    "loss_kl": float(loss_value),
                     "elapsed_sec": float(time.perf_counter() - start_time),
                 }
 
@@ -740,7 +837,7 @@ def main() -> None:
                             "type": "eval",
                             "step": int(step),
                             "metrics": eval_metrics,
-                            "loss_kl": float(loss.item()),
+                            "loss_kl": float(loss_value),
                             "lr": float(optimizer.param_groups[0]["lr"]),
                             "time_sec": float(time.perf_counter() - start_time),
                             "checkpoint": str(step_ckpt),
