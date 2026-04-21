@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.nn.utils.parametrize as parametrize
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
+import bitsandbytes as bnb
 
 from moshi.models import loaders
 from moshi.models.lm import LMModel
@@ -627,7 +628,7 @@ def main() -> None:
         f"[INFO] sequence_count={len(sequences)} total_steps_from_clips={total_steps_from_clips}"
     )
 
-    optimizer = AdamW(
+    optimizer = bnb.optim.AdamW8bit(
         trainable_params,
         lr=float(args.lr),
         weight_decay=float(args.weight_decay),
@@ -682,6 +683,8 @@ def main() -> None:
             f"[RESULT] baseline_eval: cos_median={baseline_eval['cos_median']:.6f} "
             f"cos_min={baseline_eval['cos_min']:.6f} kl_median={baseline_eval['kl_median']:.6e}"
         )
+        if baseline_eval['cos_median'] < 0.5:
+            raise SystemExit(f"[ERROR] Baseline median cosine is critically low ({baseline_eval['cos_median']:.6f}). The student initialization is broken or over-quantized. Aborting.")
 
         with log_path.open("a", encoding="utf-8") as log_file:
             log_file.write(
