@@ -34,6 +34,7 @@ def load_checkpoint_metrics(path: Path) -> dict:
         "effective_bpw": float(meta.get("effective_bpw", float("nan"))),
         "ratio_fp16": float(meta.get("ratio_fp16", float("nan"))),
         "ratio_int8": float(meta.get("ratio_int8", float("nan"))),
+        "ratio_int4": float(meta.get("ratio_int4", float("nan"))),
         "ratio_lowbit": float(meta.get("ratio_lowbit", float("nan"))),
         "low_bits": int(meta.get("low_bits", 0)) if "low_bits" in meta else 0,
     }
@@ -98,7 +99,10 @@ def main() -> None:
         print(
             f"[RESULT] {r['name']}: cos_median={r['cos_median']:.6f} "
             f"cos_min={r['cos_min']:.6f} weight_gib={r['estimated_weight_gib']:.6f} "
-            f"effective_bpw={r['effective_bpw']:.6f} meets_success={r['meets_success']}"
+            f"effective_bpw={r['effective_bpw']:.6f} "
+            f"ratios(fp16/int8/int4/int{r['low_bits']})="
+            f"{r['ratio_fp16']:.6f}/{r['ratio_int8']:.6f}/{r['ratio_int4']:.6f}/{r['ratio_lowbit']:.6f} "
+            f"meets_success={r['meets_success']}"
         )
 
     feasible = [r for r in rows if r["meets_success"]]
@@ -113,7 +117,9 @@ def main() -> None:
     print(
         f"[RESULT] best_metrics: cos_median={best['cos_median']:.6f} "
         f"cos_min={best['cos_min']:.6f} weight_gib={best['estimated_weight_gib']:.6f} "
-        f"effective_bpw={best['effective_bpw']:.6f}"
+        f"effective_bpw={best['effective_bpw']:.6f} "
+        f"ratios(fp16/int8/int4/int{best['low_bits']})="
+        f"{best['ratio_fp16']:.6f}/{best['ratio_int8']:.6f}/{best['ratio_int4']:.6f}/{best['ratio_lowbit']:.6f}"
     )
 
 

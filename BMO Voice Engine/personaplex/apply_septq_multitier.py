@@ -761,6 +761,7 @@ def build_tier_mask(
     scores: torch.Tensor,
     ratio_fp16: float = 0.001,
     ratio_int8: float = 0.01,
+    ratio_int4: float = 0.05,
 ) -> torch.Tensor:
     flat = scores.reshape(-1)
     n = int(flat.numel())
@@ -769,18 +770,24 @@ def build_tier_mask(
 
     ratio_fp16 = float(min(1.0, max(0.0, ratio_fp16)))
     ratio_int8 = float(min(1.0, max(0.0, ratio_int8)))
+    ratio_int4 = float(min(1.0, max(0.0, ratio_int4)))
 
     n_fp16 = int(ratio_fp16 * n)
     n_int8 = int(ratio_int8 * n)
+    n_int4 = int(ratio_int4 * n)
     n_fp16 = max(0, min(n, n_fp16))
     n_int8 = max(0, min(n - n_fp16, n_int8))
+    n_int4 = max(0, min(n - n_fp16 - n_int8, n_int4))
 
     sorted_indices = torch.argsort(flat, descending=True)
-    tier = torch.full((n,), 2, dtype=torch.uint8, device=flat.device)
+    tier = torch.full((n,), 3, dtype=torch.uint8, device=flat.device)
     if n_fp16 > 0:
         tier[sorted_indices[:n_fp16]] = 0
     if n_int8 > 0:
         tier[sorted_indices[n_fp16 : n_fp16 + n_int8]] = 1
+    if n_int4 > 0:
+        start = n_fp16 + n_int8
+        tier[sorted_indices[start : start + n_int4]] = 2
     return tier.view_as(scores).contiguous()
 
 
@@ -817,6 +824,7 @@ def build_static_global_mask(
     h_inv: torch.Tensor,
     ratio_fp16: float,
     ratio_int8: float,
+    ratio_int4: float,
 ) -> tuple[torch.Tensor, Dict[str, int]]:
     w = weight.detach().to(dtype=torch.float32).contiguous()
     wq = weight_rtn.detach().to(device=w.device, dtype=torch.float32).contiguous()
@@ -836,14 +844,17 @@ def build_static_global_mask(
         scores,
         ratio_fp16=ratio_fp16,
         ratio_int8=ratio_int8,
+        ratio_int4=ratio_int4,
     )
     fp16_elements = int((tier == 0).sum().item())
     int8_elements = int((tier == 1).sum().item())
-    lowbit_elements = int((tier == 2).sum().item())
+    int4_elements = int((tier == 2).sum().item())
+    lowbit_elements = int((tier == 3).sum().item())
 
     return tier.contiguous(), {
         "fp16_elements": int(fp16_elements),
         "int8_elements": int(int8_elements),
+        "int4_elements": int(int4_elements),
         "lowbit_elements": int(lowbit_elements),
         "total_elements": int(total),
     }
@@ -855,6 +866,7 @@ def septq_quantize_weight(
     low_bits: int,
     ratio_fp16: float,
     ratio_int8: float,
+    ratio_int4: float,
     block_size: int,
     hessian_damp: float,
     quant_min_range: float,
@@ -889,6 +901,11 @@ def septq_quantize_weight(
         bits=8,
         min_range=quant_min_range,
     )
+    quant_scale_int4, quant_zero_point_int4 = find_affine_params_mse(
+        w,
+        bits=4,
+        min_range=quant_min_range,
+    )
 
     w_rtn = torch.empty_like(w)
     for j in range(in_dim):
@@ -911,6 +928,7 @@ def septq_quantize_weight(
         h_inv=h_inv,
         ratio_fp16=ratio_fp16,
         ratio_int8=ratio_int8,
+        ratio_int4=ratio_int4,
     )
     tier_packed, tier_numel = pack_tier_mask_uint2(tier_mask)
 
@@ -939,12 +957,23 @@ def septq_quantize_weight(
                 zero_point=quant_zero_point_int8,
                 min_range=quant_min_range,
             )
+            q_col_int4, _, _ = quantize_vector_rtn_affine(
+                w_work[:, j],
+                4,
+                scale=quant_scale_int4,
+                zero_point=quant_zero_point_int4,
+                min_range=quant_min_range,
+            )
 
             tier_col = tier_mask[:, j]
             q_col = torch.where(
                 tier_col == 0,
                 w_work[:, j],
-                torch.where(tier_col == 1, q_col_int8, q_col_low),
+                torch.where(
+                    tier_col == 1,
+                    q_col_int8,
+                    torch.where(tier_col == 2, q_col_int4, q_col_low),
+                ),
             )
 
             q[:, j] = q_col
@@ -969,14 +998,17 @@ def septq_quantize_weight(
 
     fp16_elements = int(tier_counts["fp16_elements"])
     int8_elements = int(tier_counts["int8_elements"])
+    int4_elements = int(tier_counts["int4_elements"])
     lowbit_elements = int(tier_counts["lowbit_elements"])
     total_elements = int(tier_counts["total_elements"])
     lowbit_ratio_real = float(lowbit_elements / max(1, total_elements))
+    int4_ratio_real = float(int4_elements / max(1, total_elements))
     int8_ratio_real = float(int8_elements / max(1, total_elements))
     fp16_ratio_real = float(fp16_elements / max(1, total_elements))
     effective_bpw_no_tier = (
         (fp16_elements * 16.0)
         + (int8_elements * 8.0)
+        + (int4_elements * 4.0)
         + (lowbit_elements * float(low_bits))
     ) / max(1, total_elements)
     tier_mask_bpw = 2.0
@@ -989,7 +1021,7 @@ def septq_quantize_weight(
         # Kept for compatibility with downstream logging keys.
         "salient_cols": int(fp16_elements),
         "total_cols": int(w.numel()),
-        "reserved_elements": int(fp16_elements + int8_elements),
+        "reserved_elements": int(fp16_elements + int8_elements + int4_elements),
         "total_elements": int(total_elements),
         "hessian_damp": float(damp_used),
         "quant_scale": float(quant_scale_low),
@@ -998,12 +1030,16 @@ def septq_quantize_weight(
         "quant_zero_point_low": float(quant_zero_point_low),
         "quant_scale_int8": float(quant_scale_int8),
         "quant_zero_point_int8": float(quant_zero_point_int8),
+        "quant_scale_int4": float(quant_scale_int4),
+        "quant_zero_point_int4": float(quant_zero_point_int4),
         "low_bits": int(low_bits),
         "fp16_elements": int(fp16_elements),
         "int8_elements": int(int8_elements),
+        "int4_elements": int(int4_elements),
         "lowbit_elements": int(lowbit_elements),
         "fp16_ratio_real": float(fp16_ratio_real),
         "int8_ratio_real": float(int8_ratio_real),
+        "int4_ratio_real": float(int4_ratio_real),
         "lowbit_ratio_real": float(lowbit_ratio_real),
         "effective_bpw_no_tier": float(effective_bpw_no_tier),
         "tier_mask_bpw": float(tier_mask_bpw),
@@ -1067,12 +1103,16 @@ def sanitize_layer_stats(layer_stats: List[Dict[str, Any]]) -> List[Dict[str, An
                     "quant_zero_point_low": float(m.get("quant_zero_point_low", 0.0)),
                     "quant_scale_int8": float(m.get("quant_scale_int8", 0.0)),
                     "quant_zero_point_int8": float(m.get("quant_zero_point_int8", 0.0)),
+                    "quant_scale_int4": float(m.get("quant_scale_int4", 0.0)),
+                    "quant_zero_point_int4": float(m.get("quant_zero_point_int4", 0.0)),
                     "low_bits": int(m.get("low_bits", 0)),
                     "fp16_elements": int(m.get("fp16_elements", 0)),
                     "int8_elements": int(m.get("int8_elements", 0)),
+                    "int4_elements": int(m.get("int4_elements", 0)),
                     "lowbit_elements": int(m.get("lowbit_elements", 0)),
                     "fp16_ratio_real": float(m.get("fp16_ratio_real", 0.0)),
                     "int8_ratio_real": float(m.get("int8_ratio_real", 0.0)),
+                    "int4_ratio_real": float(m.get("int4_ratio_real", 0.0)),
                     "lowbit_ratio_real": float(m.get("lowbit_ratio_real", 0.0)),
                     "effective_bpw_no_tier": float(m.get("effective_bpw_no_tier", 0.0)),
                     "tier_mask_bpw": float(m.get("tier_mask_bpw", 0.0)),
@@ -1095,7 +1135,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Apply temporal-only SEPTQ multi-tier post-training quantization "
-            "(FP16 + INT8 + low-bit) to Moshi checkpoints."
+            "(FP16 + INT8 + INT4 + INT2) to Moshi checkpoints."
         )
     )
     parser.add_argument("--bf16", "--input", dest="input", default="v5_step1500_split.safetensors")
@@ -1103,7 +1143,13 @@ def main() -> None:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--mimi-weight", default="tokenizer-e351c8d8-checkpoint125.safetensors")
-    parser.add_argument("--bits", type=int, choices=[2, 3, 4], default=3)
+    parser.add_argument(
+        "--bits",
+        type=int,
+        choices=[2],
+        default=2,
+        help="Lowest tier bit-width (fixed to INT2 in 4-tier mode).",
+    )
     parser.add_argument(
         "--ratio-fp16",
         type=float,
@@ -1115,6 +1161,12 @@ def main() -> None:
         type=float,
         default=0.01,
         help="Fraction of next-highest saliency weights quantized as INT8.",
+    )
+    parser.add_argument(
+        "--ratio-int4",
+        type=float,
+        default=0.05,
+        help="Fraction of next-highest saliency weights quantized as INT4.",
     )
     parser.add_argument("--block-size", type=int, default=128)
     parser.add_argument(
@@ -1196,8 +1248,11 @@ def main() -> None:
     if args.ratio_int8 < 0.0 or args.ratio_int8 > 1.0:
         print("[ERROR] --ratio-int8 must be in [0, 1]")
         sys.exit(1)
-    if (args.ratio_fp16 + args.ratio_int8) > 1.0:
-        print("[ERROR] --ratio-fp16 + --ratio-int8 must be <= 1")
+    if args.ratio_int4 < 0.0 or args.ratio_int4 > 1.0:
+        print("[ERROR] --ratio-int4 must be in [0, 1]")
+        sys.exit(1)
+    if (args.ratio_fp16 + args.ratio_int8 + args.ratio_int4) > 1.0:
+        print("[ERROR] --ratio-fp16 + --ratio-int8 + --ratio-int4 must be <= 1")
         sys.exit(1)
 
     start = time.perf_counter()
@@ -1229,10 +1284,12 @@ def main() -> None:
 
     print(f"[INFO] Input checkpoint: {input_path}")
     print(f"[INFO] Output checkpoint: {output_path}")
-    low_ratio = float(max(0.0, 1.0 - float(args.ratio_fp16) - float(args.ratio_int8)))
+    low_ratio = float(
+        max(0.0, 1.0 - float(args.ratio_fp16) - float(args.ratio_int8) - float(args.ratio_int4))
+    )
     print(
         f"[INFO] low_bits={args.bits} ratio_fp16={args.ratio_fp16} "
-        f"ratio_int8={args.ratio_int8} ratio_lowbit={low_ratio:.6f} "
+        f"ratio_int8={args.ratio_int8} ratio_int4={args.ratio_int4} ratio_lowbit={low_ratio:.6f} "
         f"block_size={args.block_size}"
     )
     print(
@@ -1356,6 +1413,7 @@ def main() -> None:
     agg_total_elements = 0
     agg_fp16_elements = 0
     agg_int8_elements = 0
+    agg_int4_elements = 0
     agg_lowbit_elements = 0
     agg_estimated_weight_bytes = 0.0
 
@@ -1447,6 +1505,7 @@ def main() -> None:
                 low_bits=int(args.bits),
                 ratio_fp16=float(args.ratio_fp16),
                 ratio_int8=float(args.ratio_int8),
+                ratio_int4=float(args.ratio_int4),
                 block_size=int(args.block_size),
                 hessian_damp=float(args.hessian_damp),
                 quant_min_range=float(args.quant_min_range),
@@ -1479,6 +1538,7 @@ def main() -> None:
             agg_total_elements += int(stats.get("total_elements", 0))
             agg_fp16_elements += int(stats.get("fp16_elements", 0))
             agg_int8_elements += int(stats.get("int8_elements", 0))
+            agg_int4_elements += int(stats.get("int4_elements", 0))
             agg_lowbit_elements += int(stats.get("lowbit_elements", 0))
             agg_estimated_weight_bytes += float(stats.get("estimated_weight_bytes", 0.0))
 
@@ -1497,12 +1557,16 @@ def main() -> None:
                 "quant_zero_point_low": float(stats.get("quant_zero_point_low", 0.0)),
                 "quant_scale_int8": float(stats.get("quant_scale_int8", 0.0)),
                 "quant_zero_point_int8": float(stats.get("quant_zero_point_int8", 0.0)),
+                "quant_scale_int4": float(stats.get("quant_scale_int4", 0.0)),
+                "quant_zero_point_int4": float(stats.get("quant_zero_point_int4", 0.0)),
                 "low_bits": int(stats.get("low_bits", args.bits)),
                 "fp16_elements": int(stats.get("fp16_elements", 0)),
                 "int8_elements": int(stats.get("int8_elements", 0)),
+                "int4_elements": int(stats.get("int4_elements", 0)),
                 "lowbit_elements": int(stats.get("lowbit_elements", 0)),
                 "fp16_ratio_real": float(stats.get("fp16_ratio_real", 0.0)),
                 "int8_ratio_real": float(stats.get("int8_ratio_real", 0.0)),
+                "int4_ratio_real": float(stats.get("int4_ratio_real", 0.0)),
                 "lowbit_ratio_real": float(stats.get("lowbit_ratio_real", 0.0)),
                 "effective_bpw_no_tier": float(stats.get("effective_bpw_no_tier", 0.0)),
                 "tier_mask_bpw": float(stats.get("tier_mask_bpw", 0.0)),
@@ -1520,7 +1584,7 @@ def main() -> None:
             quantized_modules += 1
             print(
                 f"[INFO]   {name}: cos={mod['cos']:.6f} mse={mod['mse']:.6e} "
-                f"tiers(fp16/int8/low)={mod['fp16_elements']}/{mod['int8_elements']}/{mod['lowbit_elements']} "
+                f"tiers(fp16/int8/int4/int2)={mod['fp16_elements']}/{mod['int8_elements']}/{mod['int4_elements']}/{mod['lowbit_elements']} "
                 f"effective_bpw={mod['effective_bpw']:.3f} "
                 f"samples={mod['calibration_samples']} "
                 f"unquantized_cols={mod['unquantized_cols']} "
@@ -1564,6 +1628,7 @@ def main() -> None:
         agg_effective_bpw_no_tier = (
             (agg_fp16_elements * 16.0)
             + (agg_int8_elements * 8.0)
+            + (agg_int4_elements * 4.0)
             + (agg_lowbit_elements * float(args.bits))
         ) / float(agg_total_elements)
     else:
@@ -1584,7 +1649,8 @@ def main() -> None:
             "low_bits": int(args.bits),
             "ratio_fp16": float(args.ratio_fp16),
             "ratio_int8": float(args.ratio_int8),
-            "ratio_lowbit": float(max(0.0, 1.0 - args.ratio_fp16 - args.ratio_int8)),
+            "ratio_int4": float(args.ratio_int4),
+            "ratio_lowbit": float(max(0.0, 1.0 - args.ratio_fp16 - args.ratio_int8 - args.ratio_int4)),
             "tier_mask_bits_per_weight": 2.0,
             "tier_mask_pack_format": "uint2x4_per_byte",
             "effective_bpw_no_tier": float(agg_effective_bpw_no_tier),
@@ -1595,6 +1661,7 @@ def main() -> None:
             "tier_mask_total_gib": float(tier_mask_total_bytes / (1024.0**3)),
             "fp16_elements_total": int(agg_fp16_elements),
             "int8_elements_total": int(agg_int8_elements),
+            "int4_elements_total": int(agg_int4_elements),
             "lowbit_elements_total": int(agg_lowbit_elements),
             "quantized_elements_total": int(agg_total_elements),
             "block_size": int(args.block_size),
@@ -1649,7 +1716,11 @@ def main() -> None:
     print(f"[RESULT] low_bits = {args.bits}")
     print(f"[RESULT] ratio_fp16 = {args.ratio_fp16}")
     print(f"[RESULT] ratio_int8 = {args.ratio_int8}")
-    print(f"[RESULT] ratio_lowbit = {max(0.0, 1.0 - args.ratio_fp16 - args.ratio_int8):.6f}")
+    print(f"[RESULT] ratio_int4 = {args.ratio_int4}")
+    print(
+        f"[RESULT] ratio_lowbit = "
+        f"{max(0.0, 1.0 - args.ratio_fp16 - args.ratio_int8 - args.ratio_int4):.6f}"
+    )
     print(f"[RESULT] block_size = {args.block_size}")
     print(f"[RESULT] effective_bpw = {agg_effective_bpw:.6f}")
     print(f"[RESULT] estimated_weight_gib = {agg_estimated_weight_gib:.6f}")
