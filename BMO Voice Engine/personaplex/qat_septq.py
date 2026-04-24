@@ -12,7 +12,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.parametrize as parametrize
-from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 import bitsandbytes as bnb
 
@@ -179,32 +178,288 @@ def detach_model_streaming_state_(model: nn.Module) -> None:
         _detach_streaming_obj_inplace(state, visited)
 
 
-def fake_quantize_affine_ste(w: torch.Tensor, bits: int, min_range: float) -> torch.Tensor:
-    qmin = 0.0
-    qmax = float((1 << int(bits)) - 1)
-
-    w_min = torch.min(w)
-    w_max = torch.max(w)
-    span = (w_max - w_min).clamp_min(float(min_range))
-
-    scale = span / max(1.0, qmax - qmin)
-    zero_point = torch.round(-w_min / scale).clamp(qmin, qmax)
-
-    q = torch.clamp(torch.round(w / scale + zero_point), qmin, qmax)
-    dequant = scale * (q - zero_point)
-
-    # Straight-through estimator: forward uses dequant, backward sees identity.
-    return w + (dequant - w).detach()
+def unpack_tier_mask_uint2(packed: torch.Tensor, target_shape: tuple[int, int]) -> torch.Tensor:
+    """Unpack uint2 tier mask to uint8 tensor with values 0-3."""
+    total = target_shape[0] * target_shape[1]
+    expanded = torch.zeros(total, dtype=torch.uint8, device=packed.device)
+    for i in range(4):  # 4 elements per byte
+        expanded[i::4] = (packed >> (i * 2)) & 0b11
+    return expanded[:total].reshape(target_shape)
 
 
-class FakeQuantSTEParam(nn.Module):
-    def __init__(self, bits: int, min_range: float):
+def _is_multitier_target_entry(name: str) -> bool:
+    text = str(name)
+    if ".self_attn.out_proj" in text:
+        return False
+    return (
+        text.endswith(".self_attn.in_proj_weight")
+        or text.endswith(".gating.linear_in.weight")
+        or text.endswith(".gating.linear_out.weight")
+    )
+
+
+def _build_module_stats_lookup(septq_meta: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    per_layer_stats = septq_meta.get("per_layer_stats")
+    if not isinstance(per_layer_stats, list):
+        return out
+
+    for layer_stats in per_layer_stats:
+        if not isinstance(layer_stats, dict):
+            continue
+        modules = layer_stats.get("modules")
+        if not isinstance(modules, list):
+            continue
+        for module_stats in modules:
+            if not isinstance(module_stats, dict):
+                continue
+            name = module_stats.get("name")
+            if isinstance(name, str) and name:
+                out[name] = module_stats
+    return out
+
+
+def _lookup_quant_value(root: Dict[str, Any] | None, module_name: str, tier_keys: List[str]) -> Any:
+    if not isinstance(root, dict):
+        return None
+
+    by_module = root.get(module_name)
+    if isinstance(by_module, dict):
+        for key in tier_keys:
+            if key in by_module:
+                return by_module[key]
+
+    for key in tier_keys:
+        by_tier = root.get(key)
+        if isinstance(by_tier, dict) and module_name in by_tier:
+            return by_tier[module_name]
+
+    for key in tier_keys:
+        dotted = f"{module_name}.{key}"
+        if dotted in root:
+            return root[dotted]
+
+    return None
+
+
+def _pick_first(module_stats: Dict[str, Any], keys: List[str]) -> Any:
+    for key in keys:
+        if key in module_stats:
+            return module_stats[key]
+    return None
+
+
+def resolve_multitier_quant_params(
+    module_name: str,
+    *,
+    septq_meta: Dict[str, Any],
+    quant_scales: Dict[str, Any] | None,
+    quant_zeros: Dict[str, Any] | None,
+    module_stats_lookup: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    scale_int8 = _lookup_quant_value(quant_scales, module_name, ["int8", "INT8", "8"])
+    zp_int8 = _lookup_quant_value(quant_zeros, module_name, ["int8", "INT8", "8"])
+    scale_int4 = _lookup_quant_value(quant_scales, module_name, ["int4", "INT4", "4"])
+    zp_int4 = _lookup_quant_value(quant_zeros, module_name, ["int4", "INT4", "4"])
+    scale_int2 = _lookup_quant_value(
+        quant_scales,
+        module_name,
+        ["int2", "INT2", "2", "low", "lowbit", "low_bits"],
+    )
+    zp_int2 = _lookup_quant_value(
+        quant_zeros,
+        module_name,
+        ["int2", "INT2", "2", "low", "lowbit", "low_bits"],
+    )
+
+    module_stats = module_stats_lookup.get(module_name, {})
+    if not isinstance(module_stats, dict):
+        module_stats = {}
+
+    if scale_int8 is None:
+        scale_int8 = _pick_first(module_stats, ["quant_scale_int8", "scale_int8"])
+    if zp_int8 is None:
+        zp_int8 = _pick_first(module_stats, ["quant_zero_point_int8", "zero_point_int8"])
+
+    if scale_int4 is None:
+        scale_int4 = _pick_first(module_stats, ["quant_scale_int4", "scale_int4"])
+    if zp_int4 is None:
+        zp_int4 = _pick_first(module_stats, ["quant_zero_point_int4", "zero_point_int4"])
+
+    if scale_int2 is None:
+        scale_int2 = _pick_first(
+            module_stats,
+            ["quant_scale_int2", "scale_int2", "quant_scale_low", "quant_scale_lowbit"],
+        )
+    if zp_int2 is None:
+        zp_int2 = _pick_first(
+            module_stats,
+            [
+                "quant_zero_point_int2",
+                "zero_point_int2",
+                "quant_zero_point_low",
+                "quant_zero_point_lowbit",
+            ],
+        )
+
+    missing: List[str] = []
+    if scale_int8 is None:
+        missing.append("scale_int8")
+    if zp_int8 is None:
+        missing.append("zero_point_int8")
+    if scale_int4 is None:
+        missing.append("scale_int4")
+    if zp_int4 is None:
+        missing.append("zero_point_int4")
+    if scale_int2 is None:
+        missing.append("scale_int2")
+    if zp_int2 is None:
+        missing.append("zero_point_int2")
+
+    if missing:
+        raise RuntimeError(
+            "Missing multi-tier quant params for module "
+            f"{module_name}: {', '.join(missing)}. "
+            "Expected quant_scales/quant_zeros (INT8/INT4/INT2) in septq_meta or per_layer_stats fallback."
+        )
+
+    return {
+        "scale_int8": scale_int8,
+        "zero_point_int8": zp_int8,
+        "scale_int4": scale_int4,
+        "zero_point_int4": zp_int4,
+        "scale_int2": scale_int2,
+        "zero_point_int2": zp_int2,
+    }
+
+
+def load_student_quant_metadata(student_quant_meta_path: Path) -> Dict[str, Any]:
+    with open(student_quant_meta_path, "rb") as handle:
+        payload = torch.load(handle, map_location="cpu")
+
+    if not isinstance(payload, dict):
+        raise SystemExit(
+            f"[ERROR] Invalid student quant metadata payload type: {type(payload)} (expected dict)"
+        )
+
+    septq_meta = payload.get("septq_meta")
+    if not isinstance(septq_meta, dict):
+        raise SystemExit(
+            "[ERROR] student quant metadata is missing septq_meta payload"
+        )
+
+    tier_masks_uint2 = septq_meta.get("tier_masks_uint2")
+    if not isinstance(tier_masks_uint2, dict):
+        tier_masks_uint2 = payload.get("tier_masks_uint2")
+    if not isinstance(tier_masks_uint2, dict) or not tier_masks_uint2:
+        raise SystemExit(
+            "[ERROR] student quant metadata is missing tier_masks_uint2"
+        )
+
+    tier_masks_meta = septq_meta.get("tier_masks_meta")
+    if not isinstance(tier_masks_meta, dict):
+        tier_masks_meta = payload.get("tier_masks_meta")
+    if tier_masks_meta is None:
+        tier_masks_meta = {}
+    if not isinstance(tier_masks_meta, dict):
+        raise SystemExit("[ERROR] tier_masks_meta must be a dict when provided")
+
+    quant_scales = septq_meta.get("quant_scales")
+    if quant_scales is None and isinstance(payload.get("quant_scales"), dict):
+        quant_scales = payload.get("quant_scales")
+    if quant_scales is not None and not isinstance(quant_scales, dict):
+        raise SystemExit("[ERROR] quant_scales must be a dict when provided")
+
+    quant_zeros = septq_meta.get("quant_zeros")
+    if quant_zeros is None and isinstance(payload.get("quant_zeros"), dict):
+        quant_zeros = payload.get("quant_zeros")
+    if quant_zeros is not None and not isinstance(quant_zeros, dict):
+        raise SystemExit("[ERROR] quant_zeros must be a dict when provided")
+
+    return {
+        "septq_meta": septq_meta,
+        "tier_masks_uint2": tier_masks_uint2,
+        "tier_masks_meta": tier_masks_meta,
+        "quant_scales": quant_scales,
+        "quant_zeros": quant_zeros,
+    }
+
+
+class MultiTierFakeQuantize(nn.Module):
+    def __init__(
+        self,
+        *,
+        tier_mask: torch.Tensor,
+        scale_int8: Any,
+        zero_point_int8: Any,
+        scale_int4: Any,
+        zero_point_int4: Any,
+        scale_int2: Any,
+        zero_point_int2: Any,
+    ):
         super().__init__()
-        self.bits = int(bits)
-        self.min_range = float(min_range)
+
+        mask = tier_mask.detach().to(dtype=torch.uint8)
+        self.register_buffer("tier_mask", mask)
+        self.register_buffer(
+            "scale_int8",
+            torch.as_tensor(scale_int8, dtype=torch.float32, device=mask.device).detach(),
+        )
+        self.register_buffer(
+            "zero_point_int8",
+            torch.as_tensor(zero_point_int8, dtype=torch.float32, device=mask.device).detach(),
+        )
+        self.register_buffer(
+            "scale_int4",
+            torch.as_tensor(scale_int4, dtype=torch.float32, device=mask.device).detach(),
+        )
+        self.register_buffer(
+            "zero_point_int4",
+            torch.as_tensor(zero_point_int4, dtype=torch.float32, device=mask.device).detach(),
+        )
+        self.register_buffer(
+            "scale_int2",
+            torch.as_tensor(scale_int2, dtype=torch.float32, device=mask.device).detach(),
+        )
+        self.register_buffer(
+            "zero_point_int2",
+            torch.as_tensor(zero_point_int2, dtype=torch.float32, device=mask.device).detach(),
+        )
+
+    def _fake_quant_affine(
+        self,
+        w: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        max_val: int,
+    ) -> torch.Tensor:
+        scale_safe = scale.clamp_min(1e-12)
+        q = torch.clamp(torch.round(w / scale_safe + zero_point), 0.0, float(max_val))
+        return scale_safe * (q - zero_point)
 
     def forward(self, w: torch.Tensor) -> torch.Tensor:
-        return fake_quantize_affine_ste(w, bits=self.bits, min_range=self.min_range)
+        if self.tier_mask.shape != w.shape:
+            raise RuntimeError(
+                f"Tier mask shape mismatch: mask={tuple(self.tier_mask.shape)} weight={tuple(w.shape)}"
+            )
+        if self.tier_mask.device != w.device:
+            raise RuntimeError(
+                f"Tier mask device mismatch: mask={self.tier_mask.device} weight={w.device}"
+            )
+
+        w_f = w.float()
+
+        dq_int8 = self._fake_quant_affine(w_f, self.scale_int8, self.zero_point_int8, max_val=255)
+        dq_int4 = self._fake_quant_affine(w_f, self.scale_int4, self.zero_point_int4, max_val=15)
+        dq_int2 = self._fake_quant_affine(w_f, self.scale_int2, self.zero_point_int2, max_val=3)
+
+        selected = torch.where(
+            self.tier_mask == 0,
+            w_f,
+            torch.where(self.tier_mask == 1, dq_int8, torch.where(self.tier_mask == 2, dq_int4, dq_int2)),
+        )
+
+        return w + (selected.to(w.dtype) - w).detach()
 
 
 def gather_qat_entries(
@@ -228,7 +483,10 @@ def gather_qat_entries(
     excluded: List[str] = []
     for idx in selected_layers:
         pack = layer_plan[idx]
-        entries.extend(pack["entries"])
+        for entry in pack["entries"]:
+            name = str(entry["name"])
+            if _is_multitier_target_entry(name):
+                entries.append(entry)
         excluded.extend(list(pack.get("excluded_entries", [])))
 
     deduped: List[Dict[str, Any]] = []
@@ -245,11 +503,16 @@ def gather_qat_entries(
 
 def register_fake_quant_for_entries(
     entries: List[Dict[str, Any]],
-    bits: int,
-    min_range: float,
+    *,
+    septq_meta: Dict[str, Any],
+    tier_masks_uint2: Dict[str, torch.Tensor],
+    tier_masks_meta: Dict[str, Dict[str, Any]],
+    quant_scales: Dict[str, Any] | None,
+    quant_zeros: Dict[str, Any] | None,
 ) -> Dict[str, Tuple[nn.Module, str]]:
     state_key_to_param: Dict[str, Tuple[nn.Module, str]] = {}
     seen = set()
+    module_stats_lookup = _build_module_stats_lookup(septq_meta)
 
     for e in entries:
         module = e["module"]
@@ -265,6 +528,36 @@ def register_fake_quant_for_entries(
         if not torch.is_tensor(target):
             raise RuntimeError(f"Cannot register fake quant: missing tensor param {state_key}")
 
+        packed_mask = tier_masks_uint2.get(state_key)
+        if not torch.is_tensor(packed_mask):
+            raise RuntimeError(
+                "Missing packed tier mask for target module: "
+                f"{state_key}. Expected key in tier_masks_uint2 from --student-quant-meta."
+            )
+
+        raw_shape = tier_masks_meta.get(state_key, {}).get("shape", list(target.shape))
+        if not isinstance(raw_shape, (list, tuple)) or len(raw_shape) != 2:
+            raise RuntimeError(f"Invalid tier mask shape metadata for {state_key}: {raw_shape}")
+        target_shape = (int(raw_shape[0]), int(raw_shape[1]))
+
+        unpacked_mask = unpack_tier_mask_uint2(
+            packed_mask.detach().to(device=target.device, dtype=torch.uint8).reshape(-1),
+            target_shape=target_shape,
+        )
+        if tuple(unpacked_mask.shape) != tuple(target.shape):
+            raise RuntimeError(
+                f"Tier mask shape mismatch for {state_key}: "
+                f"mask={tuple(unpacked_mask.shape)} weight={tuple(target.shape)}"
+            )
+
+        quant_params = resolve_multitier_quant_params(
+            state_key,
+            septq_meta=septq_meta,
+            quant_scales=quant_scales,
+            quant_zeros=quant_zeros,
+            module_stats_lookup=module_stats_lookup,
+        )
+
         has_parametrization = (
             hasattr(module, "parametrizations") and param_name in getattr(module, "parametrizations", {})
         )
@@ -272,7 +565,15 @@ def register_fake_quant_for_entries(
             parametrize.register_parametrization(
                 module,
                 param_name,
-                FakeQuantSTEParam(bits=int(bits), min_range=float(min_range)),
+                MultiTierFakeQuantize(
+                    tier_mask=unpacked_mask,
+                    scale_int8=quant_params["scale_int8"],
+                    zero_point_int8=quant_params["zero_point_int8"],
+                    scale_int4=quant_params["scale_int4"],
+                    zero_point_int4=quant_params["zero_point_int4"],
+                    scale_int2=quant_params["scale_int2"],
+                    zero_point_int2=quant_params["zero_point_int2"],
+                ),
             )
 
         original = module.parametrizations[param_name].original
@@ -435,12 +736,12 @@ def count_trainable_params(model: nn.Module) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "QAT for SEPTQ 4-bit initialization with STE fake-quantized weights and "
-            "z_s KL distillation against a teacher model."
+            "QAT for SEPTQ multi-tier initialization with metadata-driven STE fake-quantized "
+            "weights and z_s KL distillation against a teacher model."
         )
     )
     parser.add_argument("--teacher", default="v5_step1500_split.safetensors")
-    parser.add_argument("--student-init", default="bmo_temporal_septq_4bit.pt")
+    parser.add_argument("--student-quant-meta", default="bmo_temporal_half_cushion_max.pt")
     parser.add_argument("--out-dir", default="qat_septq_runs")
 
     parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
@@ -464,7 +765,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bits", type=int, choices=[2, 3, 4], default=4)
     parser.add_argument("--quant-min-range", type=float, default=1e-6)
 
-    parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--lr", type=float, default=3e-6)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--max-train-steps", type=int, default=1000)
@@ -524,28 +825,31 @@ def main() -> None:
     root = Path(__file__).resolve().parent
 
     teacher_path = resolve_local_path(root, str(args.teacher))
-    student_init_path = resolve_local_path(root, str(args.student_init))
+    student_quant_meta_path = resolve_local_path(root, str(args.student_quant_meta))
     calibration_path = resolve_local_path(root, str(args.calibration_clips))
     mimi_weight = resolve_local_path(root, str(args.mimi_weight))
     out_dir = resolve_local_path(root, str(args.out_dir))
 
     if not teacher_path.exists():
         raise SystemExit(f"[ERROR] teacher checkpoint not found: {teacher_path}")
-    if not student_init_path.exists():
-        raise SystemExit(f"[ERROR] student initialization checkpoint not found: {student_init_path}")
+    if not student_quant_meta_path.exists():
+        raise SystemExit(f"[ERROR] student quant metadata checkpoint not found: {student_quant_meta_path}")
     if not mimi_weight.exists():
         raise SystemExit(f"[ERROR] mimi weight not found: {mimi_weight}")
 
     teacher_dtype = parse_dtype(args.teacher_dtype)
-    student_dtype = None if str(args.student_dtype).strip().lower() == "auto" else parse_dtype(args.student_dtype)
+    requested_student_dtype = (
+        None if str(args.student_dtype).strip().lower() == "auto" else parse_dtype(args.student_dtype)
+    )
+    student_dtype = teacher_dtype if requested_student_dtype is None else requested_student_dtype
     verify_dtype = parse_dtype(args.dtype)
 
     print(f"[INFO] teacher = {teacher_path}")
-    print(f"[INFO] student_init = {student_init_path}")
+    print(f"[INFO] student_quant_meta = {student_quant_meta_path}")
     print(f"[INFO] out_dir = {out_dir}")
     print(f"[INFO] device = {runtime_device}")
     print(
-        f"[INFO] bits={args.bits} train_layers={args.train_layers} "
+        f"[INFO] train_layers={args.train_layers} "
         f"max_train_steps={args.max_train_steps} warmup_steps={args.warmup_steps}"
     )
     if int(args.train_max_steps_per_clip) > 0:
@@ -562,15 +866,23 @@ def main() -> None:
     teacher.eval()
     freeze_all_params(teacher)
 
-    print("[INFO] Loading student model...")
+    print("[INFO] Loading student model from continuous teacher checkpoint...")
     student = loaders.get_moshi_lm(
-        str(student_init_path),
+        str(teacher_path),
         copy_missing_weights=not bool(args.no_copy_missing_weights),
         device=runtime_device,
         dtype=student_dtype,
         cpu_offload=False,
     )
     student.train()
+
+    print("[INFO] Loading SEPTQ metadata for multi-tier fake quantization...")
+    quant_meta = load_student_quant_metadata(student_quant_meta_path)
+    septq_meta = quant_meta["septq_meta"]
+    tier_masks_uint2 = quant_meta["tier_masks_uint2"]
+    tier_masks_meta = quant_meta["tier_masks_meta"]
+    quant_scales = quant_meta["quant_scales"]
+    quant_zeros = quant_meta["quant_zeros"]
 
     temporal_layers = get_temporal_layers(student)
     if not temporal_layers:
@@ -598,8 +910,11 @@ def main() -> None:
     freeze_all_params(student)
     parametrized_state_keys = register_fake_quant_for_entries(
         entries=entries,
-        bits=int(args.bits),
-        min_range=float(args.quant_min_range),
+        septq_meta=septq_meta,
+        tier_masks_uint2=tier_masks_uint2,
+        tier_masks_meta=tier_masks_meta,
+        quant_scales=quant_scales,
+        quant_zeros=quant_zeros,
     )
 
     trainable_params = [p for p in student.parameters() if p.requires_grad]
@@ -645,7 +960,7 @@ def main() -> None:
     log_path = out_dir / "qat_train_log.jsonl"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    source_cfg = read_config_override_from_payload(student_init_path)
+    source_cfg = read_config_override_from_payload(student_quant_meta_path)
 
     train_order = list(range(len(sequences)))
     rng = random.Random(int(args.seed))
@@ -683,8 +998,12 @@ def main() -> None:
             f"[RESULT] baseline_eval: cos_median={baseline_eval['cos_median']:.6f} "
             f"cos_min={baseline_eval['cos_min']:.6f} kl_median={baseline_eval['kl_median']:.6e}"
         )
-        if baseline_eval['cos_median'] < 0.5:
-            raise SystemExit(f"[ERROR] Baseline median cosine is critically low ({baseline_eval['cos_median']:.6f}). The student initialization is broken or over-quantized. Aborting.")
+        if baseline_eval["cos_median"] < 0.80:
+            raise SystemExit(
+                "[ERROR] Baseline median cosine is below 0.80 "
+                f"({baseline_eval['cos_median']:.6f}). "
+                "Multi-tier fake quantization was likely applied incorrectly. Aborting."
+            )
 
         with log_path.open("a", encoding="utf-8") as log_file:
             log_file.write(
@@ -784,15 +1103,14 @@ def main() -> None:
 
                 qat_meta = {
                     "source_teacher": str(teacher_path),
-                    "source_student_init": str(student_init_path),
+                    "source_student_quant_meta": str(student_quant_meta_path),
                     "step": int(step),
                     "seed": int(args.seed),
-                    "bits": int(args.bits),
-                    "quant_min_range": float(args.quant_min_range),
+                    "quant_scheme": "multitier_ste",
                     "train_layers": [int(i) for i in selected_layers],
                     "skip_modules_filters": skip_filters,
                     "excluded_modules": excluded_entries,
-                    "optimizer": "AdamW",
+                    "optimizer": "AdamW8bit",
                     "lr": float(args.lr),
                     "weight_decay": float(args.weight_decay),
                     "scheduler": "cosine_with_warmup",
