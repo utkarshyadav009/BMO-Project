@@ -199,139 +199,64 @@ def _is_multitier_target_entry(name: str) -> bool:
     )
 
 
-def _build_module_stats_lookup(septq_meta: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    out: Dict[str, Dict[str, Any]] = {}
-    per_layer_stats = septq_meta.get("per_layer_stats")
-    if not isinstance(per_layer_stats, list):
-        return out
-
-    for layer_stats in per_layer_stats:
-        if not isinstance(layer_stats, dict):
-            continue
-        modules = layer_stats.get("modules")
-        if not isinstance(modules, list):
-            continue
-        for module_stats in modules:
-            if not isinstance(module_stats, dict):
-                continue
-            name = module_stats.get("name")
-            if isinstance(name, str) and name:
-                out[name] = module_stats
-    return out
-
-
-def _lookup_quant_value(root: Dict[str, Any] | None, module_name: str, tier_keys: List[str]) -> Any:
-    if not isinstance(root, dict):
+def get_module_meta(ckpt: Dict[str, Any], target_name: str) -> Dict[str, Any] | None:
+    septq_meta = ckpt.get("septq_meta")
+    if not isinstance(septq_meta, dict):
         return None
 
-    by_module = root.get(module_name)
-    if isinstance(by_module, dict):
-        for key in tier_keys:
-            if key in by_module:
-                return by_module[key]
+    per_layer_stats = septq_meta.get("per_layer_stats")
+    if not isinstance(per_layer_stats, list):
+        return None
 
-    for key in tier_keys:
-        by_tier = root.get(key)
-        if isinstance(by_tier, dict) and module_name in by_tier:
-            return by_tier[module_name]
-
-    for key in tier_keys:
-        dotted = f"{module_name}.{key}"
-        if dotted in root:
-            return root[dotted]
-
-    return None
-
-
-def _pick_first(module_stats: Dict[str, Any], keys: List[str]) -> Any:
-    for key in keys:
-        if key in module_stats:
-            return module_stats[key]
+    for layer in per_layer_stats:
+        if not isinstance(layer, dict):
+            continue
+        modules = layer.get("modules")
+        if not isinstance(modules, list):
+            continue
+        for mod in modules:
+            if isinstance(mod, dict) and mod.get("name") == target_name:
+                return mod
     return None
 
 
 def resolve_multitier_quant_params(
     module_name: str,
     *,
-    septq_meta: Dict[str, Any],
-    quant_scales: Dict[str, Any] | None,
-    quant_zeros: Dict[str, Any] | None,
-    module_stats_lookup: Dict[str, Dict[str, Any]],
+    ckpt: Dict[str, Any],
 ) -> Dict[str, Any]:
-    scale_int8 = _lookup_quant_value(quant_scales, module_name, ["int8", "INT8", "8"])
-    zp_int8 = _lookup_quant_value(quant_zeros, module_name, ["int8", "INT8", "8"])
-    scale_int4 = _lookup_quant_value(quant_scales, module_name, ["int4", "INT4", "4"])
-    zp_int4 = _lookup_quant_value(quant_zeros, module_name, ["int4", "INT4", "4"])
-    scale_int2 = _lookup_quant_value(
-        quant_scales,
-        module_name,
-        ["int2", "INT2", "2", "low", "lowbit", "low_bits"],
-    )
-    zp_int2 = _lookup_quant_value(
-        quant_zeros,
-        module_name,
-        ["int2", "INT2", "2", "low", "lowbit", "low_bits"],
-    )
-
-    module_stats = module_stats_lookup.get(module_name, {})
-    if not isinstance(module_stats, dict):
-        module_stats = {}
-
-    if scale_int8 is None:
-        scale_int8 = _pick_first(module_stats, ["quant_scale_int8", "scale_int8"])
-    if zp_int8 is None:
-        zp_int8 = _pick_first(module_stats, ["quant_zero_point_int8", "zero_point_int8"])
-
-    if scale_int4 is None:
-        scale_int4 = _pick_first(module_stats, ["quant_scale_int4", "scale_int4"])
-    if zp_int4 is None:
-        zp_int4 = _pick_first(module_stats, ["quant_zero_point_int4", "zero_point_int4"])
-
-    if scale_int2 is None:
-        scale_int2 = _pick_first(
-            module_stats,
-            ["quant_scale_int2", "scale_int2", "quant_scale_low", "quant_scale_lowbit"],
-        )
-    if zp_int2 is None:
-        zp_int2 = _pick_first(
-            module_stats,
-            [
-                "quant_zero_point_int2",
-                "zero_point_int2",
-                "quant_zero_point_low",
-                "quant_zero_point_lowbit",
-            ],
+    module_meta = get_module_meta(ckpt, module_name)
+    if not isinstance(module_meta, dict):
+        raise RuntimeError(
+            "Missing module metadata in septq_meta.per_layer_stats for target: "
+            f"{module_name}"
         )
 
+    required_keys = {
+        "scale_int8": "quant_scale_int8",
+        "zero_point_int8": "quant_zero_point_int8",
+        "scale_int4": "quant_scale_int4",
+        "zero_point_int4": "quant_zero_point_int4",
+        "scale_int2": "quant_scale_low",
+        "zero_point_int2": "quant_zero_point_low",
+    }
+
+    resolved: Dict[str, Any] = {}
     missing: List[str] = []
-    if scale_int8 is None:
-        missing.append("scale_int8")
-    if zp_int8 is None:
-        missing.append("zero_point_int8")
-    if scale_int4 is None:
-        missing.append("scale_int4")
-    if zp_int4 is None:
-        missing.append("zero_point_int4")
-    if scale_int2 is None:
-        missing.append("scale_int2")
-    if zp_int2 is None:
-        missing.append("zero_point_int2")
+    for out_key, meta_key in required_keys.items():
+        value = module_meta.get(meta_key)
+        if value is None:
+            missing.append(meta_key)
+            continue
+        resolved[out_key] = value
 
     if missing:
         raise RuntimeError(
-            "Missing multi-tier quant params for module "
-            f"{module_name}: {', '.join(missing)}. "
-            "Expected quant_scales/quant_zeros (INT8/INT4/INT2) in septq_meta or per_layer_stats fallback."
+            "Missing strict multi-tier quant params for module "
+            f"{module_name}: {', '.join(missing)}"
         )
 
-    return {
-        "scale_int8": scale_int8,
-        "zero_point_int8": zp_int8,
-        "scale_int4": scale_int4,
-        "zero_point_int4": zp_int4,
-        "scale_int2": scale_int2,
-        "zero_point_int2": zp_int2,
-    }
+    return resolved
 
 
 def load_student_quant_metadata(student_quant_meta_path: Path) -> Dict[str, Any]:
@@ -349,12 +274,14 @@ def load_student_quant_metadata(student_quant_meta_path: Path) -> Dict[str, Any]
             "[ERROR] student quant metadata is missing septq_meta payload"
         )
 
-    tier_masks_uint2 = septq_meta.get("tier_masks_uint2")
-    if not isinstance(tier_masks_uint2, dict):
-        tier_masks_uint2 = payload.get("tier_masks_uint2")
+    per_layer_stats = septq_meta.get("per_layer_stats")
+    if not isinstance(per_layer_stats, list) or not per_layer_stats:
+        raise SystemExit("[ERROR] student quant metadata is missing septq_meta.per_layer_stats")
+
+    tier_masks_uint2 = payload.get("tier_masks_uint2")
     if not isinstance(tier_masks_uint2, dict) or not tier_masks_uint2:
         raise SystemExit(
-            "[ERROR] student quant metadata is missing tier_masks_uint2"
+            "[ERROR] student quant metadata is missing root tier_masks_uint2"
         )
 
     tier_masks_meta = septq_meta.get("tier_masks_meta")
@@ -365,24 +292,11 @@ def load_student_quant_metadata(student_quant_meta_path: Path) -> Dict[str, Any]
     if not isinstance(tier_masks_meta, dict):
         raise SystemExit("[ERROR] tier_masks_meta must be a dict when provided")
 
-    quant_scales = septq_meta.get("quant_scales")
-    if quant_scales is None and isinstance(payload.get("quant_scales"), dict):
-        quant_scales = payload.get("quant_scales")
-    if quant_scales is not None and not isinstance(quant_scales, dict):
-        raise SystemExit("[ERROR] quant_scales must be a dict when provided")
-
-    quant_zeros = septq_meta.get("quant_zeros")
-    if quant_zeros is None and isinstance(payload.get("quant_zeros"), dict):
-        quant_zeros = payload.get("quant_zeros")
-    if quant_zeros is not None and not isinstance(quant_zeros, dict):
-        raise SystemExit("[ERROR] quant_zeros must be a dict when provided")
-
     return {
+        "checkpoint_payload": payload,
         "septq_meta": septq_meta,
         "tier_masks_uint2": tier_masks_uint2,
         "tier_masks_meta": tier_masks_meta,
-        "quant_scales": quant_scales,
-        "quant_zeros": quant_zeros,
     }
 
 
@@ -390,7 +304,8 @@ class MultiTierFakeQuantize(nn.Module):
     def __init__(
         self,
         *,
-        tier_mask: torch.Tensor,
+        tier_mask_packed: torch.Tensor,
+        tier_mask_shape: tuple[int, int],
         scale_int8: Any,
         zero_point_int8: Any,
         scale_int4: Any,
@@ -400,32 +315,57 @@ class MultiTierFakeQuantize(nn.Module):
     ):
         super().__init__()
 
-        mask = tier_mask.detach().to(dtype=torch.uint8)
-        self.register_buffer("tier_mask", mask)
+        mask_packed = tier_mask_packed.detach().to(dtype=torch.uint8).reshape(-1)
+        if len(tier_mask_shape) != 2:
+            raise RuntimeError(f"Invalid tier_mask_shape: {tier_mask_shape}")
+        rows = int(tier_mask_shape[0])
+        cols = int(tier_mask_shape[1])
+        if rows <= 0 or cols <= 0:
+            raise RuntimeError(f"Invalid non-positive tier_mask_shape: {tier_mask_shape}")
+        needed_packed = (rows * cols + 3) // 4
+        if int(mask_packed.numel()) < int(needed_packed):
+            raise RuntimeError(
+                "Packed tier mask is too small for declared shape: "
+                f"have={int(mask_packed.numel())} need={int(needed_packed)} shape={tier_mask_shape}"
+            )
+
+        # Keep packed mask in a buffer to reduce persistent VRAM footprint.
+        self.register_buffer("tier_mask", mask_packed)
+        self.register_buffer("tier_mask_shape", torch.tensor([rows, cols], dtype=torch.int64, device=mask_packed.device))
         self.register_buffer(
             "scale_int8",
-            torch.as_tensor(scale_int8, dtype=torch.float32, device=mask.device).detach(),
+            torch.as_tensor(scale_int8, dtype=torch.float32, device=mask_packed.device).detach(),
         )
         self.register_buffer(
             "zero_point_int8",
-            torch.as_tensor(zero_point_int8, dtype=torch.float32, device=mask.device).detach(),
+            torch.as_tensor(zero_point_int8, dtype=torch.float32, device=mask_packed.device).detach(),
         )
         self.register_buffer(
             "scale_int4",
-            torch.as_tensor(scale_int4, dtype=torch.float32, device=mask.device).detach(),
+            torch.as_tensor(scale_int4, dtype=torch.float32, device=mask_packed.device).detach(),
         )
         self.register_buffer(
             "zero_point_int4",
-            torch.as_tensor(zero_point_int4, dtype=torch.float32, device=mask.device).detach(),
+            torch.as_tensor(zero_point_int4, dtype=torch.float32, device=mask_packed.device).detach(),
         )
         self.register_buffer(
             "scale_int2",
-            torch.as_tensor(scale_int2, dtype=torch.float32, device=mask.device).detach(),
+            torch.as_tensor(scale_int2, dtype=torch.float32, device=mask_packed.device).detach(),
         )
         self.register_buffer(
             "zero_point_int2",
-            torch.as_tensor(zero_point_int2, dtype=torch.float32, device=mask.device).detach(),
+            torch.as_tensor(zero_point_int2, dtype=torch.float32, device=mask_packed.device).detach(),
         )
+
+    def _unpack_tier_mask_for_weight(self, w: torch.Tensor) -> torch.Tensor:
+        rows = int(self.tier_mask_shape[0].item())
+        cols = int(self.tier_mask_shape[1].item())
+        target_shape = (rows, cols)
+        mask = unpack_tier_mask_uint2(
+            self.tier_mask.to(device=w.device, dtype=torch.uint8, non_blocking=True),
+            target_shape=target_shape,
+        )
+        return mask
 
     def _fake_quant_affine(
         self,
@@ -434,31 +374,87 @@ class MultiTierFakeQuantize(nn.Module):
         zero_point: torch.Tensor,
         max_val: int,
     ) -> torch.Tensor:
-        scale_safe = scale.clamp_min(1e-12)
-        q = torch.clamp(torch.round(w / scale_safe + zero_point), 0.0, float(max_val))
-        return scale_safe * (q - zero_point)
+        scale_t = scale.to(dtype=w.dtype, device=w.device)
+        zero_t = zero_point.to(dtype=w.dtype, device=w.device)
+        scale_safe = scale_t.clamp_min(1e-12)
+        q = torch.clamp(torch.round(w / scale_safe + zero_t), 0.0, float(max_val))
+        return scale_safe * (q - zero_t)
+
+    def _gather_masked_affine_params(
+        self,
+        *,
+        w: torch.Tensor,
+        mask: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        scale_t = scale.to(dtype=w.dtype, device=w.device)
+        zero_t = zero_point.to(dtype=w.dtype, device=w.device)
+
+        if scale_t.ndim == 0 and zero_t.ndim == 0:
+            return scale_t, zero_t
+
+        if scale_t.shape != w.shape:
+            scale_t = torch.broadcast_to(scale_t, w.shape)
+        if zero_t.shape != w.shape:
+            zero_t = torch.broadcast_to(zero_t, w.shape)
+
+        return scale_t[mask], zero_t[mask]
 
     def forward(self, w: torch.Tensor) -> torch.Tensor:
-        if self.tier_mask.shape != w.shape:
+        mask = self._unpack_tier_mask_for_weight(w)
+
+        if mask.shape != w.shape:
             raise RuntimeError(
-                f"Tier mask shape mismatch: mask={tuple(self.tier_mask.shape)} weight={tuple(w.shape)}"
+                f"Tier mask shape mismatch: mask={tuple(mask.shape)} weight={tuple(w.shape)}"
             )
-        if self.tier_mask.device != w.device:
+        if mask.device != w.device:
             raise RuntimeError(
-                f"Tier mask device mismatch: mask={self.tier_mask.device} weight={w.device}"
+                f"Tier mask device mismatch: mask={mask.device} weight={w.device}"
             )
 
-        w_f = w.float()
+        with torch.no_grad():
+            # Compute the dequantized surrogate without autograd tracking; STE below
+            # keeps gradient flow as identity while reducing forward memory pressure.
+            if w.dtype in (torch.float16, torch.bfloat16, torch.float32):
+                w_f = w.detach()
+            else:
+                w_f = w.detach().float()
 
-        dq_int8 = self._fake_quant_affine(w_f, self.scale_int8, self.zero_point_int8, max_val=255)
-        dq_int4 = self._fake_quant_affine(w_f, self.scale_int4, self.zero_point_int4, max_val=15)
-        dq_int2 = self._fake_quant_affine(w_f, self.scale_int2, self.zero_point_int2, max_val=3)
+            selected = w_f.clone()
 
-        selected = torch.where(
-            self.tier_mask == 0,
-            w_f,
-            torch.where(self.tier_mask == 1, dq_int8, torch.where(self.tier_mask == 2, dq_int4, dq_int2)),
-        )
+            tier1_mask = mask == 1
+            if bool(torch.any(tier1_mask)):
+                w_t1 = w_f[tier1_mask]
+                scale_t1, zero_t1 = self._gather_masked_affine_params(
+                    w=w_f,
+                    mask=tier1_mask,
+                    scale=self.scale_int8,
+                    zero_point=self.zero_point_int8,
+                )
+                selected[tier1_mask] = self._fake_quant_affine(w_t1, scale_t1, zero_t1, max_val=255)
+
+            tier2_mask = mask == 2
+            if bool(torch.any(tier2_mask)):
+                w_t2 = w_f[tier2_mask]
+                scale_t2, zero_t2 = self._gather_masked_affine_params(
+                    w=w_f,
+                    mask=tier2_mask,
+                    scale=self.scale_int4,
+                    zero_point=self.zero_point_int4,
+                )
+                selected[tier2_mask] = self._fake_quant_affine(w_t2, scale_t2, zero_t2, max_val=15)
+
+            tier3_mask = mask >= 3
+            if bool(torch.any(tier3_mask)):
+                w_t3 = w_f[tier3_mask]
+                scale_t3, zero_t3 = self._gather_masked_affine_params(
+                    w=w_f,
+                    mask=tier3_mask,
+                    scale=self.scale_int2,
+                    zero_point=self.zero_point_int2,
+                )
+                selected[tier3_mask] = self._fake_quant_affine(w_t3, scale_t3, zero_t3, max_val=3)
 
         return w + (selected.to(w.dtype) - w).detach()
 
@@ -505,15 +501,12 @@ def gather_qat_entries(
 def register_fake_quant_for_entries(
     entries: List[Dict[str, Any]],
     *,
-    septq_meta: Dict[str, Any],
+    quant_checkpoint: Dict[str, Any],
     tier_masks_uint2: Dict[str, torch.Tensor],
     tier_masks_meta: Dict[str, Dict[str, Any]],
-    quant_scales: Dict[str, Any] | None,
-    quant_zeros: Dict[str, Any] | None,
 ) -> Dict[str, Tuple[nn.Module, str]]:
     state_key_to_param: Dict[str, Tuple[nn.Module, str]] = {}
     seen = set()
-    module_stats_lookup = _build_module_stats_lookup(septq_meta)
 
     for e in entries:
         module = e["module"]
@@ -529,34 +522,37 @@ def register_fake_quant_for_entries(
         if not torch.is_tensor(target):
             raise RuntimeError(f"Cannot register fake quant: missing tensor param {state_key}")
 
-        packed_mask = tier_masks_uint2.get(state_key)
-        if not torch.is_tensor(packed_mask):
+        if state_key not in tier_masks_uint2:
             raise RuntimeError(
                 "Missing packed tier mask for target module: "
-                f"{state_key}. Expected key in tier_masks_uint2 from --student-quant-meta."
+                f"{state_key}. Expected ckpt['tier_masks_uint2'][target_name] at root payload."
             )
+        packed_mask = tier_masks_uint2[state_key]
+        if not torch.is_tensor(packed_mask):
+            raise RuntimeError(f"Packed tier mask is not a tensor for {state_key}")
 
         raw_shape = tier_masks_meta.get(state_key, {}).get("shape", list(target.shape))
         if not isinstance(raw_shape, (list, tuple)) or len(raw_shape) != 2:
             raise RuntimeError(f"Invalid tier mask shape metadata for {state_key}: {raw_shape}")
         target_shape = (int(raw_shape[0]), int(raw_shape[1]))
 
-        unpacked_mask = unpack_tier_mask_uint2(
-            packed_mask.detach().to(device=target.device, dtype=torch.uint8).reshape(-1),
-            target_shape=target_shape,
-        )
-        if tuple(unpacked_mask.shape) != tuple(target.shape):
+        if tuple(target_shape) != tuple(target.shape):
             raise RuntimeError(
                 f"Tier mask shape mismatch for {state_key}: "
-                f"mask={tuple(unpacked_mask.shape)} weight={tuple(target.shape)}"
+                f"mask={tuple(target_shape)} weight={tuple(target.shape)}"
+            )
+
+        packed_mask_device = packed_mask.detach().to(device=target.device, dtype=torch.uint8).reshape(-1)
+        needed_packed = (target_shape[0] * target_shape[1] + 3) // 4
+        if int(packed_mask_device.numel()) < int(needed_packed):
+            raise RuntimeError(
+                f"Packed tier mask too small for {state_key}: "
+                f"have={int(packed_mask_device.numel())} need={int(needed_packed)}"
             )
 
         quant_params = resolve_multitier_quant_params(
             state_key,
-            septq_meta=septq_meta,
-            quant_scales=quant_scales,
-            quant_zeros=quant_zeros,
-            module_stats_lookup=module_stats_lookup,
+            ckpt=quant_checkpoint,
         )
 
         has_parametrization = (
@@ -567,7 +563,8 @@ def register_fake_quant_for_entries(
                 module,
                 param_name,
                 MultiTierFakeQuantize(
-                    tier_mask=unpacked_mask,
+                    tier_mask_packed=packed_mask_device,
+                    tier_mask_shape=target_shape,
                     scale_int8=quant_params["scale_int8"],
                     zero_point_int8=quant_params["zero_point_int8"],
                     scale_int4=quant_params["scale_int4"],
@@ -920,9 +917,9 @@ def main() -> None:
     teacher.eval()
     freeze_all_params(teacher)
 
-    print("[INFO] Loading student model from continuous teacher checkpoint...")
+    print("[INFO] Loading student model from quantized PTQ checkpoint...")
     student = loaders.get_moshi_lm(
-        str(teacher_path),
+        str(student_quant_meta_path),
         copy_missing_weights=not bool(args.no_copy_missing_weights),
         device=runtime_device,
         dtype=student_dtype,
@@ -932,11 +929,9 @@ def main() -> None:
 
     print("[INFO] Loading SEPTQ metadata for multi-tier fake quantization...")
     quant_meta = load_student_quant_metadata(student_quant_meta_path)
-    septq_meta = quant_meta["septq_meta"]
+    quant_checkpoint = quant_meta["checkpoint_payload"]
     tier_masks_uint2 = quant_meta["tier_masks_uint2"]
     tier_masks_meta = quant_meta["tier_masks_meta"]
-    quant_scales = quant_meta["quant_scales"]
-    quant_zeros = quant_meta["quant_zeros"]
 
     temporal_layers = get_temporal_layers(student)
     if not temporal_layers:
@@ -964,11 +959,9 @@ def main() -> None:
     freeze_all_params(student)
     parametrized_state_keys = register_fake_quant_for_entries(
         entries=entries,
-        septq_meta=septq_meta,
+        quant_checkpoint=quant_checkpoint,
         tier_masks_uint2=tier_masks_uint2,
         tier_masks_meta=tier_masks_meta,
-        quant_scales=quant_scales,
-        quant_zeros=quant_zeros,
     )
 
     trainable_params = [p for p in student.parameters() if p.requires_grad]
@@ -1053,9 +1046,9 @@ def main() -> None:
             f"[RESULT] baseline_eval: cos_median={baseline_eval['cos_median']:.6f} "
             f"cos_min={baseline_eval['cos_min']:.6f} kl_median={baseline_eval['kl_median']:.6e}"
         )
-        if baseline_eval["cos_median"] < 0.80:
+        if baseline_eval["cos_median"] < 0.90:
             raise SystemExit(
-                "[ERROR] Baseline median cosine is below 0.80 "
+                "[ERROR] Baseline median cosine is below 0.90 "
                 f"({baseline_eval['cos_median']:.6f}). "
                 "Multi-tier fake quantization was likely applied incorrectly. Aborting."
             )
