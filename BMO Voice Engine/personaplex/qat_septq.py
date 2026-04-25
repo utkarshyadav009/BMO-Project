@@ -6,6 +6,7 @@ import random
 import time
 from collections import deque
 from pathlib import Path
+import shutil
 from typing import Any, Dict, List, Tuple
 
 import torch
@@ -733,6 +734,25 @@ def count_trainable_params(model: nn.Module) -> int:
     return int(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
 
+def restore_parametrized_weights_from_export(
+    *,
+    export_state_dict: Dict[str, torch.Tensor],
+    parametrized_state_keys: Dict[str, Tuple[nn.Module, str]],
+) -> None:
+    for state_key, (module, param_name) in parametrized_state_keys.items():
+        tensor = export_state_dict.get(state_key)
+        if tensor is None:
+            raise RuntimeError(
+                "Rollback checkpoint missing expected state key for parametrized weight: "
+                f"{state_key}"
+            )
+
+        original = module.parametrizations[param_name].original
+        src = tensor.to(device=original.device, dtype=original.dtype)
+        with torch.no_grad():
+            original.copy_(src)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -759,7 +779,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-clips", type=int, default=857)
     parser.add_argument("--max-steps-per-clip", type=int, default=750)
 
-    parser.add_argument("--train-layers", default="0-29")
+    parser.add_argument("--train-layers", default="0-30")
     parser.add_argument("--skip-modules", default="self_attn.out_proj")
 
     parser.add_argument("--bits", type=int, choices=[2, 3, 4], default=4)
@@ -778,6 +798,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--grad-clip-norm", type=float, default=1.0)
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument(
+        "--backward-mode",
+        default="per-token",
+        choices=["per-token", "per-clip"],
+        help=(
+            "Gradient accumulation mode over token steps. "
+            "per-token is more memory-efficient; per-clip is more graph-retention robust."
+        ),
+    )
 
     parser.add_argument("--checkpoint-every", type=int, default=100)
     parser.add_argument("--eval-clips", type=int, default=64)
@@ -788,6 +817,21 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--verify-load-on-checkpoint", action="store_true")
+    parser.add_argument(
+        "--rollback-patience-evals",
+        type=int,
+        default=5,
+        help=(
+            "If >0, automatically restore best checkpoint weights after this many "
+            "consecutive evals without improvement. 0 disables rollback."
+        ),
+    )
+    parser.add_argument(
+        "--rollback-lr-scale",
+        type=float,
+        default=0.5,
+        help="Multiply optimizer LR by this factor after an automatic rollback.",
+    )
     parser.add_argument("--no-copy-missing-weights", action="store_true")
     return parser.parse_args()
 
@@ -813,6 +857,10 @@ def main() -> None:
         raise SystemExit("[ERROR] --lr must be > 0")
     if int(args.flatline_window) <= 0:
         raise SystemExit("[ERROR] --flatline-window must be > 0")
+    if int(args.rollback_patience_evals) < 0:
+        raise SystemExit("[ERROR] --rollback-patience-evals must be >= 0")
+    if float(args.rollback_lr_scale) <= 0.0:
+        raise SystemExit("[ERROR] --rollback-lr-scale must be > 0")
 
     runtime_device = resolve_runtime_device(str(args.device))
 
@@ -852,6 +900,12 @@ def main() -> None:
         f"[INFO] train_layers={args.train_layers} "
         f"max_train_steps={args.max_train_steps} warmup_steps={args.warmup_steps}"
     )
+    print(f"[INFO] backward_mode = {args.backward_mode}")
+    if int(args.rollback_patience_evals) > 0:
+        print(
+            f"[INFO] rollback enabled: patience_evals={int(args.rollback_patience_evals)} "
+            f"lr_scale={float(args.rollback_lr_scale):.3f}"
+        )
     if int(args.train_max_steps_per_clip) > 0:
         print(f"[INFO] train_max_steps_per_clip = {int(args.train_max_steps_per_clip)}")
 
@@ -978,6 +1032,7 @@ def main() -> None:
 
     best_median = -1.0
     best_step = 0
+    evals_since_best = 0
     med_tail = deque(maxlen=int(args.flatline_window))
     stop_reason = "max_steps"
 
@@ -1031,6 +1086,7 @@ def main() -> None:
                 optimizer.zero_grad(set_to_none=True)
                 valid_steps = 0
                 kl_sum = 0.0
+                kl_accum: torch.Tensor | None = None
 
                 with teacher.streaming(batch_size=1), student.streaming(batch_size=1):
                     for t in range(seq_steps):
@@ -1049,19 +1105,37 @@ def main() -> None:
                             continue
 
                         kl_t = zs_kl_div(s_z, t_z, temperature=float(args.temperature))
+                        if not torch.isfinite(kl_t):
+                            raise RuntimeError(
+                                f"Non-finite KL detected at step={step}, token_step={t}, clip_idx={clip_idx}. "
+                                "Try --backward-mode per-clip and/or lower --lr."
+                            )
                         kl_sum += float(kl_t.item())
-                        # Backprop per token to avoid retaining an entire-clip graph in memory.
-                        (kl_t / float(seq_steps)).backward()
-                        # Truncated-BPTT style detach for streaming caches to avoid
-                        # reusing freed graph references on the next token step.
-                        detach_model_streaming_state_(student)
+                        scaled_kl_t = kl_t / float(seq_steps)
+                        if str(args.backward_mode) == "per-token":
+                            # Backprop per token to avoid retaining an entire-clip graph in memory.
+                            scaled_kl_t.backward()
+                            # Truncated-BPTT style detach for streaming caches to avoid
+                            # reusing freed graph references on the next token step.
+                            detach_model_streaming_state_(student)
+                        else:
+                            # Accumulate full-clip objective then backprop once at clip end.
+                            kl_accum = scaled_kl_t if kl_accum is None else (kl_accum + scaled_kl_t)
                         valid_steps += 1
+
+                if str(args.backward_mode) == "per-clip" and kl_accum is not None:
+                    kl_accum.backward()
 
                 if valid_steps <= 0:
                     print(f"[WARN] Step {step}: no valid z_s captures; skipping optimizer step")
                     continue
 
                 loss_value = float(kl_sum / max(1, valid_steps))
+                if not math.isfinite(loss_value):
+                    raise RuntimeError(
+                        f"Non-finite training loss at step={step}. "
+                        "Try --backward-mode per-clip and/or lower --lr."
+                    )
 
                 if float(args.grad_clip_norm) > 0.0:
                     torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=float(args.grad_clip_norm))
@@ -1143,6 +1217,7 @@ def main() -> None:
                 if med > best_median:
                     best_median = med
                     best_step = int(step)
+                    evals_since_best = 0
                     best_path = out_dir / "qat_best.pt"
                     save_qat_checkpoint(
                         out_path=best_path,
@@ -1151,6 +1226,31 @@ def main() -> None:
                         source_cfg=source_cfg,
                         qat_meta=qat_meta,
                     )
+                else:
+                    evals_since_best += 1
+
+                if int(args.rollback_patience_evals) > 0 and evals_since_best >= int(args.rollback_patience_evals):
+                    best_path = out_dir / "qat_best.pt"
+                    if best_path.exists():
+                        rollback_payload = torch.load(str(best_path), map_location="cpu")
+                        rollback_sd = rollback_payload.get("state_dict")
+                        if not isinstance(rollback_sd, dict):
+                            raise RuntimeError(
+                                f"Cannot rollback: invalid state_dict in {best_path}"
+                            )
+                        restore_parametrized_weights_from_export(
+                            export_state_dict=rollback_sd,
+                            parametrized_state_keys=parametrized_state_keys,
+                        )
+                        for group in optimizer.param_groups:
+                            group["lr"] = float(group["lr"]) * float(args.rollback_lr_scale)
+                        evals_since_best = 0
+                        print(
+                            f"[INFO] Rolled back to best checkpoint (step={best_step}, median={best_median:.6f}) "
+                            f"after non-improving evals. Scaled LR by {float(args.rollback_lr_scale):.3f}."
+                        )
+                    else:
+                        print("[WARN] Rollback requested but qat_best.pt does not exist yet")
 
                 log_file.write(
                     json.dumps(
@@ -1198,6 +1298,12 @@ def main() -> None:
             torch.cuda.empty_cache()
 
     elapsed = time.perf_counter() - start_time
+
+    best_path = out_dir / "qat_best.pt"
+    if best_path.exists():
+        latest_path = out_dir / "qat_latest.pt"
+        shutil.copyfile(str(best_path), str(latest_path))
+
     print(f"[RESULT] stop_reason = {stop_reason}")
     print(f"[RESULT] best_step = {best_step}")
     print(f"[RESULT] best_median_cos = {best_median:.6f}")
