@@ -516,6 +516,30 @@ def main() -> None:
         export_dense_tensor(weight_key, f"transformer_layers_{i}_self_attn_out_proj_weight")
         export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
 
+    # Generalized fallback for quantizable temporal tensors (ensures L31 and any missed layers are covered).
+    # This complements the multi-tier loop by capturing tensors not covered by packed quantization.
+    for i in range(32):
+        # in_proj_weight and gating matrices — export as dense bf16 if they are not already packed
+        in_proj_key = f"transformer.layers.{i}.self_attn.in_proj_weight"
+        gating_in_key = f"transformer.layers.{i}.gating.linear_in.weight"
+        gating_out_key = f"transformer.layers.{i}.gating.linear_out.weight"
+        
+        # Only export as dense if not already in blobs (avoid double-export from multi-tier pass)
+        if in_proj_key in state_dict:
+            dst_key = f"transformer_layers_{i}_self_attn_in_proj_weight"
+            if dst_key not in blobs:
+                export_dense_tensor(in_proj_key, dst_key)
+        
+        if gating_in_key in state_dict:
+            dst_key = f"transformer_layers_{i}_gating_linear_in_weight"
+            if dst_key not in blobs:
+                export_dense_tensor(gating_in_key, dst_key)
+        
+        if gating_out_key in state_dict:
+            dst_key = f"transformer_layers_{i}_gating_linear_out_weight"
+            if dst_key not in blobs:
+                export_dense_tensor(gating_out_key, dst_key)
+
     # Depth attention/output tensors and per-step projections.
     for i in range(6):
         export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight")
@@ -543,6 +567,36 @@ def main() -> None:
     export_dense_tensor("output_head")
 
     print(f"[EXPORT]   Found and exported {dense_export_count} dense tensors.")
+
+    # ========== COMPLETENESS CHECK ==========
+    # Verify that all expected transformer layer tensors have been exported.
+    # This prevents silent gaps like the L31 exclusion from recurring.
+    print("[EXPORT] Running completeness check on temporal transformer tensors...")
+    expected_tensor_patterns = [
+        "norm1.alpha",
+        "norm2.alpha",
+        "self_attn.in_proj_weight",
+        "self_attn.out_proj.weight",
+        "gating.linear_in.weight",
+        "gating.linear_out.weight",
+    ]
+    missing_tensors = []
+    for layer_idx in range(32):
+        for pattern in expected_tensor_patterns:
+            src_key = f"transformer.layers.{layer_idx}.{pattern}"
+            if src_key not in state_dict:
+                continue  # Tensor doesn't exist in checkpoint; skip it
+            # Map to expected GGUF naming convention
+            gguf_key = f"transformer_layers_{layer_idx}_" + pattern.replace(".", "_")
+            if gguf_key not in blobs:
+                missing_tensors.append((layer_idx, pattern, src_key, gguf_key))
+    
+    if missing_tensors:
+        error_msg = "Completeness check failed: the following transformer tensors were not exported to GGUF:\n"
+        for layer_idx, pattern, src_key, gguf_key in missing_tensors:
+            error_msg += f"  Layer {layer_idx}: {pattern} (expected as '{gguf_key}')\n"
+        raise RuntimeError(error_msg)
+    print(f"[EXPORT] Completeness check passed: all {32 * len(expected_tensor_patterns)} expected tensors are present.")
 
     print("[EXPORT] Writing output...")
     try:
