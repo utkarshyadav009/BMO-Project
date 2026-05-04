@@ -391,16 +391,6 @@ def main() -> None:
                 module_name = key[: -len(".tier_mask_packed")]
                 candidate_layers.append(module_name)
 
-    # Some checkpoints expose self-attention output projection tensors under the
-    # canonical PyTorch name `transformer.layers.{i}.self_attn.out_proj.weight`.
-    # Make sure those layers are included even if they were not captured by the
-    # tier-mask lookup path above.
-    for key in list(state_dict.keys()):
-        if key.endswith(".self_attn.out_proj.weight"):
-            candidate_layers.append(key[: -len(".weight")])
-        elif key.endswith(".self_attn.out_proj.tier_mask_packed"):
-            candidate_layers.append(key[: -len(".tier_mask_packed")])
-
     # Deduplicate while preserving discovery order.
     seen_layers = set()
     candidate_layers = [name for name in candidate_layers if not (name in seen_layers or seen_layers.add(name))]
@@ -417,8 +407,7 @@ def main() -> None:
         else:
             mask_key = f"{layer_name}.tier_mask_packed"
             if mask_key not in state_dict:
-                print(f"[EXPORT]   Warning: mask key {mask_key} missing; skipping")
-                continue
+                raise RuntimeError(f"Missing tier mask for multi-tier layer {layer_name}: {mask_key}")
             packed_mask = state_dict[mask_key]
 
         # Prefer an explicit dense tensor if present; otherwise the checkpoint may store precomputed q_weight.
@@ -432,8 +421,7 @@ def main() -> None:
                     break
 
         if dense_tensor is None:
-            print(f"[EXPORT]   Could not find dense weight for {layer_name}; skipping")
-            continue
+            raise RuntimeError(f"Missing dense weight for multi-tier layer {layer_name}")
 
         module_meta = module_meta_lookup.get(layer_name, {})
         bias = state_dict.get(f"{layer_name}.bias", None)
@@ -442,9 +430,6 @@ def main() -> None:
 
         # Store into blobs under user-specified naming
         base = layer_name.replace('.', '_')
-        if layer_name.endswith(".self_attn.out_proj"):
-            # Emit the out-projection under the exact loader-facing tensor stem.
-            base = base + "_weight"
         blobs[f"{base}.packed_mask"] = blobs_for_layer["packed_mask"]
         blobs[f"{base}.packed_weights"] = blobs_for_layer["packed_weights"]
         blobs[f"{base}.n_2bit_bytes"] = np.int32(int(blobs_for_layer["n_2bit_bytes"]))
@@ -507,32 +492,57 @@ def main() -> None:
                 norm_count += 1
     print(f"[EXPORT]   Found and exported {norm_count} norm tensors.")
 
-    print("[EXPORT] Processing dense attention output projections...")
-    out_proj_count = 0
-    for i in range(32):
-        weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
-        if weight_key not in state_dict:
-            continue
+    print("[EXPORT] Processing dense attention/output/embedding tensors...")
+    dense_export_count = 0
 
-        weight = state_dict[weight_key].detach().cpu().float().numpy().astype(np.float32)
-        out_key = f"transformer_layers_{i}_self_attn_out_proj_weight"
-        blobs[out_key] = weight
-        bytes_sz = weight.nbytes
+    def export_dense_tensor(src_key: str, dst_key: str | None = None) -> None:
+        nonlocal dense_export_count, total_orig_bytes, total_packed_bytes
+        if src_key not in state_dict:
+            return
+        tensor = state_dict[src_key].detach().cpu()
+        if torch.is_tensor(tensor) and tensor.is_floating_point():
+            tensor = tensor.float()
+        arr = tensor.numpy().astype(np.float32, copy=False)
+        blobs[dst_key or src_key] = arr
+        bytes_sz = arr.nbytes
         total_orig_bytes += bytes_sz
         total_packed_bytes += bytes_sz
-        out_proj_count += 1
+        dense_export_count += 1
 
+    # Temporal attention output projection.
+    for i in range(32):
+        weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
         bias_key = f"transformer.layers.{i}.self_attn.out_proj.bias"
-        if bias_key in state_dict:
-            bias = state_dict[bias_key].detach().cpu().float().numpy().astype(np.float32)
-            blobs[f"transformer_layers_{i}_self_attn_out_proj_bias"] = bias
-            bias_bytes = bias.nbytes
-            total_orig_bytes += bias_bytes
-            total_packed_bytes += bias_bytes
+        export_dense_tensor(weight_key, f"transformer_layers_{i}_self_attn_out_proj_weight")
+        export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
 
-        if i == 0:
-            print(f"[EXPORT]   {weight_key} -> {out_key} shape={weight.shape}")
-    print(f"[EXPORT]   Found and exported {out_proj_count} dense out_proj tensors.")
+    # Depth attention/output tensors and per-step projections.
+    for i in range(6):
+        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight")
+        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.bias", f"depformer_layers_{i}_self_attn_out_proj_bias")
+        for step in range(16):
+            export_dense_tensor(
+                f"depformer.layers.{i}.self_attn.in_projs.{step}.weight",
+                f"depformer_layers_{i}_self_attn_in_projs_{step}_weight",
+            )
+            export_dense_tensor(
+                f"depformer.layers.{i}.self_attn.in_projs.{step}.bias",
+                f"depformer_layers_{i}_self_attn_in_projs_{step}_bias",
+            )
+
+    # Depth embeddings / text path / heads.
+    for idx in range(16):
+        export_dense_tensor(f"emb.{idx}.weight")
+        export_dense_tensor(f"depformer_in.{idx}.weight")
+        export_dense_tensor(f"depformer_emb.{idx}.weight")
+    export_dense_tensor("depformer_text_emb.weight")
+    export_dense_tensor("text_emb.weight")
+    export_dense_tensor("text_linear.weight")
+    export_dense_tensor("text_linear.bias")
+    export_dense_tensor("token_embedding")
+    export_dense_tensor("output_head")
+
+    print(f"[EXPORT]   Found and exported {dense_export_count} dense tensors.")
 
     print("[EXPORT] Writing output...")
     try:

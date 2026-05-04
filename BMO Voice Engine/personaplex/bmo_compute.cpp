@@ -326,11 +326,6 @@ ggml_cgraph * bmo_build_temporal_graph(
         if (model.temporal_layers[layer].norm1_weight) {
             x_norm = ggml_mul(wctx, x_norm, model.temporal_layers[layer].norm1_weight);
         }
-        if (layer == 0) {
-            ggml_set_name(x_norm, "l0_norm1");
-            ggml_build_forward_expand(gf, x_norm);
-        }
-
         ggml_tensor * qkv = apply_linear_with_transient_unpack(
             ctx,
             model,
@@ -442,11 +437,6 @@ ggml_cgraph * bmo_build_temporal_graph(
                         base + "_self_attn_out_proj",
                     });
 
-                if (layer == 0) {
-                    ggml_set_name(attn_out, "l0_attn");
-                    ggml_build_forward_expand(gf, attn_out);
-                }
-
                 x = ggml_add(wctx, S(residual), S(attn_out));
             } else {
                 fprintf(stderr,
@@ -467,11 +457,6 @@ ggml_cgraph * bmo_build_temporal_graph(
         if (model.temporal_layers[layer].norm2_weight) {
             ff_norm = ggml_mul(wctx, ff_norm, model.temporal_layers[layer].norm2_weight);
         }
-        if (layer == 0) {
-            ggml_set_name(ff_norm, "l0_norm2");
-            ggml_build_forward_expand(gf, ff_norm);
-        }
-
         ggml_tensor * ff_in = apply_linear_with_transient_unpack(
             ctx,
             model,
@@ -504,11 +489,6 @@ ggml_cgraph * bmo_build_temporal_graph(
                     base + "_gating_linear_out_weight",
                     base + "_gating_linear_out",
                 });
-
-            if (layer == 0) {
-                ggml_set_name(ff_out, "l0_ffn");
-                ggml_build_forward_expand(gf, ff_out);
-            }
 
             if (ggml_nelements(ff_out) != ggml_nelements(ff_residual)) {
                 fprintf(stderr,

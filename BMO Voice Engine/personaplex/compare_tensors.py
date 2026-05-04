@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""compare_tensors.py — Layer-0 sub-layer comparator.
+"""compare_tensors.py — 32-layer cascade comparator.
 
-Compares C++ vs PyTorch dumps for norm1, self-attn output, norm2, and FFN
-output, printing cosine similarity and MAE per sub-step.
+Compares C++ vs PyTorch dumps for every layer output, printing cosine
+similarity and MAE per layer.
 """
 
 from pathlib import Path
@@ -32,15 +32,12 @@ def _compare_pair(cpp_path, pt_path):
 
 
 def main():
-    pairs = [
-        ("norm1", "cpp_l0_norm1.bin", "pt_l0_norm1.bin"),
-        ("attn", "cpp_l0_attn.bin", "pt_l0_attn.bin"),
-        ("norm2", "cpp_l0_norm2.bin", "pt_l0_norm2.bin"),
-        ("ffn", "cpp_l0_ffn.bin", "pt_l0_ffn.bin"),
-    ]
-
     rows = []
-    for name, cpp_path, pt_path in pairs:
+    for i in range(32):
+        name = f"layer_{i}"
+        cpp_path = f"cpp_out_layer_{i}.bin"
+        pt_path = f"pt_out_layer_{i}.bin"
+
         if not Path(cpp_path).exists() or not Path(pt_path).exists():
             rows.append((name, None, None, "MISSING"))
             continue
@@ -48,7 +45,7 @@ def main():
         cosine, mae, status = _compare_pair(cpp_path, pt_path)
         rows.append((name, cosine, mae, status))
 
-    print(f"{'step':>8}  {'cosine':>12}  {'mae':>12}  {'status':>14}")
+    print(f"{'layer':>8}  {'cosine':>12}  {'mae':>12}  {'status':>14}")
     print(f"{'--------':>8}  {'------------':>12}  {'------------':>12}  {'--------------':>14}")
     for name, cosine, mae, status in rows:
         if cosine is None:
@@ -65,7 +62,7 @@ def main():
         print(f"[summary] mae    max={max(mae_vals):.8f}  mean={np.mean(mae_vals):.8f}")
     else:
         print()
-        print("[summary] no comparable sub-layer pairs found")
+        print("[summary] no comparable layer pairs found")
 
 
 if __name__ == "__main__":
