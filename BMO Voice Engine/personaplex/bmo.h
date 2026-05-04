@@ -1,12 +1,12 @@
 // bmo.h - core data structures for BMO model runtime
 #pragma once
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
 extern "C" {
 #include "ggml.h"
+#include "ggml-cpu.h"
 #include "gguf.h"
 }
 
@@ -66,15 +66,7 @@ struct bmo_model {
 // Runtime context that holds allocation contexts and runtime params (KV cache, etc.)
 struct bmo_context {
     // GGML contexts
-    ggml_context * kv_ctx = nullptr;      // dedicated KV cache context
-    ggml_context * work_ctx = nullptr;    // graph/work context rebuilt per forward call
-
-    // Backing storage for work_ctx to avoid per-op heap churn
-    std::vector<uint8_t> work_mem;
-
-    // Persistent transient scratch for one unpacked temporal weight matrix in F32.
-    // Lifecycle: reused per layer, overwritten before each linear op.
-    std::vector<float> shared_scratch_w;
+    ggml_context * kv_ctx = nullptr;   // dedicated KV cache context
 
     // Model hyperparameters filled at load time
     int32_t n_ctx = 0;
@@ -90,11 +82,16 @@ struct bmo_context {
     // Track memory usage
     size_t weights_bytes = 0;
     size_t kv_bytes = 0;
+    
+    // Inference compute arenas
+    ggml_context * work_ctx = nullptr;
+    std::vector<uint8_t> work_mem;
+    std::vector<float> shared_scratch_w;
 };
 
 // Loader and allocator APIs
 void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx);
 void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx);
 
-// Temporal-only forward graph builder (Task 3, Part 1)
-ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, ggml_tensor * input_tokens, int n_past);
+// Compute graph builder
+struct ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, struct ggml_tensor * input_tokens, int n_past);
