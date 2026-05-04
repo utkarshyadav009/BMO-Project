@@ -44,7 +44,7 @@ def main() -> int:
     audio_tokens = torch.tensor([[0]], dtype=torch.long)
 
     z_s = F.linear(temporal_out.float(), state_dict["depformer_in.0.weight"].float())
-    x = z_s + state_dict["text_emb.weight"][0].float().view(1, 1, -1) + state_dict["emb.0.weight"][0].float().view(1, 1, -1)
+    x = z_s + state_dict["depformer_text_emb.weight"][0].float().view(1, 1, -1) + state_dict["depformer_emb.0.weight"][0].float().view(1, 1, -1)
 
     num_heads = 16
     hidden_dim = 1024

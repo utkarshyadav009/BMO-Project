@@ -534,8 +534,20 @@ ggml_cgraph * bmo_build_depth_graph(
         const std::string base = "depformer_layers_" + std::to_string(i);
         const std::string step_idx = std::to_string(codebook_step);
 
-        ggml_tensor * w_massive_in = get_tensor(model.wctx, prefix + ".self_attn.in_proj_weight");
-        ggml_tensor * w_massive_out = get_tensor(model.wctx, prefix + ".self_attn.out_proj.weight");
+        const std::string dot_prefix = prefix; // e.g. "depformer.layers.0"
+        // Try dot-style keys first, then fall back to exporter underscore-style keys.
+        ggml_tensor * w_massive_in = get_tensor(model.wctx, dot_prefix + ".self_attn.in_proj_weight");
+        if (!w_massive_in) {
+            std::string ug = std::string("depformer_layers_") + std::to_string(i) + "_self_attn_in_proj_weight";
+            w_massive_in = get_tensor(model.wctx, ug);
+        }
+
+        ggml_tensor * w_massive_out = get_tensor(model.wctx, dot_prefix + ".self_attn.out_proj.weight");
+        if (!w_massive_out) {
+            std::string ug_out = std::string("depformer_layers_") + std::to_string(i) + "_self_attn_out_proj_weight";
+            w_massive_out = get_tensor(model.wctx, ug_out);
+        }
+
         if (!w_massive_in || !w_massive_out) {
             throw std::runtime_error("bmo_build_depth_graph: missing shared attention weight tensors for layer " + std::to_string(i));
         }

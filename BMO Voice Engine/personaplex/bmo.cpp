@@ -204,12 +204,12 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     model.depformer_in.assign((size_t) 16, nullptr);
     for (int i = 0; i < 16; ++i) {
         std::string idx = std::to_string(i);
-        model.audio_embs[(size_t) i] = ggml_get_tensor(data_ctx, ("emb." + idx + ".weight").c_str());
+        model.audio_embs[(size_t) i] = ggml_get_tensor(data_ctx, ("depformer_emb." + idx + ".weight").c_str());
         model.depformer_in[(size_t) i] = ggml_get_tensor(data_ctx, ("depformer_in." + idx + ".weight").c_str());
     }
 
     // Text embedding and projection
-    model.text_emb = ggml_get_tensor(data_ctx, "text_emb.weight");
+    model.text_emb = ggml_get_tensor(data_ctx, "depformer_text_emb.weight");
     model.text_linear = ggml_get_tensor(data_ctx, "text_linear.weight");
 
     // Global embeddings / head lookups
