@@ -91,7 +91,7 @@ static void add_layer_bytes_unique(const bmo_layer & L, std::unordered_set<const
     std::vector<ggml_tensor *> toks = {
         L.packed_weights, L.packed_mask, L.scale_low, L.scale_int4, L.scale_int8,
         L.fp16_indices, L.fp16_values, L.weight, L.bias, L.wq, L.wk, L.wv, L.wo,
-        L.ffn_in, L.ffn_out
+        L.ffn_in, L.ffn_out, L.norm1_weight, L.norm2_weight
     };
     for (auto * t : toks) {
         add_tensor_bytes_unique(t, seen, total_bytes);
@@ -115,8 +115,8 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
 
     // Hardcoded Moshi 5.8B architecture.
     ctx.n_layers = 32;
-    ctx.n_heads = 16;
-    ctx.n_embd = 2048;
+    ctx.n_heads = 32;
+    ctx.n_embd = 4096;
     ctx.head_dim = 128;
 
     // Keep n_ctx from file if present, otherwise 0 until KV init sets it.
@@ -144,6 +144,39 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
         for (auto &b : bases) {
             map_layer_tensors(data_ctx, L, b);
         }
+
+        // Map learned RMSNorm scale weights (norm1 = attention pre-norm, norm2 = FFN pre-norm)
+        L.norm1_weight = ggml_get_tensor(data_ctx, (prefix + "_norm1_weight").c_str());
+        L.norm2_weight = ggml_get_tensor(data_ctx, (prefix + "_norm2_weight").c_str());
+    }
+
+    int64_t max_scratch = 0;
+    for (int i = 0; i < ctx.n_layers; ++i) {
+        std::string prefix = "transformer_layers_" + std::to_string(i);
+        std::vector<std::string> bases = {
+            prefix,
+            prefix + "_gating_linear_in",
+            prefix + "_gating_linear_out",
+            prefix + "_gating_linear_in_weight",
+            prefix + "_gating_linear_out_weight",
+            prefix + "_self_attn_in_proj",
+            prefix + "_self_attn_out_proj",
+            prefix + "_self_attn_in_proj_weight",
+            prefix + "_self_attn_out_proj_weight",
+        };
+        for (const auto & b : bases) {
+            int32_t rows = read_scalar_i32(data_ctx, (b + ".rows").c_str(), 0);
+            if (rows <= 0) rows = read_scalar_i32(data_ctx, (b + ".out_features").c_str(), 0);
+            int32_t cols = read_scalar_i32(data_ctx, (b + ".cols").c_str(), 0);
+            if (rows > 0 && cols > 0) {
+                int64_t total = (int64_t) rows * (int64_t) cols;
+                if (total > max_scratch) max_scratch = total;
+            }
+        }
+    }
+    if (max_scratch > 0) {
+        ctx.shared_scratch_w.resize((size_t) max_scratch);
+        std::cout << "[bmo_load_model] Dynamically allocated shared_scratch_w: " << (max_scratch * sizeof(float)) / (1024.0 * 1024.0) << " MB\n";
     }
 
     // Depth stack (6 layers)

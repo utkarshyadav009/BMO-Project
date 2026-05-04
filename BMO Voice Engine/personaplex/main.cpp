@@ -2,6 +2,8 @@
 #include <iostream>
 #include <cstring>
 #include <algorithm>
+#include <cstdio>
+#include <string>
 
 int main(int argc, char ** argv) {
     const char * fname = (argc >= 2) ? argv[1] : "bmo_weights.gguf";
@@ -26,11 +28,6 @@ int main(int argc, char ** argv) {
         // ========== Initialize compute arenas ==========
         std::cout << "[bmo_main] Initializing compute arenas...\n";
 
-        // Resize shared scratch buffer for unpacked weights (200 MB of F32)
-        const size_t scratch_elems = (200 * 1024 * 1024) / sizeof(float);
-        ctx.shared_scratch_w.resize(scratch_elems);
-        std::cout << "[bmo_main] Allocated shared_scratch_w: " 
-                  << (double)(scratch_elems * sizeof(float)) / (1024.0 * 1024.0) << " MB\n";
 
         // Allocate work memory for graph context (1 GB)
         const size_t work_mem_size = (size_t) 1024 * 1024 * 1024;
@@ -38,7 +35,6 @@ int main(int argc, char ** argv) {
         std::cout << "[bmo_main] Allocated work_mem: " 
                   << (double) work_mem_size / (1024.0 * 1024.0 * 1024.0) << " GB\n";
 
-        // Initialize work context
         ggml_init_params wp = {
             work_mem_size,
             ctx.work_mem.data(),
@@ -48,62 +44,60 @@ int main(int argc, char ** argv) {
         if (!ctx.work_ctx) {
             throw std::runtime_error("Failed to initialize work context");
         }
-        std::cout << "[bmo_main] work_ctx initialized successfully\n";
 
-        // ========== Create dummy input ==========
-        std::cout << "[bmo_main] Creating dummy input tensor [1, n_embd]...\n";
         ggml_tensor * input_tokens = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
-        if (!input_tokens) {
+        if (!input_tokens || !input_tokens->data) {
             throw std::runtime_error("Failed to allocate input_tokens tensor");
         }
-
-        // Fill with 1.0f
         float * input_ptr = reinterpret_cast<float *>(input_tokens->data);
         for (int32_t i = 0; i < ctx.n_embd; ++i) {
             input_ptr[i] = 1.0f;
         }
-        std::cout << "[bmo_main] Input tensor created and filled with 1.0f\n";
 
-        // ========== Build temporal graph ==========
-        std::cout << "[bmo_main] Building temporal compute graph (n_past=0)...\n";
-        ctx.n_layers = 1; model.temporal_layers.resize(1); // PREVENT OOM
-    ggml_cgraph * gf = bmo_build_temporal_graph(ctx, model, input_tokens, 0);
+        std::cout << "[bmo_main] Running Layer-0 sub-layer audit...\n";
+        ggml_cgraph * gf = bmo_build_temporal_graph(ctx, model, input_tokens, 0, 0, 1);
         if (!gf) {
             throw std::runtime_error("Failed to build temporal graph");
         }
-        std::cout << "[bmo_main] Temporal graph built successfully (" << "an unknown number of" << " nodes)\n";
 
-        // ========== Execute graph ==========
-        std::cout << "[bmo_main] Executing temporal graph (8 threads)...\n";
+        std::cout << "[bmo_main] Layer 0 graph has " << ggml_graph_n_nodes(gf) << " nodes\n";
         const ggml_status status = ggml_graph_compute_with_ctx(ctx.work_ctx, gf, 8);
         if (status != GGML_STATUS_SUCCESS) {
-            std::cerr << "[bmo_main] ggml_graph_compute_with_ctx failed with status " << (int) status << "\n";
+            std::cerr << "[bmo_main] ggml_graph_compute_with_ctx failed with status "
+                      << (int) status << "\n";
             throw std::runtime_error("Graph compute failed");
         }
-        std::cout << "[SUCCESS] Temporal forward pass completed!\n";
 
-        // ========== Extract and print output ==========
-        std::cout << "[bmo_main] Extracting output tensor...\n";
-        ggml_tensor * output = nullptr; // Output extraction bypassed for now
-        if (!output || !output->data) {
-            throw std::runtime_error("Output tensor is null or has no data");
+        struct named_dump {
+            const char * tensor_name;
+            const char * path;
+        };
+
+        const named_dump dumps[] = {
+            {"l0_norm1", "cpp_l0_norm1.bin"},
+            {"l0_attn",  "cpp_l0_attn.bin"},
+            {"l0_norm2", "cpp_l0_norm2.bin"},
+            {"l0_ffn",   "cpp_l0_ffn.bin"},
+        };
+
+        for (const auto & d : dumps) {
+            ggml_tensor * t = ggml_graph_get_tensor(gf, d.tensor_name);
+            if (!t || !t->data) {
+                throw std::runtime_error(std::string("Missing graph tensor: ") + d.tensor_name);
+            }
+
+            FILE * out_file = fopen(d.path, "wb");
+            if (!out_file) {
+                throw std::runtime_error(std::string("Failed to open ") + d.path + " for writing");
+            }
+
+            fwrite(t->data, 1, ggml_nbytes(t), out_file);
+            fclose(out_file);
+            std::cout << "[bmo_main] Dumped " << d.tensor_name << " (" << ggml_nbytes(t)
+                      << " bytes) to " << d.path << "\n";
         }
 
-        float * out_ptr = reinterpret_cast<float *>(output->data);
-        const int to_print = std::min<int>(10, (int) ggml_nelements(output));
-
-        std::cout << "[bmo_main] Output tensor shape: [";
-        for (int i = 0; i < 4; ++i) {
-            if (i > 0) std::cout << ", ";
-            std::cout << output->ne[i];
-        }
-        std::cout << "]\n";
-
-        std::cout << "[bmo_main] First " << to_print << " output values:\n";
-        for (int i = 0; i < to_print; ++i) {
-            std::cout << "  [" << i << "] = " << out_ptr[i] << "\n";
-        }
-
+        std::cout << "[SUCCESS] Layer-0 sub-layer audit completed!\n";
         // ========== Cleanup ==========
         std::cout << "[bmo_main] Cleaning up...\n";
         if (ctx.work_ctx) {

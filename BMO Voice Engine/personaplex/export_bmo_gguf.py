@@ -224,6 +224,9 @@ def create_packed_layer(
     out["scale_low"] = np.float32(scale_low)
     out["scale_int4"] = np.float32(scale_int4)
     out["scale_int8"] = np.float32(scale_int8)
+    out["zp_low"] = np.float32(zp_low)
+    out["zp_int4"] = np.float32(zp_int4)
+    out["zp_int8"] = np.float32(zp_int8)
     out["fp16_indices"] = fp16_indices
     out["fp16_values"] = fp16_values
     if bias is not None:
@@ -265,13 +268,16 @@ def write_with_gguf(out_path: str, blobs: Dict[str, Any]) -> None:
     # Try to construct writer and add tensors. Support both add and add_tensor names.
     writer = None
     try:
-        writer = Writer(out_path)
+        writer = Writer(out_path, "bmo")
     except Exception:
-        # maybe it's used as context manager/constructor signature differs
         try:
-            writer = Writer(filepath=out_path)
-        except Exception as e:
-            raise RuntimeError("Unable to instantiate gguf writer: " + str(e))
+            writer = Writer(out_path)
+        except Exception:
+            # maybe it's used as context manager/constructor signature differs
+            try:
+                writer = Writer(filepath=out_path)
+            except Exception as e:
+                raise RuntimeError("Unable to instantiate gguf writer: " + str(e))
 
     # common add method names we will probe
     add_methods = [m for m in ("add", "add_tensor", "add_array", "add_numpy") if hasattr(writer, m)]
@@ -284,20 +290,20 @@ def write_with_gguf(out_path: str, blobs: Dict[str, Any]) -> None:
     # use numpy arrays for writing
     for name, val in blobs.items():
         arr = val
-        if isinstance(val, (np.ndarray, np.generic)):
-            arr = val
-        elif isinstance(val, (list, tuple)):
-            arr = np.array(val)
-        else:
-            # try to coerce tensors
+        if torch.is_tensor(arr):
+            arr = arr.detach().cpu().numpy()
+        if np.isscalar(arr) or isinstance(arr, np.generic):
+            arr = np.array([arr])
+        if not isinstance(arr, np.ndarray):
             try:
-                if torch.is_tensor(val):
-                    arr = val.detach().cpu().numpy()
-                else:
-                    arr = np.array(val)
+                arr = np.array(arr)
             except Exception:
-                # skip unknown types
                 continue
+        if arr.ndim == 0:
+            arr = arr.reshape(1)
+        if hasattr(arr, 'dtype') and arr.dtype.kind == 'u':
+            mapping = {1: np.int8, 2: np.int16, 4: np.int32, 8: np.int64}
+            arr = arr.view(mapping.get(arr.dtype.itemsize, np.int8))
 
         added = False
         for m in add_methods:
@@ -319,7 +325,12 @@ def write_with_gguf(out_path: str, blobs: Dict[str, Any]) -> None:
             raise RuntimeError(f"Failed to add tensor {name} to gguf writer")
 
     # try close/write
-    if hasattr(writer, "write"):
+    if hasattr(writer, "write_header_to_file"):
+        writer.write_header_to_file()
+        writer.write_kv_data_to_file()
+        writer.write_tensors_to_file()
+        writer.close()
+    elif hasattr(writer, "write"):
         writer.write()
     elif hasattr(writer, "close"):
         writer.close()
@@ -365,35 +376,57 @@ def main() -> None:
     total_packed_bytes = 0
 
     # Iterate through state_dict and find layers that match MultiTier naming
-    # We'll look for keys like '<module>.tier_mask_packed' or '<module>.weight'
     # Use the module_meta_lookup keys as canonical layer names when present.
+    tier_masks_uint2 = ckpt.get("tier_masks_uint2", {})
+    if not tier_masks_uint2:
+        tier_masks_uint2 = septq_meta.get("tier_masks_uint2", {})
+
     candidate_layers = []
-    # find all keys ending with 'tier_mask_packed'
+    if tier_masks_uint2:
+        candidate_layers = list(tier_masks_uint2.keys())
+    else:
+        # find all keys ending with 'tier_mask_packed'
+        for key in list(state_dict.keys()):
+            if key.endswith("tier_mask_packed"):
+                module_name = key[: -len(".tier_mask_packed")]
+                candidate_layers.append(module_name)
+
+    # Some checkpoints expose self-attention output projection tensors under the
+    # canonical PyTorch name `transformer.layers.{i}.self_attn.out_proj.weight`.
+    # Make sure those layers are included even if they were not captured by the
+    # tier-mask lookup path above.
     for key in list(state_dict.keys()):
-        if key.endswith("tier_mask_packed"):
-            module_name = key[: -len(".tier_mask_packed")]
-            candidate_layers.append(module_name)
+        if key.endswith(".self_attn.out_proj.weight"):
+            candidate_layers.append(key[: -len(".weight")])
+        elif key.endswith(".self_attn.out_proj.tier_mask_packed"):
+            candidate_layers.append(key[: -len(".tier_mask_packed")])
+
+    # Deduplicate while preserving discovery order.
+    seen_layers = set()
+    candidate_layers = [name for name in candidate_layers if not (name in seen_layers or seen_layers.add(name))]
 
     print(f"[EXPORT] Found {len(candidate_layers)} candidate multi-tier layers")
 
     for layer_name in candidate_layers:
         print(f"[EXPORT] Processing layer {layer_name} ...")
-        mask_key = f"{layer_name}.tier_mask_packed"
-        weight_key = f"{layer_name}.q_weight"  # note: checkpoint may have original dense weight under different key
-        # The profile_jetson loader keeps the original dense weight in the checkpoint under '<module>.dense_weight' or similar
+        weight_key = f"{layer_name}.q_weight"
         dense_key_alt = f"{layer_name}.weight"
         dense_tensor = None
-        if mask_key not in state_dict:
-            print(f"[EXPORT]   Warning: mask key {mask_key} missing; skipping")
-            continue
-        packed_mask = state_dict[mask_key]
+        if tier_masks_uint2 and layer_name in tier_masks_uint2:
+            packed_mask = tier_masks_uint2[layer_name]
+        else:
+            mask_key = f"{layer_name}.tier_mask_packed"
+            if mask_key not in state_dict:
+                print(f"[EXPORT]   Warning: mask key {mask_key} missing; skipping")
+                continue
+            packed_mask = state_dict[mask_key]
 
         # Prefer an explicit dense tensor if present; otherwise the checkpoint may store precomputed q_weight.
         if dense_key_alt in state_dict:
             dense_tensor = state_dict[dense_key_alt]
         else:
             # try to locate 'dense' or original weight via heuristics
-            for cand in (f"{layer_name}.dense_weight", f"{layer_name}.orig_weight", f"{layer_name}.q_weight"):
+            for cand in (layer_name, f"{layer_name}.dense_weight", f"{layer_name}.orig_weight", f"{layer_name}.q_weight"):
                 if cand in state_dict:
                     dense_tensor = state_dict[cand]
                     break
@@ -409,6 +442,9 @@ def main() -> None:
 
         # Store into blobs under user-specified naming
         base = layer_name.replace('.', '_')
+        if layer_name.endswith(".self_attn.out_proj"):
+            # Emit the out-projection under the exact loader-facing tensor stem.
+            base = base + "_weight"
         blobs[f"{base}.packed_mask"] = blobs_for_layer["packed_mask"]
         blobs[f"{base}.packed_weights"] = blobs_for_layer["packed_weights"]
         blobs[f"{base}.n_2bit_bytes"] = np.int32(int(blobs_for_layer["n_2bit_bytes"]))
@@ -435,6 +471,68 @@ def main() -> None:
         total_packed_bytes += packed_bytes
 
         print(f"[EXPORT]   layer orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
+
+    print("[EXPORT] Processing unquantized LayerNorms...")
+    norm_count = 0
+
+    # Moshi uses RMSNorm with a learned `.alpha` parameter (shape [1,1,dim]).
+    # Export as `transformer_layers_{i}_norm1_weight` / `norm2_weight` so the
+    # C++ loader finds them via ggml_get_tensor(ctx, prefix + "_norm1_weight").
+    for i in range(32):
+        for norm_idx in [1, 2]:
+            alpha_key = f"transformer.layers.{i}.norm{norm_idx}.alpha"
+            if alpha_key in state_dict:
+                val = state_dict[alpha_key]
+                # alpha is [1,1,dim] — flatten to [dim] for ggml broadcast
+                arr = val.detach().cpu().float().numpy().reshape(-1)
+                out_key = f"transformer_layers_{i}_norm{norm_idx}_weight"
+                blobs[out_key] = arr
+                bytes_sz = arr.nbytes
+                total_orig_bytes += bytes_sz
+                total_packed_bytes += bytes_sz
+                norm_count += 1
+                if i == 0:
+                    print(f"[EXPORT]   {alpha_key} -> {out_key}  shape={arr.shape}  first5={arr[:5]}")
+
+    # Fallback: also catch any .weight/.bias norms (e.g. LayerNorm if present)
+    for key, val in state_dict.items():
+        if (".norm" in key or "norm." in key) and (key.endswith(".weight") or key.endswith(".bias")):
+            new_key = key.replace('.', '_')
+            if new_key not in blobs:  # don't double-export
+                arr = val.detach().cpu().numpy().astype(np.float32)
+                blobs[new_key] = arr
+                bytes_sz = arr.nbytes
+                total_orig_bytes += bytes_sz
+                total_packed_bytes += bytes_sz
+                norm_count += 1
+    print(f"[EXPORT]   Found and exported {norm_count} norm tensors.")
+
+    print("[EXPORT] Processing dense attention output projections...")
+    out_proj_count = 0
+    for i in range(32):
+        weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
+        if weight_key not in state_dict:
+            continue
+
+        weight = state_dict[weight_key].detach().cpu().float().numpy().astype(np.float32)
+        out_key = f"transformer_layers_{i}_self_attn_out_proj_weight"
+        blobs[out_key] = weight
+        bytes_sz = weight.nbytes
+        total_orig_bytes += bytes_sz
+        total_packed_bytes += bytes_sz
+        out_proj_count += 1
+
+        bias_key = f"transformer.layers.{i}.self_attn.out_proj.bias"
+        if bias_key in state_dict:
+            bias = state_dict[bias_key].detach().cpu().float().numpy().astype(np.float32)
+            blobs[f"transformer_layers_{i}_self_attn_out_proj_bias"] = bias
+            bias_bytes = bias.nbytes
+            total_orig_bytes += bias_bytes
+            total_packed_bytes += bias_bytes
+
+        if i == 0:
+            print(f"[EXPORT]   {weight_key} -> {out_key} shape={weight.shape}")
+    print(f"[EXPORT]   Found and exported {out_proj_count} dense out_proj tensors.")
 
     print("[EXPORT] Writing output...")
     try:

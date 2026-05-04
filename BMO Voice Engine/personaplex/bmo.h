@@ -38,6 +38,10 @@ struct bmo_layer {
     ggml_tensor * ffn_in = nullptr;
     ggml_tensor * ffn_out = nullptr;
 
+    // Learned RMSNorm scale weights (gamma)
+    ggml_tensor * norm1_weight = nullptr;  // attention pre-norm
+    ggml_tensor * norm2_weight = nullptr;  // FFN pre-norm
+
     bmo_layer() = default;
 };
 
@@ -94,4 +98,10 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx);
 void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx);
 
 // Compute graph builder
-struct ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, struct ggml_tensor * input_tokens, int n_past);
+struct ggml_cgraph * bmo_build_temporal_graph(
+    bmo_context & ctx,
+    bmo_model & model,
+    struct ggml_tensor * input_tokens,
+    int n_past,
+    int layer_begin = 0,
+    int layer_end = -1);

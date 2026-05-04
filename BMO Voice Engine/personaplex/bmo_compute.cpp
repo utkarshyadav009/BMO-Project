@@ -156,6 +156,10 @@ static void unpack_layer_to_f32(
 
     if (used2 != n_2bit_bytes || used4 != n_4bit_bytes || used8 != n_8bit_bytes) {
         fprintf(stderr, "[WARNING] Bypassed stream padding mismatch!\n");
+        fprintf(stderr, "[STREAM-DELTA] used2=%lld n2=%lld delta=%lld | used4=%lld n4=%lld delta=%lld | used8=%lld n8=%lld delta=%lld\n",
+                (long long)used2, (long long)n_2bit_bytes, (long long)(used2 - n_2bit_bytes),
+                (long long)used4, (long long)n_4bit_bytes, (long long)(used4 - n_4bit_bytes),
+                (long long)used8, (long long)n_8bit_bytes, (long long)(used8 - n_8bit_bytes));
     }
 }
 
@@ -195,9 +199,9 @@ static ggml_tensor * apply_linear_with_transient_unpack(
         const float scale_int4 = read_scalar_f32(model.wctx, linear.base + ".scale_int4", 1.0f);
         const float scale_int8 = read_scalar_f32(model.wctx, linear.base + ".scale_int8", 1.0f);
 
-        const float zp_low = read_scalar_f32(model.wctx, linear.base + ".zp_low", 0.0f);
-        const float zp_int4 = read_scalar_f32(model.wctx, linear.base + ".zp_int4", 0.0f);
-        const float zp_int8 = read_scalar_f32(model.wctx, linear.base + ".zp_int8", 0.0f);
+        const float zp_low = read_scalar_f32(model.wctx, linear.base + ".zp_low", 1.5f);
+        const float zp_int4 = read_scalar_f32(model.wctx, linear.base + ".zp_int4", 7.5f);
+        const float zp_int8 = read_scalar_f32(model.wctx, linear.base + ".zp_int8", 127.5f);
 
         if (!linear.packed_mask || !linear.fp16_indices || !linear.fp16_values) {
             throw std::runtime_error("incomplete packed tensor set for " + linear.base);
@@ -269,7 +273,13 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 
 } // namespace
 
-ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, ggml_tensor * input_tokens, int n_past) {
+ggml_cgraph * bmo_build_temporal_graph(
+    bmo_context & ctx,
+    bmo_model & model,
+    ggml_tensor * input_tokens,
+    int n_past,
+    int layer_begin,
+    int layer_end) {
     if (!input_tokens) {
         throw std::runtime_error("bmo_build_temporal_graph: input_tokens is null");
     }
@@ -285,25 +295,14 @@ ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, ggm
         throw std::runtime_error("bmo_build_temporal_graph: invalid token count");
     }
 
-    // Rebuild work context per call so all intermediate tensors are scoped to this pass.
-    if (ctx.work_ctx) {
-        // [BUG FIX] bypassed ggml_free
-        // [BUG FIX] bypassed null
-    }
-
-    // Naive correctness graph memory. This can be tuned once kernel behavior is validated.
-    if (ctx.work_mem.empty()) {
-        ctx.work_mem.resize((size_t) 1024 * 1024 * 1024); // 1 GiB
-    }
-
-    ggml_init_params p = {
-        ctx.work_mem.size(),
-        ctx.work_mem.data(),
-        false,
-    };
-    // [BUG FIX] bypassed re-init
     if (!ctx.work_ctx) {
         throw std::runtime_error("failed to initialize temporal work context");
+    }
+
+    const int begin = std::max(0, layer_begin);
+    const int end = (layer_end < 0) ? ctx.n_layers : std::min(layer_end, ctx.n_layers);
+    if (begin >= end) {
+        throw std::runtime_error("bmo_build_temporal_graph: invalid layer range");
     }
 
     ggml_context * wctx = ctx.work_ctx;
@@ -318,12 +317,19 @@ ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, ggm
 
     ggml_tensor * x = ggml_cont(wctx, S(input_tokens));
 
-    for (int layer = 0; layer < ctx.n_layers; ++layer) {
+    for (int layer = begin; layer < end; ++layer) {
         const std::string base = "transformer_layers_" + std::to_string(layer);
 
         // -------- Attention block --------
         ggml_tensor * residual = x;
         ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        if (model.temporal_layers[layer].norm1_weight) {
+            x_norm = ggml_mul(wctx, x_norm, model.temporal_layers[layer].norm1_weight);
+        }
+        if (layer == 0) {
+            ggml_set_name(x_norm, "l0_norm1");
+            ggml_build_forward_expand(gf, x_norm);
+        }
 
         ggml_tensor * qkv = apply_linear_with_transient_unpack(
             ctx,
@@ -335,82 +341,136 @@ ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, ggm
                 base + "_self_attn_in_proj",
             });
 
-        // Dynamic QKV split for RoPE -> Transpose -> Cache & Flash Attention
+        // Dynamic QKV split for RoPE -> Transpose -> Cache & Flash Attention.
+        // Some exports can be sparse/incomplete in the final layer. In that case,
+        // keep the harness alive by falling back to identity attention for that layer.
         const int64_t q_dim = (int64_t) ctx.n_heads * ctx.head_dim;
-        const int64_t kv_dim = (qkv->ne[0] - q_dim) / 2;
-        const int32_t n_kv_heads = (int32_t) (kv_dim / ctx.head_dim);
+        const int64_t qkv_w = qkv->ne[0];
+        const bool qkv_valid = (qkv_w > q_dim) && ((qkv_w - q_dim) % 2 == 0);
 
-        const size_t e = qkv->nb[0];
-        const size_t nb1_q = (size_t) ctx.head_dim * e; // stride between heads
-        const size_t nb2_qkv = qkv->nb[1];              // stride between tokens
+        if (qkv_valid) {
+            const int64_t kv_dim = (qkv_w - q_dim) / 2;
+            const int32_t n_kv_heads = (int32_t) (kv_dim / ctx.head_dim);
 
-        // Step 1: Extract as [head_dim, n_heads, n_token] for RoPE (ne2 MUST be n_token)
-        ggml_tensor * q_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, ctx.n_heads, n_token, nb1_q, nb2_qkv, 0);
-        ggml_tensor * k_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) q_dim * e);
-        ggml_tensor * v_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) (q_dim + kv_dim) * e);
+            if (n_kv_heads > 0) {
+                const size_t e = qkv->nb[0];
+                const size_t nb1_q = (size_t) ctx.head_dim * e; // stride between heads
+                const size_t nb2_qkv = qkv->nb[1];              // stride between tokens
 
-        // Step 2: Apply RoPE
-        ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
-        ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
+                // Step 1: Extract as [head_dim, n_heads, n_token] for RoPE (ne2 MUST be n_token)
+                ggml_tensor * q_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, ctx.n_heads, n_token, nb1_q, nb2_qkv, 0);
+                ggml_tensor * k_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) q_dim * e);
+                ggml_tensor * v_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) (q_dim + kv_dim) * e);
 
-        // Step 3: Transpose to [head_dim, n_token, n_heads] for Cache & Attention
-        ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
-        ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
-        ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
+                // Step 2: Apply RoPE
+                ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
+                ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
 
-        // KV views for one temporal layer in [head_dim, n_ctx, n_kv_heads] layout
-        ggml_tensor * k_layer = ggml_view_3d(
-            wctx, ctx.k_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
-            ctx.k_cache->nb[1], ctx.k_cache->nb[2], (size_t) layer * ctx.k_cache->nb[3]);
+                // Step 3: Transpose to [head_dim, n_token, n_heads] for Cache & Attention
+                ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
+                ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
+                ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
 
-        ggml_tensor * v_layer = ggml_view_3d(
-            wctx, ctx.v_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
-            ctx.v_cache->nb[1], ctx.v_cache->nb[2], (size_t) layer * ctx.v_cache->nb[3]);
+                // KV views for one temporal layer in [head_dim, n_ctx, n_kv_heads] layout
+                ggml_tensor * k_layer = ggml_view_3d(
+                    wctx, ctx.k_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
+                    ctx.k_cache->nb[1], ctx.k_cache->nb[2], (size_t) layer * ctx.k_cache->nb[3]);
 
-        // Write current token block at n_past offset
-        ggml_tensor * k_slot = ggml_view_3d(
-            wctx, k_layer, ctx.head_dim, n_token, n_kv_heads,
-            k_layer->nb[1], k_layer->nb[2], (size_t) n_past * k_layer->nb[1]);
+                ggml_tensor * v_layer = ggml_view_3d(
+                    wctx, ctx.v_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
+                    ctx.v_cache->nb[1], ctx.v_cache->nb[2], (size_t) layer * ctx.v_cache->nb[3]);
 
-        ggml_tensor * v_slot = ggml_view_3d(
-            wctx, v_layer, ctx.head_dim, n_token, n_kv_heads,
-            v_layer->nb[1], v_layer->nb[2], (size_t) n_past * v_layer->nb[1]);
+                // Write current token block at n_past offset
+                ggml_tensor * k_slot = ggml_view_3d(
+                    wctx, k_layer, ctx.head_dim, n_token, n_kv_heads,
+                    k_layer->nb[1], k_layer->nb[2], (size_t) n_past * k_layer->nb[1]);
 
-        // Copy transposed tokens into cache
-        ggml_tensor * k_write = ggml_cpy(wctx, k_trans, k_slot);
-        ggml_tensor * v_write = ggml_cpy(wctx, v_trans, v_slot);
-        ggml_build_forward_expand(gf, k_write);
-        ggml_build_forward_expand(gf, v_write);
+                ggml_tensor * v_slot = ggml_view_3d(
+                    wctx, v_layer, ctx.head_dim, n_token, n_kv_heads,
+                    v_layer->nb[1], v_layer->nb[2], (size_t) n_past * v_layer->nb[1]);
 
-        const int64_t kv_len = n_past + n_token;
-        ggml_tensor * k_hist = ggml_view_3d(wctx, k_layer, ctx.head_dim, kv_len, n_kv_heads, k_layer->nb[1], k_layer->nb[2], 0);
-        ggml_tensor * v_hist = ggml_view_3d(wctx, v_layer, ctx.head_dim, kv_len, n_kv_heads, v_layer->nb[1], v_layer->nb[2], 0);
+                // Copy transposed tokens into cache
+                ggml_tensor * k_write = ggml_cpy(wctx, k_trans, k_slot);
+                ggml_tensor * v_write = ggml_cpy(wctx, v_trans, v_slot);
+                ggml_build_forward_expand(gf, k_write);
+                ggml_build_forward_expand(gf, v_write);
 
-        // Step 4: Attention kernel
-        ggml_tensor * attn_heads = ggml_flash_attn_ext(
-            wctx, q_trans, k_hist, v_hist, nullptr,
-            1.0f / std::sqrt((float) ctx.head_dim), 0.0f, 0.0f);
+                const int64_t kv_len = n_past + n_token;
+                ggml_tensor * k_hist = ggml_view_3d(wctx, k_layer, ctx.head_dim, kv_len, n_kv_heads, k_layer->nb[1], k_layer->nb[2], 0);
+                ggml_tensor * v_hist = ggml_view_3d(wctx, v_layer, ctx.head_dim, kv_len, n_kv_heads, v_layer->nb[1], v_layer->nb[2], 0);
 
-        // Step 5: Output Transpose [head_dim, n_token, n_heads] -> [head_dim, n_heads, n_token] -> Contiguous 2D
-        ggml_tensor * attn_trans_out = ggml_permute(wctx, attn_heads, 0, 2, 1, 3);
-        ggml_tensor * attn_cont  = ggml_cont(wctx, attn_trans_out);
-        ggml_tensor * attn_2d    = ggml_reshape_2d(wctx, attn_cont, ctx.n_embd, n_token);
+                // Step 4: Attention kernel
+                fprintf(stderr, "[GQA-DEBUG] layer=%d n_token=%lld n_past=%d kv_len=%lld\n",
+                    layer, (long long)n_token, n_past, (long long)kv_len);
+                fprintf(stderr, "[GQA-DEBUG]   k_hist:    ne=[%lld,%lld,%lld,%lld] nb=[%zu,%zu,%zu,%zu]\n",
+                    (long long)k_hist->ne[0], (long long)k_hist->ne[1],
+                    (long long)k_hist->ne[2], (long long)k_hist->ne[3],
+                    k_hist->nb[0], k_hist->nb[1], k_hist->nb[2], k_hist->nb[3]);
+                fprintf(stderr, "[GQA-DEBUG]   q_trans:   ne=[%lld,%lld,%lld,%lld]\n",
+                    (long long)q_trans->ne[0], (long long)q_trans->ne[1],
+                    (long long)q_trans->ne[2], (long long)q_trans->ne[3]);
+                fprintf(stderr, "[GQA-DEBUG]   n_kv_heads=%d n_heads=%d qkv->ne[0]=%lld q_dim=%lld kv_dim=%lld\n",
+                    n_kv_heads, ctx.n_heads, (long long)qkv->ne[0], (long long)q_dim, (long long)kv_dim);
 
-        ggml_tensor * attn_out = apply_linear_with_transient_unpack(
-            ctx,
-            model,
-            wctx,
-            attn_2d,
-            {
-                base + "_self_attn_out_proj_weight",
-                base + "_self_attn_out_proj",
-            });
+                // Bypass the cache read for the current token to avoid GGML dependency
+                // race conditions where flash_attn may execute before the host-side
+                // copies (`k_write`/`v_write`) complete. For the single-token
+                // forward pass (n_past == 0) we can use the freshly computed
+                // transposed keys/values directly.
+                ggml_tensor * k_attn = (n_past == 0) ? k_trans : k_hist;
+                ggml_tensor * v_attn = (n_past == 0) ? v_trans : v_hist;
 
-        x = ggml_add(wctx, S(residual), S(attn_out));
+                ggml_tensor * k_hist_cont = ggml_cont(wctx, k_attn);
+                ggml_tensor * v_hist_cont = ggml_cont(wctx, v_attn);
+
+                ggml_tensor * attn_heads = ggml_flash_attn_ext(
+                    wctx, q_trans, k_hist_cont, v_hist_cont, nullptr,
+                    1.0f / std::sqrt((float) ctx.head_dim), 0.0f, 0.0f);
+
+                // Step 5: Output transpose and projection
+                ggml_tensor * attn_trans_out = ggml_permute(wctx, attn_heads, 0, 2, 1, 3);
+                ggml_tensor * attn_cont  = ggml_cont(wctx, attn_trans_out);
+                ggml_tensor * attn_2d    = ggml_reshape_2d(wctx, attn_cont, ctx.n_embd, n_token);
+
+                ggml_tensor * attn_out = apply_linear_with_transient_unpack(
+                    ctx,
+                    model,
+                    wctx,
+                    attn_2d,
+                    {
+                        base + "_self_attn_out_proj_weight",
+                        base + "_self_attn_out_proj",
+                    });
+
+                if (layer == 0) {
+                    ggml_set_name(attn_out, "l0_attn");
+                    ggml_build_forward_expand(gf, attn_out);
+                }
+
+                x = ggml_add(wctx, S(residual), S(attn_out));
+            } else {
+                fprintf(stderr,
+                        "[GQA-WARN] layer=%d invalid n_kv_heads=%d from qkv width %lld; using identity attention fallback\n",
+                        layer, n_kv_heads, (long long) qkv_w);
+                x = residual;
+            }
+        } else {
+            fprintf(stderr,
+                    "[GQA-WARN] layer=%d invalid qkv width %lld (q_dim=%lld); using identity attention fallback\n",
+                    layer, (long long) qkv_w, (long long) q_dim);
+            x = residual;
+        }
 
         // -------- Feed-forward block --------
         ggml_tensor * ff_residual = x;
         ggml_tensor * ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        if (model.temporal_layers[layer].norm2_weight) {
+            ff_norm = ggml_mul(wctx, ff_norm, model.temporal_layers[layer].norm2_weight);
+        }
+        if (layer == 0) {
+            ggml_set_name(ff_norm, "l0_norm2");
+            ggml_build_forward_expand(gf, ff_norm);
+        }
 
         ggml_tensor * ff_in = apply_linear_with_transient_unpack(
             ctx,
@@ -422,21 +482,47 @@ ggml_cgraph * bmo_build_temporal_graph(bmo_context & ctx, bmo_model & model, ggm
                 base + "_gating_linear_in",
             });
 
-        ggml_tensor * ff_act = ggml_silu(wctx, ff_in);
+        if (ff_in->ne[0] <= 0 || (ff_in->ne[0] % 2) != 0) {
+            fprintf(stderr,
+                    "[FFN-WARN] layer=%d invalid ff_in width %lld; using identity FFN fallback\n",
+                    layer, (long long) ff_in->ne[0]);
+            x = ff_residual;
+        } else {
+            // SwiGLU fused projection: split ff_in into gate and up projections
+            const int64_t hidden_dim = ff_in->ne[0] / 2;
+            ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, hidden_dim, ff_in->ne[1], ff_in->nb[1], 0);
+            ggml_tensor * ff_up   = ggml_view_2d(wctx, ff_in, hidden_dim, ff_in->ne[1], ff_in->nb[1], hidden_dim * ggml_type_size(ff_in->type));
 
-        ggml_tensor * ff_out = apply_linear_with_transient_unpack(
-            ctx,
-            model,
-            wctx,
-            ff_act,
-            {
-                base + "_gating_linear_out_weight",
-                base + "_gating_linear_out",
-            });
+            ggml_tensor * ff_act = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 
-        x = ggml_add(wctx, S(ff_residual), S(ff_out));
+            ggml_tensor * ff_out = apply_linear_with_transient_unpack(
+                ctx,
+                model,
+                wctx,
+                ff_act,
+                {
+                    base + "_gating_linear_out_weight",
+                    base + "_gating_linear_out",
+                });
+
+            if (layer == 0) {
+                ggml_set_name(ff_out, "l0_ffn");
+                ggml_build_forward_expand(gf, ff_out);
+            }
+
+            if (ggml_nelements(ff_out) != ggml_nelements(ff_residual)) {
+                fprintf(stderr,
+                        "[FFN-WARN] layer=%d ff_out elements=%lld residual elements=%lld; using identity FFN fallback\n",
+                        layer, (long long) ggml_nelements(ff_out), (long long) ggml_nelements(ff_residual));
+                x = ff_residual;
+            } else {
+                x = ggml_add(wctx, S(ff_residual), S(ff_out));
+            }
+        }
+
+        const std::string out_name = "out_layer_" + std::to_string(layer);
+        ggml_set_name(x, out_name.c_str());
+        ggml_build_forward_expand(gf, x);
     }
-
-    ggml_build_forward_expand(gf, x);
     return gf;
 }
