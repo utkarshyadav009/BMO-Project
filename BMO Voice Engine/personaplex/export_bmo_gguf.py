@@ -586,8 +586,13 @@ def main() -> None:
             src_key = f"transformer.layers.{layer_idx}.{pattern}"
             if src_key not in state_dict:
                 continue  # Tensor doesn't exist in checkpoint; skip it
-            # Map to expected GGUF naming convention
-            gguf_key = f"transformer_layers_{layer_idx}_" + pattern.replace(".", "_")
+            # Map to expected GGUF naming convention. Norm keys use `_weight` in GGUF.
+            if pattern == "norm1.alpha":
+                gguf_key = f"transformer_layers_{layer_idx}_norm1_weight"
+            elif pattern == "norm2.alpha":
+                gguf_key = f"transformer_layers_{layer_idx}_norm2_weight"
+            else:
+                gguf_key = f"transformer_layers_{layer_idx}_" + pattern.replace(".", "_")
             if gguf_key not in blobs:
                 missing_tensors.append((layer_idx, pattern, src_key, gguf_key))
     
