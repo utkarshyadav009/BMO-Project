@@ -32,18 +32,24 @@ def _compare_pair(cpp_path, pt_path):
 
 
 def main():
-    rows = []
-    for i in range(32):
-        name = f"layer_{i}"
-        cpp_path = f"cpp_out_layer_{i}.bin"
-        pt_path = f"pt_out_layer_{i}.bin"
+    depth_cpp = Path("cpp_depth_out.bin")
+    depth_pt = Path("pt_depth_out.bin")
+    if depth_cpp.exists() and depth_pt.exists():
+        cosine, mae, status = _compare_pair(str(depth_cpp), str(depth_pt))
+        rows = [("depth_0", cosine, mae, status)]
+    else:
+        rows = []
+        for i in range(32):
+            name = f"layer_{i}"
+            cpp_path = f"cpp_out_layer_{i}.bin"
+            pt_path = f"pt_out_layer_{i}.bin"
 
-        if not Path(cpp_path).exists() or not Path(pt_path).exists():
-            rows.append((name, None, None, "MISSING"))
-            continue
+            if not Path(cpp_path).exists() or not Path(pt_path).exists():
+                rows.append((name, None, None, "MISSING"))
+                continue
 
-        cosine, mae, status = _compare_pair(cpp_path, pt_path)
-        rows.append((name, cosine, mae, status))
+            cosine, mae, status = _compare_pair(cpp_path, pt_path)
+            rows.append((name, cosine, mae, status))
 
     print(f"{'layer':>8}  {'cosine':>12}  {'mae':>12}  {'status':>14}")
     print(f"{'--------':>8}  {'------------':>12}  {'------------':>12}  {'--------------':>14}")

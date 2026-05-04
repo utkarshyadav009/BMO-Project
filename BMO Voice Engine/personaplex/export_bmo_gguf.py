@@ -517,28 +517,44 @@ def main() -> None:
         export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
 
     # Generalized fallback for quantizable temporal tensors (ensures L31 and any missed layers are covered).
-    # This complements the multi-tier loop by capturing tensors not covered by packed quantization.
     for i in range(32):
-        # in_proj_weight and gating matrices — export as dense bf16 if they are not already packed
         in_proj_key = f"transformer.layers.{i}.self_attn.in_proj_weight"
         gating_in_key = f"transformer.layers.{i}.gating.linear_in.weight"
         gating_out_key = f"transformer.layers.{i}.gating.linear_out.weight"
         
-        # Only export as dense if not already in blobs (avoid double-export from multi-tier pass)
         if in_proj_key in state_dict:
             dst_key = f"transformer_layers_{i}_self_attn_in_proj_weight"
-            if dst_key not in blobs:
+            packed_marker = f"{dst_key}.packed_weights"
+            if dst_key not in blobs and packed_marker not in blobs:
                 export_dense_tensor(in_proj_key, dst_key)
         
         if gating_in_key in state_dict:
             dst_key = f"transformer_layers_{i}_gating_linear_in_weight"
-            if dst_key not in blobs:
+            packed_marker = f"{dst_key}.packed_weights"
+            if dst_key not in blobs and packed_marker not in blobs:
                 export_dense_tensor(gating_in_key, dst_key)
         
         if gating_out_key in state_dict:
             dst_key = f"transformer_layers_{i}_gating_linear_out_weight"
-            if dst_key not in blobs:
+            packed_marker = f"{dst_key}.packed_weights"
+            if dst_key not in blobs and packed_marker not in blobs:
                 export_dense_tensor(gating_out_key, dst_key)
+
+    # Depth stack: explicit probe-based exports.
+    for i in range(6):
+        export_dense_tensor(f"depformer.layers.{i}.norm1.alpha", f"depformer_layers_{i}_norm1_weight")
+        export_dense_tensor(f"depformer.layers.{i}.norm2.alpha", f"depformer_layers_{i}_norm2_weight")
+        export_dense_tensor(f"depformer.layers.{i}.self_attn.in_proj_weight", f"depformer_layers_{i}_self_attn_in_proj_weight")
+        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight")
+        for step in range(16):
+            export_dense_tensor(
+                f"depformer.layers.{i}.gating.{step}.linear_in.weight",
+                f"depformer_layers_{i}_gating_{step}_linear_in_weight",
+            )
+            export_dense_tensor(
+                f"depformer.layers.{i}.gating.{step}.linear_out.weight",
+                f"depformer_layers_{i}_gating_{step}_linear_out_weight",
+            )
 
     # Depth attention/output tensors and per-step projections.
     for i in range(6):
@@ -593,7 +609,8 @@ def main() -> None:
                 gguf_key = f"transformer_layers_{layer_idx}_norm2_weight"
             else:
                 gguf_key = f"transformer_layers_{layer_idx}_" + pattern.replace(".", "_")
-            if gguf_key not in blobs:
+            packed_marker = f"{gguf_key}.packed_weights"
+            if gguf_key not in blobs and packed_marker not in blobs:
                 missing_tensors.append((layer_idx, pattern, src_key, gguf_key))
     
     if missing_tensors:
@@ -602,6 +619,36 @@ def main() -> None:
             error_msg += f"  Layer {layer_idx}: {pattern} (expected as '{gguf_key}')\n"
         raise RuntimeError(error_msg)
     print(f"[EXPORT] Completeness check passed: all {32 * len(expected_tensor_patterns)} expected tensors are present.")
+
+    print("[EXPORT] Running completeness check on depth stack tensors...")
+    depth_missing = []
+    for layer_idx in range(6):
+        depth_expected = [
+            (f"depformer.layers.{layer_idx}.norm1.alpha", f"depformer_layers_{layer_idx}_norm1_weight"),
+            (f"depformer.layers.{layer_idx}.norm2.alpha", f"depformer_layers_{layer_idx}_norm2_weight"),
+            (f"depformer.layers.{layer_idx}.self_attn.in_proj_weight", f"depformer_layers_{layer_idx}_self_attn_in_proj_weight"),
+            (f"depformer.layers.{layer_idx}.self_attn.out_proj.weight", f"depformer_layers_{layer_idx}_self_attn_out_proj_weight"),
+        ]
+        for step in range(16):
+            depth_expected.append((
+                f"depformer.layers.{layer_idx}.gating.{step}.linear_in.weight",
+                f"depformer_layers_{layer_idx}_gating_{step}_linear_in_weight",
+            ))
+            depth_expected.append((
+                f"depformer.layers.{layer_idx}.gating.{step}.linear_out.weight",
+                f"depformer_layers_{layer_idx}_gating_{step}_linear_out_weight",
+            ))
+
+        for src_key, gguf_key in depth_expected:
+            if src_key in state_dict and gguf_key not in blobs:
+                depth_missing.append((layer_idx, src_key, gguf_key))
+
+    if depth_missing:
+        error_msg = "Completeness check failed: the following depth tensors were not exported to GGUF:\n"
+        for layer_idx, src_key, gguf_key in depth_missing:
+            error_msg += f"  Depth layer {layer_idx}: {src_key} (expected as '{gguf_key}')\n"
+        raise RuntimeError(error_msg)
+    print("[EXPORT] Completeness check passed: all expected depth stack tensors are present.")
 
     print("[EXPORT] Writing output...")
     try:

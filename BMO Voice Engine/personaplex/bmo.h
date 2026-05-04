@@ -105,3 +105,12 @@ struct ggml_cgraph * bmo_build_temporal_graph(
     int n_past,
     int layer_begin = 0,
     int layer_end = -1);
+
+struct ggml_cgraph * bmo_build_depth_graph(
+    bmo_context & ctx,
+    bmo_model & model,
+    struct ggml_tensor * temporal_out,
+    struct ggml_tensor * text_tokens,
+    struct ggml_tensor * audio_tokens,
+    int codebook_step,
+    int n_past);

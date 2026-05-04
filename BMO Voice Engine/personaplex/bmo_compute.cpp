@@ -464,3 +464,217 @@ ggml_cgraph * bmo_build_temporal_graph(
     }
     return gf;
 }
+
+ggml_cgraph * bmo_build_depth_graph(
+    bmo_context & ctx,
+    bmo_model & model,
+    ggml_tensor * temporal_out,
+    ggml_tensor * text_tokens,
+    ggml_tensor * audio_tokens,
+    int codebook_step,
+    int n_past) {
+    if (!temporal_out) {
+        throw std::runtime_error("bmo_build_depth_graph: temporal_out is null");
+    }
+    if (!text_tokens) {
+        throw std::runtime_error("bmo_build_depth_graph: text_tokens is null");
+    }
+    if (!audio_tokens) {
+        throw std::runtime_error("bmo_build_depth_graph: audio_tokens is null");
+    }
+    if (!ctx.work_ctx) {
+        throw std::runtime_error("bmo_build_depth_graph: work context is not initialized");
+    }
+    if (model.depth_layers.size() != 6) {
+        throw std::runtime_error("bmo_build_depth_graph: expected 6 depth layers");
+    }
+    if (codebook_step < 0 || codebook_step >= (int) model.depformer_in.size()) {
+        throw std::runtime_error("bmo_build_depth_graph: invalid codebook_step " + std::to_string(codebook_step));
+    }
+    if (!model.depformer_in[(size_t) codebook_step]) {
+        throw std::runtime_error("bmo_build_depth_graph: missing depformer_in projection for codebook_step " + std::to_string(codebook_step));
+    }
+    if (!model.audio_embs[(size_t) codebook_step]) {
+        throw std::runtime_error("bmo_build_depth_graph: missing audio embedding table for codebook_step " + std::to_string(codebook_step));
+    }
+    if (!model.text_emb) {
+        throw std::runtime_error("bmo_build_depth_graph: missing text embedding table");
+    }
+
+    constexpr int64_t hidden_dim = 1024;
+    constexpr int64_t depth_num_heads = 16;
+    if ((hidden_dim % depth_num_heads) != 0) {
+        throw std::runtime_error("bmo_build_depth_graph: hidden_dim must be divisible by depth_num_heads");
+    }
+    const int64_t head_dim = hidden_dim / depth_num_heads;
+
+    ggml_context * wctx = ctx.work_ctx;
+    ggml_cgraph * gf = ggml_new_graph(wctx);
+
+    // Keep the depth stack causally aligned with the temporal stack interface.
+    (void) n_past;
+
+    ggml_tensor * z_s = ggml_mul_mat(wctx, model.depformer_in[(size_t) codebook_step], temporal_out);
+    if (!z_s) {
+        throw std::runtime_error("bmo_build_depth_graph: failed to build depformer input projection");
+    }
+
+    const int64_t n_token = temporal_out->ne[1];
+
+    ggml_tensor * text_emb = ggml_get_rows(wctx, model.text_emb, text_tokens);
+    ggml_tensor * audio_emb = ggml_get_rows(wctx, model.audio_embs[(size_t) codebook_step], audio_tokens);
+    if (!text_emb || !audio_emb) {
+        throw std::runtime_error("bmo_build_depth_graph: failed to build token embeddings");
+    }
+
+    ggml_tensor * x = ggml_add(wctx, ggml_add(wctx, z_s, text_emb), audio_emb);
+
+    for (int i = 0; i < 6; ++i) {
+        const std::string prefix = "depformer.layers." + std::to_string(i);
+        const std::string base = "depformer_layers_" + std::to_string(i);
+        const std::string step_idx = std::to_string(codebook_step);
+
+        ggml_tensor * w_massive_in = get_tensor(model.wctx, prefix + ".self_attn.in_proj_weight");
+        ggml_tensor * w_massive_out = get_tensor(model.wctx, prefix + ".self_attn.out_proj.weight");
+        if (!w_massive_in || !w_massive_out) {
+            throw std::runtime_error("bmo_build_depth_graph: missing shared attention weight tensors for layer " + std::to_string(i));
+        }
+
+        ggml_tensor * w_slice = ggml_view_2d(
+            wctx,
+            w_massive_in,
+            w_massive_in->ne[0],
+            3072,
+            w_massive_in->nb[1],
+            (size_t) codebook_step * 3072 * w_massive_in->nb[1]);
+
+        ggml_tensor * w_out_slice = ggml_view_2d(
+            wctx,
+            w_massive_out,
+            w_massive_out->ne[0],
+            1024,
+            w_massive_out->nb[1],
+            (size_t) codebook_step * 1024 * w_massive_out->nb[1]);
+
+        // Shared attention block.
+        ggml_tensor * residual = x;
+        ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        if (model.depth_layers[(size_t) i].norm1_weight) {
+            x_norm = ggml_mul(wctx, x_norm, model.depth_layers[(size_t) i].norm1_weight);
+        }
+
+        ggml_tensor * qkv = ggml_mul_mat(wctx, S(w_slice), S(x_norm));
+
+        const int64_t q_dim = hidden_dim;
+        const int64_t kv_dim = hidden_dim;
+        const int64_t qkv_w = qkv->ne[0];
+        if (qkv_w != q_dim + kv_dim + kv_dim) {
+            throw std::runtime_error(
+                "bmo_build_depth_graph: layer=" + std::to_string(i) +
+                " invalid qkv width " + std::to_string((long long) qkv_w) +
+                " (expected " + std::to_string((long long) (q_dim + 2 * kv_dim)) + ")");
+        }
+
+        const int32_t n_kv_heads = (int32_t) (kv_dim / head_dim);
+        if (n_kv_heads <= 0) {
+            throw std::runtime_error("bmo_build_depth_graph: invalid n_kv_heads for layer " + std::to_string(i));
+        }
+
+        const size_t e = qkv->nb[0];
+        const size_t nb1_q = (size_t) head_dim * e;
+        const size_t nb2_qkv = qkv->nb[1];
+
+        ggml_tensor * q_raw = ggml_view_3d(wctx, qkv, head_dim, depth_num_heads, n_token, nb1_q, nb2_qkv, 0);
+        ggml_tensor * k_raw = ggml_view_3d(wctx, qkv, head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) q_dim * e);
+        ggml_tensor * v_raw = ggml_view_3d(wctx, qkv, head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) (q_dim + kv_dim) * e);
+
+        ggml_tensor * pos = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, n_token);
+        int32_t * pos_ptr = reinterpret_cast<int32_t *>(pos->data);
+        for (int64_t t = 0; t < n_token; ++t) {
+            pos_ptr[t] = (int32_t) n_past + (int32_t) t;
+        }
+
+        ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
+        ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
+
+        ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
+        ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
+        ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
+
+        ggml_tensor * attn_heads = ggml_flash_attn_ext(
+            wctx,
+            q_trans,
+            k_trans,
+            v_trans,
+            nullptr,
+            1.0f / std::sqrt((float) head_dim),
+            0.0f,
+            0.0f);
+        ggml_flash_attn_ext_set_prec(attn_heads, GGML_PREC_F32);
+
+        ggml_tensor * attn_trans_out = ggml_permute(wctx, attn_heads, 0, 2, 1, 3);
+        ggml_tensor * attn_cont = ggml_cont(wctx, attn_trans_out);
+        ggml_tensor * attn_2d = ggml_reshape_2d(wctx, attn_cont, hidden_dim, n_token);
+
+        ggml_tensor * attn_out = ggml_mul_mat(wctx, S(w_out_slice), S(attn_2d));
+
+        x = ggml_add(wctx, residual, attn_out);
+
+        // Step-specific FFN block.
+        ggml_tensor * ff_residual = x;
+        ggml_tensor * ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        if (model.depth_layers[(size_t) i].norm2_weight) {
+            ff_norm = ggml_mul(wctx, ff_norm, model.depth_layers[(size_t) i].norm2_weight);
+        }
+
+        ggml_tensor * ff_in = apply_linear_with_transient_unpack(
+            ctx,
+            model,
+            wctx,
+            ff_norm,
+            {
+                base + "_gating_" + step_idx + "_linear_in_weight",
+                base + "_gating_" + step_idx + "_linear_in",
+            });
+
+        if (!ff_in) {
+            throw std::runtime_error("bmo_build_depth_graph: missing step-specific FFN input for layer " + std::to_string(i));
+        }
+        if (ff_in->ne[0] <= 0 || (ff_in->ne[0] % 2) != 0) {
+            throw std::runtime_error("bmo_build_depth_graph: layer=" + std::to_string(i) + " invalid ff_in width " + std::to_string((long long) ff_in->ne[0]));
+        }
+
+        const int64_t ff_hidden = ff_in->ne[0] / 2;
+        ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], 0);
+        ggml_tensor * ff_up = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], ff_hidden * ggml_type_size(ff_in->type));
+        ggml_tensor * ff_act = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
+
+        ggml_tensor * ff_out = apply_linear_with_transient_unpack(
+            ctx,
+            model,
+            wctx,
+            ff_act,
+            {
+                base + "_gating_" + step_idx + "_linear_out_weight",
+                base + "_gating_" + step_idx + "_linear_out",
+            });
+
+        if (!ff_out) {
+            throw std::runtime_error("bmo_build_depth_graph: missing step-specific FFN output for layer " + std::to_string(i));
+        }
+        if (ggml_nelements(ff_out) != ggml_nelements(ff_residual)) {
+            throw std::runtime_error(
+                "bmo_build_depth_graph: layer=" + std::to_string(i) +
+                " ff_out elements=" + std::to_string((long long) ggml_nelements(ff_out)) +
+                " residual elements=" + std::to_string((long long) ggml_nelements(ff_residual))
+            );
+        }
+
+        x = ggml_add(wctx, ff_residual, ff_out);
+    }
+
+    const std::string out_name = "depth_out_step_" + std::to_string(codebook_step);
+    ggml_set_name(x, out_name.c_str());
+    ggml_build_forward_expand(gf, x);
+    return gf;
+}
