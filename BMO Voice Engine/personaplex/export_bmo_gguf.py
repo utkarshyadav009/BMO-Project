@@ -495,14 +495,35 @@ def main() -> None:
     print("[EXPORT] Processing dense attention/output/embedding tensors...")
     dense_export_count = 0
 
-    def export_dense_tensor(src_key: str, dst_key: str | None = None) -> None:
+    def export_dense_tensor(
+        src_key: str,
+        dst_key: str | None = None,
+        flatten: bool = False,
+        preserve_half: bool = False,
+    ) -> None:
+        """Export a dense tensor from the state_dict to the GGUF blobs.
+
+        Args:
+            src_key: Key in state_dict.
+            dst_key: Key in output blobs (defaults to src_key).
+            flatten: If True, reshape to 1-D (used for norms with (1,1,dim) shape).
+            preserve_half: If True, store as float16 instead of float32.
+                           Used for depth weights that are bf16 in the checkpoint
+                           to avoid doubling their on-disk size.
+        """
         nonlocal dense_export_count, total_orig_bytes, total_packed_bytes
         if src_key not in state_dict:
             return
         tensor = state_dict[src_key].detach().cpu()
-        if torch.is_tensor(tensor) and tensor.is_floating_point():
-            tensor = tensor.float()
-        arr = tensor.numpy().astype(np.float32, copy=False)
+        if preserve_half:
+            # bf16 -> fp16 (numpy doesn't support bf16 natively)
+            arr = tensor.to(torch.float16).numpy()
+        else:
+            if torch.is_tensor(tensor) and tensor.is_floating_point():
+                tensor = tensor.float()
+            arr = tensor.numpy().astype(np.float32, copy=False)
+        if flatten:
+            arr = arr.reshape(-1)
         blobs[dst_key or src_key] = arr
         bytes_sz = arr.nbytes
         total_orig_bytes += bytes_sz
@@ -541,29 +562,35 @@ def main() -> None:
                 export_dense_tensor(gating_out_key, dst_key)
 
     # Depth stack: explicit probe-based exports.
+    # Depth norms are (1,1,1024) and must be flattened to (1024,) for C++ RMSNorm.
+    # Depth weights are kept as fp16 to avoid the bf16->float32 size doubling.
     for i in range(6):
-        export_dense_tensor(f"depformer.layers.{i}.norm1.alpha", f"depformer_layers_{i}_norm1_weight")
-        export_dense_tensor(f"depformer.layers.{i}.norm2.alpha", f"depformer_layers_{i}_norm2_weight")
-        export_dense_tensor(f"depformer.layers.{i}.self_attn.in_proj_weight", f"depformer_layers_{i}_self_attn_in_proj_weight")
-        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight")
+        export_dense_tensor(f"depformer.layers.{i}.norm1.alpha", f"depformer_layers_{i}_norm1_weight", flatten=True)
+        export_dense_tensor(f"depformer.layers.{i}.norm2.alpha", f"depformer_layers_{i}_norm2_weight", flatten=True)
+        export_dense_tensor(f"depformer.layers.{i}.self_attn.in_proj_weight", f"depformer_layers_{i}_self_attn_in_proj_weight", preserve_half=True)
+        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight", preserve_half=True)
         for step in range(16):
             export_dense_tensor(
                 f"depformer.layers.{i}.gating.{step}.linear_in.weight",
                 f"depformer_layers_{i}_gating_{step}_linear_in_weight",
+                preserve_half=True,
             )
             export_dense_tensor(
                 f"depformer.layers.{i}.gating.{step}.linear_out.weight",
                 f"depformer_layers_{i}_gating_{step}_linear_out_weight",
+                preserve_half=True,
             )
 
-    # Depth attention/output tensors and per-step projections.
+    # Depth attention/output tensors: check for per-step split variants.
+    # The main stacked tensors were already exported above. This loop handles
+    # any bias tensors and alternative per-step split key layouts (in_projs.{step}).
     for i in range(6):
-        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight")
         export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.bias", f"depformer_layers_{i}_self_attn_out_proj_bias")
         for step in range(16):
             export_dense_tensor(
                 f"depformer.layers.{i}.self_attn.in_projs.{step}.weight",
                 f"depformer_layers_{i}_self_attn_in_projs_{step}_weight",
+                preserve_half=True,
             )
             export_dense_tensor(
                 f"depformer.layers.{i}.self_attn.in_projs.{step}.bias",
@@ -573,14 +600,18 @@ def main() -> None:
     # Depth embeddings / text path / heads.
     for idx in range(16):
         export_dense_tensor(f"emb.{idx}.weight")
-        export_dense_tensor(f"depformer_in.{idx}.weight")
-        export_dense_tensor(f"depformer_emb.{idx}.weight")
-    export_dense_tensor("depformer_text_emb.weight")
+        export_dense_tensor(f"depformer_in.{idx}.weight", preserve_half=True)
+        export_dense_tensor(f"depformer_emb.{idx}.weight", preserve_half=True)
+        export_dense_tensor(f"linears.{idx}.weight", preserve_half=True)  # depth output heads
+    export_dense_tensor("depformer_text_emb.weight", preserve_half=True)
     export_dense_tensor("text_emb.weight")
     export_dense_tensor("text_linear.weight")
     export_dense_tensor("text_linear.bias")
     export_dense_tensor("token_embedding")
     export_dense_tensor("output_head")
+
+    # Final temporal RMSNorm (out_norm) — flatten from (1,1,4096) to (4096,).
+    export_dense_tensor("out_norm.alpha", "out_norm_weight", flatten=True)
 
     print(f"[EXPORT]   Found and exported {dense_export_count} dense tensors.")
 
@@ -649,6 +680,32 @@ def main() -> None:
             error_msg += f"  Depth layer {layer_idx}: {src_key} (expected as '{gguf_key}')\n"
         raise RuntimeError(error_msg)
     print("[EXPORT] Completeness check passed: all expected depth stack tensors are present.")
+
+    # Additional completeness: linears (depth output heads), out_norm, embeddings
+    print("[EXPORT] Running completeness check on output heads and embeddings...")
+    extra_missing = []
+    for idx in range(16):
+        for src_key, gguf_key in [
+            (f"linears.{idx}.weight", f"linears.{idx}.weight"),
+            (f"depformer_emb.{idx}.weight", f"depformer_emb.{idx}.weight"),
+            (f"depformer_in.{idx}.weight", f"depformer_in.{idx}.weight"),
+        ]:
+            if src_key in state_dict and gguf_key not in blobs:
+                extra_missing.append((src_key, gguf_key))
+    for src_key, gguf_key in [
+        ("out_norm.alpha", "out_norm_weight"),
+        ("depformer_text_emb.weight", "depformer_text_emb.weight"),
+        ("text_emb.weight", "text_emb.weight"),
+        ("text_linear.weight", "text_linear.weight"),
+    ]:
+        if src_key in state_dict and gguf_key not in blobs:
+            extra_missing.append((src_key, gguf_key))
+    if extra_missing:
+        error_msg = "Completeness check failed: the following tensors were not exported to GGUF:\n"
+        for src_key, gguf_key in extra_missing:
+            error_msg += f"  {src_key} (expected as '{gguf_key}')\n"
+        raise RuntimeError(error_msg)
+    print("[EXPORT] Completeness check passed: all output heads and embeddings are present.")
 
     print("[EXPORT] Writing output...")
     try:

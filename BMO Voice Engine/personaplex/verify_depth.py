@@ -44,7 +44,10 @@ def main() -> int:
     audio_tokens = torch.tensor([[0]], dtype=torch.long)
 
     z_s = F.linear(temporal_out.float(), state_dict["depformer_in.0.weight"].float())
-    x = z_s + state_dict["depformer_text_emb.weight"][0].float().view(1, 1, -1) + state_dict["depformer_emb.0.weight"][0].float().view(1, 1, -1)
+    # Step 0 uses ONLY depformer_text_emb (text token embedding).
+    # depformer_emb[k-1] is used for steps k>=1 (audio codebook embeddings).
+    # See moshi/models/lm.py: depformer_text_emb for cb_index==0, depformer_emb[cb_index-1] otherwise.
+    x = z_s + state_dict["depformer_text_emb.weight"][0].float().view(1, 1, -1)
 
     num_heads = 16
     hidden_dim = 1024
