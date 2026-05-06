@@ -531,10 +531,15 @@ def main() -> None:
         dense_export_count += 1
 
     # Temporal attention output projection.
+    # If out_proj was included in SEPTQ (no --skip-modules), it will already be
+    # in the packed blobs. Only export as dense if not already packed.
     for i in range(32):
         weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
         bias_key = f"transformer.layers.{i}.self_attn.out_proj.bias"
-        export_dense_tensor(weight_key, f"transformer_layers_{i}_self_attn_out_proj_weight")
+        dst_key = f"transformer_layers_{i}_self_attn_out_proj_weight"
+        packed_marker = f"{dst_key}.packed_weights"
+        if dst_key not in blobs and packed_marker not in blobs:
+            export_dense_tensor(weight_key, dst_key, preserve_half=True)
         export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
 
     # Generalized fallback for quantizable temporal tensors (ensures L31 and any missed layers are covered).
@@ -547,19 +552,19 @@ def main() -> None:
             dst_key = f"transformer_layers_{i}_self_attn_in_proj_weight"
             packed_marker = f"{dst_key}.packed_weights"
             if dst_key not in blobs and packed_marker not in blobs:
-                export_dense_tensor(in_proj_key, dst_key)
+                export_dense_tensor(in_proj_key, dst_key, preserve_half=True)
         
         if gating_in_key in state_dict:
             dst_key = f"transformer_layers_{i}_gating_linear_in_weight"
             packed_marker = f"{dst_key}.packed_weights"
             if dst_key not in blobs and packed_marker not in blobs:
-                export_dense_tensor(gating_in_key, dst_key)
+                export_dense_tensor(gating_in_key, dst_key, preserve_half=True)
         
         if gating_out_key in state_dict:
             dst_key = f"transformer_layers_{i}_gating_linear_out_weight"
             packed_marker = f"{dst_key}.packed_weights"
             if dst_key not in blobs and packed_marker not in blobs:
-                export_dense_tensor(gating_out_key, dst_key)
+                export_dense_tensor(gating_out_key, dst_key, preserve_half=True)
 
     # Depth stack: explicit probe-based exports.
     # Depth norms are (1,1,1024) and must be flattened to (1024,) for C++ RMSNorm.
@@ -599,16 +604,16 @@ def main() -> None:
 
     # Depth embeddings / text path / heads.
     for idx in range(16):
-        export_dense_tensor(f"emb.{idx}.weight")
+        export_dense_tensor(f"emb.{idx}.weight", preserve_half=True)  # temporal codebook emb: fp16 saves ~0.25 GB
         export_dense_tensor(f"depformer_in.{idx}.weight", preserve_half=True)
         export_dense_tensor(f"depformer_emb.{idx}.weight", preserve_half=True)
         export_dense_tensor(f"linears.{idx}.weight", preserve_half=True)  # depth output heads
     export_dense_tensor("depformer_text_emb.weight", preserve_half=True)
-    export_dense_tensor("text_emb.weight")
-    export_dense_tensor("text_linear.weight")
-    export_dense_tensor("text_linear.bias")
-    export_dense_tensor("token_embedding")
-    export_dense_tensor("output_head")
+    export_dense_tensor("text_emb.weight", preserve_half=True)   # temporal text emb: fp16 saves ~0.25 GB
+    export_dense_tensor("text_linear.weight", preserve_half=True) # temporal text linear: fp16 saves ~0.25 GB
+    export_dense_tensor("text_linear.bias")  # bias stays float32 (tiny)
+    export_dense_tensor("token_embedding", preserve_half=True)
+    export_dense_tensor("output_head", preserve_half=True)
 
     # Final temporal RMSNorm (out_norm) — flatten from (1,1,4096) to (4096,).
     export_dense_tensor("out_norm.alpha", "out_norm_weight", flatten=True)

@@ -1,0 +1,34 @@
+#!/bin/bash
+set -e
+
+export PYTHONPATH="/home/jovyan/work/BMO-Project/personaplex_repo/moshi"
+export CUDA_VISIBLE_DEVICES=1
+
+echo "=== Starting GOLDEN 4 + HEAVY CUSHION (Layers 4-30) on GPU 2 ==="
+
+# Bypassing Layers 0-3 (Keeping them in BF16)
+# Quantizing 4-30 at 2% FP16 / 8% INT8 / 20% INT4 / 70% INT2
+python -u apply_septq_multitier.py \
+  --device cuda:0 \
+  --bf16 v5_step1500_split.safetensors \
+  --calibration-clips bmo_dataset_clean \
+  --bits 2 \
+  --ratio-fp16 0.02 \
+  --ratio-int8 0.08 \
+  --ratio-int4 0.20 \
+  --block-size 128 \
+  --max-calibration-samples 8192 \
+  --max-steps-per-clip 750 \
+  --max-clips 400 \
+  --quantize-layers 4-30 \
+  --skip-modules "self_attn.out_proj" \
+  --out bmo_temporal_golden4_heavy.pt 2>&1 | tee golden4_heavy.log
+
+python -u verify_septq_zs_drift.py \
+  --device cuda:0 \
+  --teacher v5_step1500_split.safetensors \
+  --student bmo_temporal_golden4_heavy.pt \
+  --steps 125 \
+  --min-median-cos 0.997 \
+  --save-json zs_golden4_heavy.json 2>&1 | tee zs_golden4_heavy.log
+

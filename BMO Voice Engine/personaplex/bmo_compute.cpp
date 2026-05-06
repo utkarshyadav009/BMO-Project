@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <iostream>
 static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char * msg, int line) {
     if (!t) { fprintf(stderr, "\n[CRITICAL] Tensor '%s' is NULL at line %d!\n", msg, line); exit(1); }
     return t;
@@ -520,14 +521,23 @@ ggml_cgraph * bmo_build_depth_graph(
     }
 
     const int64_t n_token = temporal_out->ne[1];
+    const int64_t step_count = (int64_t) model.depformer_in.size();
+    const int64_t qkv_step = 3 * hidden_dim;
+    const int64_t out_step = hidden_dim;
 
-    ggml_tensor * text_emb = ggml_get_rows(wctx, model.text_emb, text_tokens);
-    ggml_tensor * audio_emb = ggml_get_rows(wctx, model.audio_embs[(size_t) codebook_step], audio_tokens);
-    if (!text_emb || !audio_emb) {
+    ggml_tensor * last_tok = nullptr;
+    if (codebook_step == 0) {
+        last_tok = ggml_get_rows(wctx, model.text_emb, text_tokens);
+    } else {
+        last_tok = ggml_get_rows(wctx, model.audio_embs[(size_t) (codebook_step - 1)], audio_tokens);
+    }
+
+    if (!last_tok) {
         throw std::runtime_error("bmo_build_depth_graph: failed to build token embeddings");
     }
 
-    ggml_tensor * x = ggml_add(wctx, ggml_add(wctx, z_s, text_emb), audio_emb);
+    // handle broadcast by reshaping last_tok to 2d if needed, though z_s is 1024x1 and last_tok is 1024x1
+    ggml_tensor * x = ggml_add(wctx, z_s, ggml_reshape_2d(wctx, last_tok, 1024, 1));
 
     for (int i = 0; i < 6; ++i) {
         const std::string prefix = "depformer.layers." + std::to_string(i);
@@ -552,21 +562,53 @@ ggml_cgraph * bmo_build_depth_graph(
             throw std::runtime_error("bmo_build_depth_graph: missing shared attention weight tensors for layer " + std::to_string(i));
         }
 
-        ggml_tensor * w_slice = ggml_view_2d(
-            wctx,
-            w_massive_in,
-            w_massive_in->ne[0],
-            3072,
-            w_massive_in->nb[1],
-            (size_t) codebook_step * 3072 * w_massive_in->nb[1]);
+        ggml_tensor * w_slice = nullptr;
+        if (w_massive_in->ne[0] == qkv_step * step_count && w_massive_in->ne[1] == hidden_dim) {
+            ggml_tensor * w_view = ggml_view_2d(
+                wctx,
+                w_massive_in,
+                qkv_step,
+                hidden_dim,
+                w_massive_in->nb[1],
+                (size_t) codebook_step * qkv_step * w_massive_in->nb[0]);
+            w_slice = ggml_cont(wctx, ggml_transpose(wctx, w_view));
+        } else if (w_massive_in->ne[0] == hidden_dim && w_massive_in->ne[1] == qkv_step * step_count) {
+            w_slice = ggml_view_2d(
+                wctx,
+                w_massive_in,
+                hidden_dim,
+                qkv_step,
+                w_massive_in->nb[1],
+                (size_t) codebook_step * qkv_step * w_massive_in->nb[1]);
+        } else {
+            throw std::runtime_error("bmo_build_depth_graph: unexpected in_proj shape " +
+                std::to_string((long long) w_massive_in->ne[0]) + "x" +
+                std::to_string((long long) w_massive_in->ne[1]));
+        }
 
-        ggml_tensor * w_out_slice = ggml_view_2d(
-            wctx,
-            w_massive_out,
-            w_massive_out->ne[0],
-            1024,
-            w_massive_out->nb[1],
-            (size_t) codebook_step * 1024 * w_massive_out->nb[1]);
+        ggml_tensor * w_out_slice = nullptr;
+        if (w_massive_out->ne[0] == out_step * step_count && w_massive_out->ne[1] == hidden_dim) {
+            ggml_tensor * w_view = ggml_view_2d(
+                wctx,
+                w_massive_out,
+                out_step,
+                hidden_dim,
+                w_massive_out->nb[1],
+                (size_t) codebook_step * out_step * w_massive_out->nb[0]);
+            w_out_slice = ggml_cont(wctx, ggml_transpose(wctx, w_view));
+        } else if (w_massive_out->ne[0] == hidden_dim && w_massive_out->ne[1] == out_step * step_count) {
+            w_out_slice = ggml_view_2d(
+                wctx,
+                w_massive_out,
+                hidden_dim,
+                out_step,
+                w_massive_out->nb[1],
+                (size_t) codebook_step * out_step * w_massive_out->nb[1]);
+        } else {
+            throw std::runtime_error("bmo_build_depth_graph: unexpected out_proj shape " +
+                std::to_string((long long) w_massive_out->ne[0]) + "x" +
+                std::to_string((long long) w_massive_out->ne[1]));
+        }
 
         // Shared attention block.
         ggml_tensor * residual = x;

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Verify depth-stack step 0 math against a PyTorch reference.
+"""Verify depth-stack step 0 math with explicit debug output.
 
-This reproduces the dummy C++ validation inputs and writes the final output
-tensor to pt_depth_out.bin for comparison with cpp_depth_out.bin.
+This version prints more diagnostics to help debug the divergence.
 """
 
 from __future__ import annotations
@@ -16,55 +15,61 @@ import torch.nn.functional as F
 from moshi.modules.rope import apply_rope
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="PyTorch depth-step 0 validator")
-    parser.add_argument("ckpt", nargs="?", default="bmo_jetson_ready.pt")
-    parser.add_argument("out", nargs="?", default="pt_depth_out.bin")
-    return parser.parse_args()
-
-
 def rms_norm(x: torch.Tensor, weight: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
     denom = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + eps)
     return x * denom * weight.view(1, 1, -1)
 
 
 def main() -> int:
-    args = parse_args()
-    ckpt_path = Path(args.ckpt).resolve()
-    out_path = Path(args.out).resolve()
+    ckpt_path = Path("bmo_jetson_ready.pt").resolve()
+    out_path = Path("pt_depth_out.bin").resolve()
 
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
+    print("[verify_depth_debug] Loading checkpoint...")
     ckpt = torch.load(str(ckpt_path), map_location="cpu")
     state_dict = ckpt.get("state_dict") or ckpt
 
     temporal_out = torch.ones(1, 1, 4096, dtype=torch.bfloat16)
     text_tokens = torch.tensor([[0]], dtype=torch.long)
-    audio_tokens = torch.tensor([[0]], dtype=torch.long)
 
+    print("[verify_depth_debug] Computing z_s (depformer_in projection)...")
     z_s = F.linear(temporal_out.float(), state_dict["depformer_in.0.weight"].float())
-    # Step 0 uses ONLY depformer_text_emb (text token embedding).
-    # depformer_emb[k-1] is used for steps k>=1 (audio codebook embeddings).
-    # See moshi/models/lm.py: depformer_text_emb for cb_index==0, depformer_emb[cb_index-1] otherwise.
-    x = z_s + state_dict["depformer_text_emb.weight"][0].float().view(1, 1, -1)
+    print(f"  z_s.shape = {z_s.shape}")
+    print(f"  z_s min/max = {z_s.min():.6f} / {z_s.max():.6f}")
     
-    # Debug: dump intermediate tensors for comparison with C++
+    # Debug: dump z_s
     z_s_flat = z_s.reshape(-1).contiguous().cpu().float().numpy().astype(np.float32)
     z_s_flat.tofile("pt_debug_z_s.bin")
-    
+    print(f"  Wrote pt_debug_z_s.bin ({z_s_flat.nbytes} bytes)")
+
+    print("[verify_depth_debug] Getting text embedding (depformer_text_emb.weight[0])...")
     text_emb = state_dict["depformer_text_emb.weight"][0].float()
+    print(f"  text_emb.shape = {text_emb.shape}")
+    print(f"  text_emb min/max = {text_emb.min():.6f} / {text_emb.max():.6f}")
+    
+    # Debug: dump text_emb
     text_emb_flat = text_emb.reshape(-1).contiguous().cpu().float().numpy().astype(np.float32)
     text_emb_flat.tofile("pt_debug_text_emb.bin")
+    print(f"  Wrote pt_debug_text_emb.bin ({text_emb_flat.nbytes} bytes)")
+
+    print("[verify_depth_debug] Adding embedding to z_s...")
+    x = z_s + text_emb.view(1, 1, -1)
+    print(f"  x.shape = {x.shape}")
+    print(f"  x min/max = {x.min():.6f} / {x.max():.6f}")
     
+    # Debug: dump x_init
     x_init_flat = x.reshape(-1).contiguous().cpu().float().numpy().astype(np.float32)
     x_init_flat.tofile("pt_debug_x_init.bin")
+    print(f"  Wrote pt_debug_x_init.bin ({x_init_flat.nbytes} bytes)")
 
     num_heads = 16
     hidden_dim = 1024
     head_dim = hidden_dim // num_heads
     offset = torch.zeros(1, dtype=torch.long)
 
+    print("[verify_depth_debug] Running 6 depth transformer layers...")
     for i in range(6):
         prefix = f"depformer.layers.{i}"
 
@@ -94,10 +99,14 @@ def main() -> int:
         ff_act = F.silu(gate) * up
         ff_out = F.linear(ff_act, ff_out_w)
         x = x + ff_out
+        
+        print(f"  Layer {i}: x min/max = {x.min():.6f} / {x.max():.6f}")
 
+    print("[verify_depth_debug] Writing final output...")
     out = x.reshape(-1).contiguous().cpu().float().numpy().astype(np.float32)
     out_path.write_bytes(out.tobytes())
-    print(f"[verify_depth] wrote {out_path} ({out.size} float32 values)")
+    print(f"  Wrote {out_path} ({out.size} float32 values)")
+    print(f"  Final output min/max = {out.min():.6f} / {out.max():.6f}")
     return 0
 
 
