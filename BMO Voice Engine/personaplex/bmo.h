@@ -65,6 +65,10 @@ struct bmo_model {
     // Keep a reference to the gguf/ggml data context in which weight tensors live.
     gguf_context * gctx = nullptr;     // owns the data memory
     ggml_context * wctx = nullptr;     // ggml context used by gguf to store weight tensors
+
+    // Optional memory-mapped GGUF backing (Linux).
+    void * gguf_mmap = nullptr;
+    size_t gguf_mmap_size = 0;
 };
 
 // Runtime context that holds allocation contexts and runtime params (KV cache, etc.)

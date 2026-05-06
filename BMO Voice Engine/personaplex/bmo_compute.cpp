@@ -495,8 +495,8 @@ ggml_cgraph * bmo_build_depth_graph(
     if (!model.depformer_in[(size_t) codebook_step]) {
         throw std::runtime_error("bmo_build_depth_graph: missing depformer_in projection for codebook_step " + std::to_string(codebook_step));
     }
-    if (!model.audio_embs[(size_t) codebook_step]) {
-        throw std::runtime_error("bmo_build_depth_graph: missing audio embedding table for codebook_step " + std::to_string(codebook_step));
+    if (codebook_step > 0 && !model.audio_embs[(size_t) (codebook_step - 1)]) {
+        throw std::runtime_error("bmo_build_depth_graph: missing audio embedding table for previous codebook_step " + std::to_string(codebook_step - 1));
     }
     if (!model.text_emb) {
         throw std::runtime_error("bmo_build_depth_graph: missing text embedding table");
@@ -521,6 +521,7 @@ ggml_cgraph * bmo_build_depth_graph(
     }
 
     const int64_t n_token = temporal_out->ne[1];
+    const bool debug_step0 = (codebook_step == 0);
     const int64_t step_count = (int64_t) model.depformer_in.size();
     const int64_t qkv_step = 3 * hidden_dim;
     const int64_t out_step = hidden_dim;
@@ -538,6 +539,9 @@ ggml_cgraph * bmo_build_depth_graph(
 
     // handle broadcast by reshaping last_tok to 2d if needed, though z_s is 1024x1 and last_tok is 1024x1
     ggml_tensor * x = ggml_add(wctx, z_s, ggml_reshape_2d(wctx, last_tok, 1024, 1));
+    if (debug_step0) {
+        ggml_set_name(x, "depth_x_init");
+    }
 
     for (int i = 0; i < 6; ++i) {
         const std::string prefix = "depformer.layers." + std::to_string(i);
@@ -613,11 +617,20 @@ ggml_cgraph * bmo_build_depth_graph(
         // Shared attention block.
         ggml_tensor * residual = x;
         ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
-        if (model.depth_layers[(size_t) i].norm1_weight) {
-            x_norm = ggml_mul(wctx, x_norm, model.depth_layers[(size_t) i].norm1_weight);
+        if (!model.depth_layers[(size_t) i].norm1_weight) {
+            throw std::runtime_error("bmo_build_depth_graph: missing norm1_weight for depth layer " + std::to_string(i));
+        }
+        x_norm = ggml_mul(wctx, x_norm, model.depth_layers[(size_t) i].norm1_weight);
+        if (debug_step0 && i == 0) {
+            ggml_set_name(x_norm, "depth_x_norm");
+            ggml_build_forward_expand(gf, x_norm);
         }
 
         ggml_tensor * qkv = ggml_mul_mat(wctx, S(w_slice), S(x_norm));
+        if (debug_step0 && i == 0) {
+            ggml_set_name(qkv, "depth_qkv_raw");
+            ggml_build_forward_expand(gf, qkv);
+        }
 
         const int64_t q_dim = hidden_dim;
         const int64_t kv_dim = hidden_dim;
@@ -641,6 +654,18 @@ ggml_cgraph * bmo_build_depth_graph(
         ggml_tensor * q_raw = ggml_view_3d(wctx, qkv, head_dim, depth_num_heads, n_token, nb1_q, nb2_qkv, 0);
         ggml_tensor * k_raw = ggml_view_3d(wctx, qkv, head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) q_dim * e);
         ggml_tensor * v_raw = ggml_view_3d(wctx, qkv, head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) (q_dim + kv_dim) * e);
+
+        if (debug_step0 && i == 0) {
+            ggml_tensor * q_dbg = ggml_cont(wctx, q_raw);
+            ggml_tensor * k_dbg = ggml_cont(wctx, k_raw);
+            ggml_tensor * v_dbg = ggml_cont(wctx, v_raw);
+            ggml_set_name(q_dbg, "depth_q_raw");
+            ggml_set_name(k_dbg, "depth_k_raw");
+            ggml_set_name(v_dbg, "depth_v_raw");
+            ggml_build_forward_expand(gf, q_dbg);
+            ggml_build_forward_expand(gf, k_dbg);
+            ggml_build_forward_expand(gf, v_dbg);
+        }
 
         ggml_tensor * pos = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, n_token);
         int32_t * pos_ptr = reinterpret_cast<int32_t *>(pos->data);
@@ -672,7 +697,16 @@ ggml_cgraph * bmo_build_depth_graph(
 
         ggml_tensor * attn_out = ggml_mul_mat(wctx, S(w_out_slice), S(attn_2d));
 
+        if (debug_step0 && i == 0) {
+            ggml_tensor * attn_dbg = ggml_cont(wctx, attn_out);
+            ggml_set_name(attn_dbg, "depth_attn_out");
+            ggml_build_forward_expand(gf, attn_dbg);
+        }
+
         x = ggml_add(wctx, residual, attn_out);
+        if (debug_step0 && i == 0) {
+            ggml_set_name(x, "depth_attn_x");
+        }
 
         // Step-specific FFN block.
         ggml_tensor * ff_residual = x;

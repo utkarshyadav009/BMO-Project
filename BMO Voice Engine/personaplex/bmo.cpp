@@ -9,6 +9,13 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 extern "C" {
 #include "ggml.h"
 #include "gguf.h"
@@ -101,8 +108,13 @@ static void add_layer_bytes_unique(const bmo_layer & L, std::unordered_set<const
 void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     // Load GGUF and obtain data ggml_context
     ggml_context * data_ctx = nullptr;
+#ifdef _WIN32
     gguf_init_params params = { /* no_alloc */ false, /* ctx */ &data_ctx };
     gguf_context * gctx = gguf_init_from_file(fname, params);
+#else
+    gguf_init_params params = { /* no_alloc */ true, /* ctx */ &data_ctx };
+    gguf_context * gctx = gguf_init_from_file(fname, params);
+#endif
     if (!gctx) {
         throw std::runtime_error(std::string("Failed to open GGUF: ") + fname);
     }
@@ -112,6 +124,41 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
 
     model.gctx = gctx;
     model.wctx = data_ctx;
+
+#ifndef _WIN32
+    {
+        int fd = ::open(fname, O_RDONLY);
+        if (fd < 0) {
+            throw std::runtime_error(std::string("Failed to open GGUF for mmap: ") + fname);
+        }
+        struct stat st;
+        if (::fstat(fd, &st) != 0) {
+            ::close(fd);
+            throw std::runtime_error(std::string("Failed to stat GGUF: ") + fname);
+        }
+        const size_t file_size = (size_t) st.st_size;
+        void * base = ::mmap(nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
+        ::close(fd);
+        if (base == MAP_FAILED) {
+            throw std::runtime_error(std::string("Failed to mmap GGUF: ") + fname);
+        }
+
+        const size_t data_offset = gguf_get_data_offset(gctx);
+        const int64_t n_tensors = gguf_get_n_tensors(gctx);
+        for (int64_t tid = 0; tid < n_tensors; ++tid) {
+            const char * name = gguf_get_tensor_name(gctx, tid);
+            ggml_tensor * t = ggml_get_tensor(data_ctx, name);
+            if (!t) {
+                continue;
+            }
+            const size_t offs = gguf_get_tensor_offset(gctx, tid);
+            t->data = (uint8_t *) base + data_offset + offs;
+        }
+
+        model.gguf_mmap = base;
+        model.gguf_mmap_size = file_size;
+    }
+#endif
 
     // Hardcoded Moshi 5.8B architecture.
     ctx.n_layers = 32;
@@ -196,6 +243,15 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
         };
         for (auto &b : bases) {
             map_layer_tensors(data_ctx, L, b);
+        }
+
+        L.norm1_weight = ggml_get_tensor(data_ctx, (prefix + "_norm1_weight").c_str());
+        if (!L.norm1_weight) {
+            L.norm1_weight = ggml_get_tensor(data_ctx, ("depformer.layers." + idx + ".norm1.alpha").c_str());
+        }
+        L.norm2_weight = ggml_get_tensor(data_ctx, (prefix + "_norm2_weight").c_str());
+        if (!L.norm2_weight) {
+            L.norm2_weight = ggml_get_tensor(data_ctx, ("depformer.layers." + idx + ".norm2.alpha").c_str());
         }
     }
 
