@@ -242,6 +242,10 @@ int main(int argc, char ** argv) {
                         throw std::runtime_error("Stress test: missing temporal output at iteration " + std::to_string(iter) + " layer " + std::to_string(layer));
                     }
                     std::memcpy(temporal_state.data(), temporal_out->data, ctx.n_embd * sizeof(float));
+
+                    ggml_graph_clear(temporal_gf);
+                    ggml_free(ctx.work_ctx);
+                    ctx.work_ctx = nullptr;
                 }
 
                 // Depth pass for each codebook step.
@@ -264,6 +268,10 @@ int main(int argc, char ** argv) {
                     if (depth_status != GGML_STATUS_SUCCESS) {
                         throw std::runtime_error("Stress test: depth graph compute failed at iteration " + std::to_string(iter));
                     }
+
+                    ggml_graph_clear(depth_gf);
+                    ggml_free(ctx.work_ctx);
+                    ctx.work_ctx = nullptr;
                 }
             }
 
