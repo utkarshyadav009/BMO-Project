@@ -49,6 +49,11 @@ endif()
 
 add_library(bmo STATIC bmo.cpp bmo_compute.cpp)
 
+if(BMO_ENABLE_CUDA)
+    target_sources(bmo PRIVATE bmo_cuda_kernels.cu)
+    set_target_properties(bmo PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+endif()
+
 # Link bmo against CUDA runtime if CUDA is enabled
 if(BMO_ENABLE_CUDA)
     target_link_libraries(bmo PRIVATE CUDA::cudart CUDA::cuda_driver)

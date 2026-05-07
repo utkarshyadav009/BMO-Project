@@ -5,16 +5,9 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
-#include <regex>
 #include <stdexcept>
 #include <unordered_set>
-
-#ifndef _WIN32
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
+#include <vector>
 
 #ifdef BMO_ENABLE_CUDA
 #include <cuda_runtime.h>
@@ -22,338 +15,170 @@
 #include "ggml-cuda.h"
 #endif
 
-extern "C" {
-#include "ggml.h"
-#include "gguf.h"
+namespace {
+
+static ggml_tensor * get_tensor(ggml_context * data_ctx, const std::string & name) {
+    return ggml_get_tensor(data_ctx, name.c_str());
 }
 
-// Helper: read scalar int32 stored as a 1-element tensor in the GGUF data ctx
-static int32_t read_scalar_i32(ggml_context * data_ctx, const char * name, int32_t fallback = -1) {
-    ggml_tensor * t = ggml_get_tensor(data_ctx, name);
-    if (!t) return fallback;
-    if (ggml_nbytes(t) < (int)sizeof(int32_t)) return fallback;
-    int32_t out = 0;
+static int32_t read_scalar_i32(ggml_context * data_ctx, const char * name, int32_t fallback = 0) {
+    ggml_tensor * t = get_tensor(data_ctx, name);
+    if (!t || ggml_nbytes(t) < (int) sizeof(int32_t)) {
+        return fallback;
+    }
+    int32_t out = fallback;
     std::memcpy(&out, t->data, sizeof(int32_t));
     return out;
 }
 
-static float read_scalar_f32(ggml_context * data_ctx, const char * name, float fallback = 0.0f) {
-    ggml_tensor * t = ggml_get_tensor(data_ctx, name);
-    if (!t) return fallback;
-    if (ggml_nbytes(t) < (int)sizeof(float)) return fallback;
-    float out = 0.0f;
-    std::memcpy(&out, t->data, sizeof(float));
-    return out;
-}
-
-// Map layer tensors by conventional names. This helper will attempt to resolve
-// both our temporal packed names and common unquantized names.
-static void map_layer_tensors(ggml_context * data_ctx, bmo_layer & layer, const std::string & base) {
-    if (!layer.packed_weights) layer.packed_weights = ggml_get_tensor(data_ctx, (base + ".packed_weights").c_str());
-    if (!layer.packed_mask)    layer.packed_mask    = ggml_get_tensor(data_ctx, (base + ".packed_mask").c_str());
-    if (!layer.scale_low)      layer.scale_low      = ggml_get_tensor(data_ctx, (base + ".scale_low").c_str());
-    if (!layer.scale_int4)     layer.scale_int4     = ggml_get_tensor(data_ctx, (base + ".scale_int4").c_str());
-    if (!layer.scale_int8)     layer.scale_int8     = ggml_get_tensor(data_ctx, (base + ".scale_int8").c_str());
-    if (!layer.fp16_indices)   layer.fp16_indices   = ggml_get_tensor(data_ctx, (base + ".fp16_indices").c_str());
-    if (!layer.fp16_values)    layer.fp16_values    = ggml_get_tensor(data_ctx, (base + ".fp16_values").c_str());
-
-    // If temporal packed artifacts not found, try classical weight/bias names
-    if (!layer.packed_weights) {
-        if (!layer.weight) layer.weight = ggml_get_tensor(data_ctx, (base + ".weight").c_str());
-        if (!layer.bias)   layer.bias   = ggml_get_tensor(data_ctx, (base + ".bias").c_str());
-    }
-
-    // Attention / FFN optional subcomponents
-    if (!layer.wq) layer.wq = ggml_get_tensor(data_ctx, (base + ".wq").c_str());
-    if (!layer.wk) layer.wk = ggml_get_tensor(data_ctx, (base + ".wk").c_str());
-    if (!layer.wv) layer.wv = ggml_get_tensor(data_ctx, (base + ".wv").c_str());
-    if (!layer.wo) layer.wo = ggml_get_tensor(data_ctx, (base + ".wo").c_str());
-
-    if (!layer.ffn_in)  layer.ffn_in  = ggml_get_tensor(data_ctx, (base + ".ffn_in").c_str());
-    if (!layer.ffn_out) layer.ffn_out = ggml_get_tensor(data_ctx, (base + ".ffn_out").c_str());
-
-    // Exported names may use base ending with _weight and still append dotted payload keys,
-    // e.g. transformer_layers_0_gating_linear_in_weight.packed_weights.
-    if (!layer.packed_weights && base.size() >= 7 && base.compare(base.size() - 7, 7, "_weight") == 0) {
-        if (!layer.packed_weights) layer.packed_weights = ggml_get_tensor(data_ctx, (base + ".packed_weights").c_str());
-        if (!layer.packed_mask)    layer.packed_mask    = ggml_get_tensor(data_ctx, (base + ".packed_mask").c_str());
-        if (!layer.scale_low)      layer.scale_low      = ggml_get_tensor(data_ctx, (base + ".scale_low").c_str());
-        if (!layer.scale_int4)     layer.scale_int4     = ggml_get_tensor(data_ctx, (base + ".scale_int4").c_str());
-        if (!layer.scale_int8)     layer.scale_int8     = ggml_get_tensor(data_ctx, (base + ".scale_int8").c_str());
-        if (!layer.fp16_indices)   layer.fp16_indices   = ggml_get_tensor(data_ctx, (base + ".fp16_indices").c_str());
-        if (!layer.fp16_values)    layer.fp16_values    = ggml_get_tensor(data_ctx, (base + ".fp16_values").c_str());
-
-        // Also allow direct weight/bias using this base.
-        if (!layer.weight) {
-            layer.weight = ggml_get_tensor(data_ctx, (base + ".weight").c_str());
-        }
-        if (!layer.bias) {
-            layer.bias = ggml_get_tensor(data_ctx, (base + ".bias").c_str());
-        }
-    }
-}
-
 static void add_tensor_bytes_unique(ggml_tensor * t, std::unordered_set<const void *> & seen, size_t & total_bytes) {
-    if (!t) return;
-    if (seen.insert((const void *) t).second) {
+    if (!t || !t->data) {
+        return;
+    }
+    const void * key = t->data;
+    if (seen.insert(key).second) {
         total_bytes += (size_t) ggml_nbytes(t);
     }
 }
 
 static void add_layer_bytes_unique(const bmo_layer & L, std::unordered_set<const void *> & seen, size_t & total_bytes) {
-    std::vector<ggml_tensor *> toks = {
-        L.packed_weights, L.packed_mask, L.scale_low, L.scale_int4, L.scale_int8,
-        L.fp16_indices, L.fp16_values, L.weight, L.bias, L.wq, L.wk, L.wv, L.wo,
-        L.ffn_in, L.ffn_out, L.norm1_weight, L.norm2_weight
-    };
-    for (auto * t : toks) {
-        add_tensor_bytes_unique(t, seen, total_bytes);
-    }
+    add_tensor_bytes_unique(L.packed_weights, seen, total_bytes);
+    add_tensor_bytes_unique(L.packed_mask, seen, total_bytes);
+    add_tensor_bytes_unique(L.scale_low, seen, total_bytes);
+    add_tensor_bytes_unique(L.scale_int4, seen, total_bytes);
+    add_tensor_bytes_unique(L.scale_int8, seen, total_bytes);
+    add_tensor_bytes_unique(L.fp16_indices, seen, total_bytes);
+    add_tensor_bytes_unique(L.fp16_values, seen, total_bytes);
+    add_tensor_bytes_unique(L.weight, seen, total_bytes);
+    add_tensor_bytes_unique(L.bias, seen, total_bytes);
+    add_tensor_bytes_unique(L.wq, seen, total_bytes);
+    add_tensor_bytes_unique(L.wk, seen, total_bytes);
+    add_tensor_bytes_unique(L.wv, seen, total_bytes);
+    add_tensor_bytes_unique(L.wo, seen, total_bytes);
+    add_tensor_bytes_unique(L.ffn_in, seen, total_bytes);
+    add_tensor_bytes_unique(L.ffn_out, seen, total_bytes);
+    add_tensor_bytes_unique(L.norm1_weight, seen, total_bytes);
+    add_tensor_bytes_unique(L.norm2_weight, seen, total_bytes);
 }
 
+} // namespace
+
 void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
-    // Load GGUF and obtain data ggml_context
     ggml_context * data_ctx = nullptr;
-#ifdef _WIN32
-    gguf_init_params params = { /* no_alloc */ false, /* ctx */ &data_ctx };
+    gguf_init_params params = {
+        /*.no_alloc =*/ false,
+        /*.ctx =*/ &data_ctx,
+    };
+
     gguf_context * gctx = gguf_init_from_file(fname, params);
-#else
-    gguf_init_params params = { /* no_alloc */ true, /* ctx */ &data_ctx };
-    gguf_context * gctx = gguf_init_from_file(fname, params);
-#endif
-    if (!gctx) {
-        throw std::runtime_error(std::string("Failed to open GGUF: ") + fname);
-    }
-    if (!data_ctx) {
-        throw std::runtime_error("GGUF: data context not returned");
+    if (!gctx || !data_ctx) {
+        throw std::runtime_error(std::string("Failed to load GGUF file: ") + fname);
     }
 
     model.gctx = gctx;
     model.wctx = data_ctx;
 
-#ifndef _WIN32
-    {
-        int fd = ::open(fname, O_RDONLY);
-        if (fd < 0) {
-            throw std::runtime_error(std::string("Failed to open GGUF for mmap: ") + fname);
-        }
-        struct stat st;
-        if (::fstat(fd, &st) != 0) {
-            ::close(fd);
-            throw std::runtime_error(std::string("Failed to stat GGUF: ") + fname);
-        }
-        const size_t file_size = (size_t) st.st_size;
-        void * base = ::mmap(nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
-        ::close(fd);
-        if (base == MAP_FAILED) {
-            throw std::runtime_error(std::string("Failed to mmap GGUF: ") + fname);
-        }
+    ctx.n_layers = read_scalar_i32(data_ctx, "n_layers", 0);
+    if (ctx.n_layers <= 0) ctx.n_layers = read_scalar_i32(data_ctx, "n_layer", 32);
 
-        const size_t data_offset = gguf_get_data_offset(gctx);
-        const int64_t n_tensors = gguf_get_n_tensors(gctx);
-        for (int64_t tid = 0; tid < n_tensors; ++tid) {
-            const char * name = gguf_get_tensor_name(gctx, tid);
-            ggml_tensor * t = ggml_get_tensor(data_ctx, name);
-            if (!t) {
-                continue;
-            }
-            const size_t offs = gguf_get_tensor_offset(gctx, tid);
-            t->data = (uint8_t *) base + data_offset + offs;
-        }
+    ctx.n_heads = read_scalar_i32(data_ctx, "n_heads", 0);
+    if (ctx.n_heads <= 0) ctx.n_heads = read_scalar_i32(data_ctx, "n_head", 0);
 
-        model.gguf_mmap = base;
-        model.gguf_mmap_size = file_size;
-    }
-#endif
+    ctx.n_embd = read_scalar_i32(data_ctx, "n_embd", 0);
+    if (ctx.n_embd <= 0) ctx.n_embd = read_scalar_i32(data_ctx, "hidden_size", 0);
 
-    // Hardcoded Moshi 5.8B architecture.
-    ctx.n_layers = 32;
-    ctx.n_heads = 32;
-    ctx.n_embd = 4096;
-    ctx.head_dim = 128;
-
-    // Keep n_ctx from file if present, otherwise 0 until KV init sets it.
     ctx.n_ctx = read_scalar_i32(data_ctx, "n_ctx", 0);
+    if (ctx.n_ctx <= 0) ctx.n_ctx = read_scalar_i32(data_ctx, "context_length", 2048);
 
-    // Temporal stack (32 layers)
+    ctx.head_dim = read_scalar_i32(data_ctx, "head_dim", 0);
+    if (ctx.head_dim <= 0) ctx.head_dim = read_scalar_i32(data_ctx, "n_embd_head_k", 0);
+
+    // Infer missing temporal dimensions from packed QKV metadata in layer 0.
+    {
+        const std::string qkv0 = "transformer_layers_0_self_attn_in_proj_weight";
+        const int32_t qkv_rows = read_scalar_i32(data_ctx, (qkv0 + ".rows").c_str(), 0);
+        const int32_t qkv_cols = read_scalar_i32(data_ctx, (qkv0 + ".cols").c_str(), 0);
+
+        if (ctx.n_embd <= 0 && qkv_cols > 0) {
+            ctx.n_embd = qkv_cols;
+        }
+        if (ctx.n_embd <= 0 && qkv_rows > 0 && (qkv_rows % 3) == 0) {
+            ctx.n_embd = qkv_rows / 3;
+        }
+        if (ctx.head_dim <= 0 && ctx.n_heads > 0 && ctx.n_embd > 0) {
+            ctx.head_dim = ctx.n_embd / ctx.n_heads;
+        }
+        if (ctx.n_heads <= 0 && ctx.head_dim > 0 && ctx.n_embd > 0 && (ctx.n_embd % ctx.head_dim) == 0) {
+            ctx.n_heads = ctx.n_embd / ctx.head_dim;
+        }
+    }
+
+    if (ctx.n_heads <= 0) ctx.n_heads = 32;
+    if (ctx.n_embd <= 0) ctx.n_embd = 4096;
+    if (ctx.head_dim <= 0 && ctx.n_heads > 0) {
+        ctx.head_dim = ctx.n_embd / ctx.n_heads;
+    }
+
     model.temporal_layers.resize((size_t) ctx.n_layers);
     for (int i = 0; i < ctx.n_layers; ++i) {
-        std::string idx = std::to_string(i);
-        std::string prefix = "transformer_layers_" + idx;
-        bmo_layer & L = model.temporal_layers[(size_t) i];
-        L.name = prefix;
-
-        std::vector<std::string> bases = {
-            prefix,
-            prefix + "_gating_linear_in",
-            prefix + "_gating_linear_out",
-            prefix + "_gating_linear_in_weight",
-            prefix + "_gating_linear_out_weight",
-            prefix + "_self_attn_in_proj",
-            prefix + "_self_attn_out_proj",
-            prefix + "_self_attn_in_proj_weight",
-            prefix + "_self_attn_out_proj_weight",
-        };
-        for (auto &b : bases) {
-            map_layer_tensors(data_ctx, L, b);
-        }
-
-        // Map learned RMSNorm scale weights (norm1 = attention pre-norm, norm2 = FFN pre-norm)
-        L.norm1_weight = ggml_get_tensor(data_ctx, (prefix + "_norm1_weight").c_str());
-        L.norm2_weight = ggml_get_tensor(data_ctx, (prefix + "_norm2_weight").c_str());
+        auto & layer = model.temporal_layers[(size_t) i];
+        std::string base = "transformer_layers_" + std::to_string(i);
+        layer.name = base;
+        layer.packed_weights = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.packed_weights").c_str());
+        layer.packed_mask = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.packed_mask").c_str());
+        layer.fp16_indices = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.fp16_indices").c_str());
+        layer.fp16_values = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.fp16_values").c_str());
+        layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_attn_norm.weight").c_str());
+        layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_ffn_norm.weight").c_str());
+        if (!layer.norm1_weight) layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_norm1.weight").c_str());
+        if (!layer.norm2_weight) layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_norm2.weight").c_str());
     }
 
-    int64_t max_scratch = 0;
-    for (int i = 0; i < ctx.n_layers; ++i) {
-        std::string prefix = "transformer_layers_" + std::to_string(i);
-        std::vector<std::string> bases = {
-            prefix,
-            prefix + "_gating_linear_in",
-            prefix + "_gating_linear_out",
-            prefix + "_gating_linear_in_weight",
-            prefix + "_gating_linear_out_weight",
-            prefix + "_self_attn_in_proj",
-            prefix + "_self_attn_out_proj",
-            prefix + "_self_attn_in_proj_weight",
-            prefix + "_self_attn_out_proj_weight",
-        };
-        for (const auto & b : bases) {
-            int32_t rows = read_scalar_i32(data_ctx, (b + ".rows").c_str(), 0);
-            if (rows <= 0) rows = read_scalar_i32(data_ctx, (b + ".out_features").c_str(), 0);
-            int32_t cols = read_scalar_i32(data_ctx, (b + ".cols").c_str(), 0);
-            if (rows > 0 && cols > 0) {
-                int64_t total = (int64_t) rows * (int64_t) cols;
-                if (total > max_scratch) max_scratch = total;
-            }
-        }
-    }
-    if (max_scratch > 0) {
-        ctx.shared_scratch_w.resize((size_t) max_scratch);
-        std::cout << "[bmo_load_model] Dynamically allocated shared_scratch_w: " << (max_scratch * sizeof(float)) / (1024.0 * 1024.0) << " MB\n";
+    constexpr int kDepthLayers = 6;
+    model.depth_layers.resize(kDepthLayers);
+    for (int i = 0; i < kDepthLayers; ++i) {
+        auto & layer = model.depth_layers[(size_t) i];
+        std::string base = "depformer_layers_" + std::to_string(i);
+        layer.name = base;
+        layer.norm1_weight = ggml_get_tensor(data_ctx, ("depformer.layers." + std::to_string(i) + ".norm1.weight").c_str());
+        layer.norm2_weight = ggml_get_tensor(data_ctx, ("depformer.layers." + std::to_string(i) + ".norm2.weight").c_str());
+        if (!layer.norm1_weight) layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_norm1_weight").c_str());
+        if (!layer.norm2_weight) layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_norm2_weight").c_str());
     }
 
-    // Depth stack (6 layers)
-    model.depth_layers.resize((size_t) 6);
-    for (int i = 0; i < 6; ++i) {
-        std::string idx = std::to_string(i);
-        std::string prefix = "depformer_layers_" + idx;
-        bmo_layer & L = model.depth_layers[(size_t) i];
-        L.name = prefix;
-
-        std::vector<std::string> bases = {
-            prefix,
-            prefix + "_self_attn_in_proj",
-            prefix + "_self_attn_out_proj",
-            prefix + "_self_attn_in_proj_weight",
-            prefix + "_self_attn_out_proj_weight",
-        };
-        for (auto &b : bases) {
-            map_layer_tensors(data_ctx, L, b);
-        }
-
-        L.norm1_weight = ggml_get_tensor(data_ctx, (prefix + "_norm1_weight").c_str());
-        if (!L.norm1_weight) {
-            L.norm1_weight = ggml_get_tensor(data_ctx, ("depformer.layers." + idx + ".norm1.alpha").c_str());
-        }
-        L.norm2_weight = ggml_get_tensor(data_ctx, (prefix + "_norm2_weight").c_str());
-        if (!L.norm2_weight) {
-            L.norm2_weight = ggml_get_tensor(data_ctx, ("depformer.layers." + idx + ".norm2.alpha").c_str());
-        }
-    }
-
-    // Audio codebook embeddings and depformer input projections (16 each)
-    model.audio_embs.assign((size_t) 16, nullptr);
-    model.depformer_in.assign((size_t) 16, nullptr);
-    for (int i = 0; i < 16; ++i) {
+    model.audio_embs.resize(8, nullptr);
+    model.depformer_in.resize(8, nullptr);
+    for (int i = 0; i < 8; ++i) {
         std::string idx = std::to_string(i);
         model.audio_embs[(size_t) i] = ggml_get_tensor(data_ctx, ("depformer_emb." + idx + ".weight").c_str());
         model.depformer_in[(size_t) i] = ggml_get_tensor(data_ctx, ("depformer_in." + idx + ".weight").c_str());
     }
 
-    // Text embedding and projection
     model.text_emb = ggml_get_tensor(data_ctx, "depformer_text_emb.weight");
     model.text_linear = ggml_get_tensor(data_ctx, "text_linear.weight");
-
-    // Global embeddings / head lookups
     model.token_embedding = ggml_get_tensor(data_ctx, "token_embedding");
     model.output_head = ggml_get_tensor(data_ctx, "output_head");
 
-    // Compute total weights bytes across all mapped groups.
+    // NOTE: token_embedding can belong to a different module width than temporal
+    // transformer blocks; do not overwrite temporal n_embd from that tensor.
+
     size_t total_bytes = 0;
     std::unordered_set<const void *> seen;
-
-    for (const auto & L : model.temporal_layers) {
-        add_layer_bytes_unique(L, seen, total_bytes);
-    }
-    for (const auto & L : model.depth_layers) {
-        add_layer_bytes_unique(L, seen, total_bytes);
-    }
-
-    for (auto * t : model.audio_embs) {
-        add_tensor_bytes_unique(t, seen, total_bytes);
-    }
-    for (auto * t : model.depformer_in) {
-        add_tensor_bytes_unique(t, seen, total_bytes);
-    }
-
+    for (const auto & L : model.temporal_layers) add_layer_bytes_unique(L, seen, total_bytes);
+    for (const auto & L : model.depth_layers) add_layer_bytes_unique(L, seen, total_bytes);
+    for (auto * t : model.audio_embs) add_tensor_bytes_unique(t, seen, total_bytes);
+    for (auto * t : model.depformer_in) add_tensor_bytes_unique(t, seen, total_bytes);
     add_tensor_bytes_unique(model.text_emb, seen, total_bytes);
     add_tensor_bytes_unique(model.text_linear, seen, total_bytes);
     add_tensor_bytes_unique(model.token_embedding, seen, total_bytes);
     add_tensor_bytes_unique(model.output_head, seen, total_bytes);
-
     ctx.weights_bytes = total_bytes;
 
     std::cout << "[bmo_load_model] Loaded model '" << fname << "'\n";
-    
-    // If no temporal packed artifacts were discovered during mapping, print
-    // a short listing of GGUF tensor names to aid debugging of naming variants.
-    int found_packed = 0;
-    for (const auto & L : model.temporal_layers) if (L.packed_weights) ++found_packed;
-    if (found_packed == 0) {
-        std::cerr << "[bmo_load_model] Warning: no packed_weights mapped for any temporal layer\n";
-        if (gctx) {
-            const int64_t n_tensors = gguf_get_n_tensors(gctx);
-            std::cerr << "[bmo_load_model] GGUF tensor count=" << n_tensors << ". Listing first 200 names:\n";
-            for (int64_t tid = 0; tid < n_tensors && tid < 200; ++tid) {
-                const char * name = gguf_get_tensor_name(gctx, tid);
-                if (name) std::cerr << "  " << tid << ": " << name << "\n";
-            }
-        }
-    }
-
-    // Allocate and transfer packed tensors to GPU if CUDA is enabled
     bmo_prepare_device_packed_tensors(model, ctx);
-    
     std::cout << "[bmo_load_model] n_layers=" << ctx.n_layers << " n_heads=" << ctx.n_heads << " n_embd=" << ctx.n_embd << " n_ctx=" << ctx.n_ctx << "\n";
     std::cout << "[bmo_load_model] Total weight bytes: " << (double) total_bytes / (1024.0 * 1024.0) << " MB\n";
 }
-
-#ifdef BMO_ENABLE_CUDA
-// Forward declaration for CUDA helper
-extern "C" {
-    void launch_unpack_kernel(
-        const void * packed_weights,
-        const void * packed_mask,
-        const void * fp16_indices,
-        const void * fp16_values,
-        const int * idx2_start,
-        const int * idx4_start,
-        const int * idx8_start,
-        int rows,
-        int cols,
-        int64_t n_fp16,
-        int n_2bit_bytes,
-        int n_4bit_bytes,
-        int n_8bit_bytes,
-        float scale_low,
-        float scale_int4,
-        float scale_int8,
-        float zp_low,
-        float zp_int4,
-        float zp_int8,
-        float * out_w);
-}
-#endif
 
 void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 #ifndef BMO_ENABLE_CUDA
@@ -371,260 +196,130 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         ctx.cuda_backend = backend;
     }
 
-    // Quick inventory: count layers that have packed artifacts mapped
-    int total_layers = (int) model.temporal_layers.size();
-    int have_packed = 0;
-    for (size_t _i = 0; _i < model.temporal_layers.size(); ++_i) {
-        if (model.temporal_layers[_i].packed_weights) ++have_packed;
-    }
-    std::cout << "[bmo_prepare_device_packed_tensors] layers=" << total_layers << " have_packed=" << have_packed << "\n";
+    // Process all 3 packed matrices for each temporal layer
+    for (int i = 0; i < ctx.n_layers; ++i) {
+        std::string prefix = "transformer_layers_" + std::to_string(i);
+        std::vector<std::string> matrices = {
+            prefix + "_self_attn_in_proj_weight",
+            prefix + "_gating_linear_in_weight",
+            prefix + "_gating_linear_out_weight"
+        };
 
-    // For each temporal layer, allocate and transfer packed tensors to device
-    for (size_t i = 0; i < model.temporal_layers.size(); ++i) {
-        bmo_layer & layer = model.temporal_layers[i];
-        
-        // Skip if no packed weights (dense-only layer)
-        if (!layer.packed_weights || !layer.packed_mask || !layer.fp16_indices || !layer.fp16_values) {
-            continue;
-        }
-        
-        // Extract metadata from existing layer tensors
-        // For rows: use packed_mask dimensions (it should have the shape info we need)
-        // packed_mask is uint8 with 4 uint2 quants per output channel (row)
-        int32_t rows = (int32_t) layer.packed_mask->ne[0];  // First dimension of packed_mask
-        int32_t cols = (int32_t) layer.packed_weights->ne[0]; // packed_weights is 1D
-        
-        if (rows <= 0 || cols <= 0) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] Warning: invalid dims for layer " << i 
-                      << " (rows=" << rows << " cols=" << cols << "); skipping\n";
-            continue;
-        }
-        
-        // Byte counts derived from packed layout
-        int32_t n_2bit_bytes = (int32_t) (layer.packed_mask->ne[0] * layer.packed_mask->ne[1]) / 4;  // 2 bits per element
-        int32_t n_4bit_bytes = 0;  // Not explicitly tracked in layer; derive from remaining packed_weights
-        int32_t n_8bit_bytes = 0;
-        
-        // Read quantization scales from tensors (if available) or use defaults
-        float scale_low = 1.0f;
-        float scale_int4 = 1.0f;
-        float scale_int8 = 1.0f;
-        
-        if (layer.scale_low && layer.scale_low->data) {
-            scale_low = *((float*) layer.scale_low->data);
-        }
-        if (layer.scale_int4 && layer.scale_int4->data) {
-            scale_int4 = *((float*) layer.scale_int4->data);
-        }
-        // Note: scale_int8 may not be available in layer structure
-        
-        float zp_low = 1.5f;
-        float zp_int4 = 7.5f;
-        float zp_int8 = 127.5f;
-        
-        int64_t n_fp16 = ggml_nbytes(layer.fp16_indices) / (int64_t) sizeof(int32_t);
-        
-        std::cout << "[bmo_prepare_device_packed_tensors] Layer " << i 
-                  << ": rows=" << rows << " cols=" << cols 
-                  << " n_2bit=" << n_2bit_bytes << " n_4bit=" << n_4bit_bytes 
-                  << " n_8bit=" << n_8bit_bytes << " n_fp16=" << n_fp16 << "\n";
-        
-        // Allocate device buffers via cudaMalloc
-        const uint8_t * h_pw = reinterpret_cast<const uint8_t *>(layer.packed_weights->data);
-        const uint8_t * h_pm = reinterpret_cast<const uint8_t *>(layer.packed_mask->data);
-        const int32_t * h_fi = reinterpret_cast<const int32_t *>(layer.fp16_indices->data);
-        const ggml_fp16_t * h_fv = nullptr;
-        
-        // Handle fp16_values type conversion if needed
-        std::vector<ggml_fp16_t> tmp_fv16;
-        if (layer.fp16_values->type == GGML_TYPE_F16) {
-            h_fv = reinterpret_cast<const ggml_fp16_t *>(layer.fp16_values->data);
-        } else if (layer.fp16_values->type == GGML_TYPE_F32) {
-            const float * src = reinterpret_cast<const float *>(layer.fp16_values->data);
-            tmp_fv16.resize((size_t) n_fp16);
-            for (int64_t j = 0; j < n_fp16; ++j) {
-                tmp_fv16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
+        for (const std::string & base : matrices) {
+            ggml_tensor * pw = ggml_get_tensor(model.wctx, (base + ".packed_weights").c_str());
+            if (!pw) continue; // Not packed for this matrix
+
+            ggml_tensor * pm = ggml_get_tensor(model.wctx, (base + ".packed_mask").c_str());
+            ggml_tensor * fi = ggml_get_tensor(model.wctx, (base + ".fp16_indices").c_str());
+            ggml_tensor * fv = ggml_get_tensor(model.wctx, (base + ".fp16_values").c_str());
+
+            // 1. Read exact dimensions from GGUF scalars
+            int32_t rows = read_scalar_i32(model.wctx, (base + ".rows").c_str(), 0);
+            if (rows <= 0) rows = read_scalar_i32(model.wctx, (base + ".out_features").c_str(), 0);
+            int32_t cols = read_scalar_i32(model.wctx, (base + ".cols").c_str(), 0);
+
+            if (rows <= 0 || cols <= 0) {
+                std::cerr << "[bmo_prepare_device_packed_tensors] Invalid dims for " << base << "\n";
+                continue;
             }
-            h_fv = tmp_fv16.data();
-        } else {
-            std::cerr << "[bmo_prepare_device_packed_tensors] Warning: unsupported fp16_values type in layer " << i << "; skipping\n";
-            continue;
-        }
-        
-        // Compute idx*_start prefix sum arrays on host
-        std::vector<int32_t> h_idx2_start, h_idx4_start, h_idx8_start;
-        const uint8_t * pm_ptr = h_pm;
-        
-        h_idx2_start.resize((size_t) rows, 0);
-        h_idx4_start.resize((size_t) rows, 0);
-        h_idx8_start.resize((size_t) rows, 0);
-        
-        int32_t cnt2 = 0, cnt4 = 0, cnt8 = 0;
-        for (int r = 0; r < rows; ++r) {
-            h_idx2_start[(size_t) r] = cnt2;
-            h_idx4_start[(size_t) r] = cnt4;
-            h_idx8_start[(size_t) r] = cnt8;
-            
-            for (int c = 0; c < cols; ++c) {
-                // Peek at tier for this (r, c) element to build prefix sum
-                int byte_idx = r * cols + c; // or based on packed storage layout
-                uint8_t tier = (pm_ptr[byte_idx / 4] >> ((byte_idx % 4) * 2)) & 0x3;
-                if (tier == 0) cnt2 += 1;
-                else if (tier == 1) cnt4 += 1;
-                else if (tier == 2) cnt8 += 1;
+
+            if (!pm || !fi || !fv) {
+                std::cerr << "[bmo_prepare_device_packed_tensors] Missing associated packed tensors for " << base << "; skipping\n";
+                continue;
             }
+
+            int64_t n_fp16 = ggml_nbytes(fi) / sizeof(int32_t);
+
+            // 2. Precompute prefix sums on host
+            std::vector<int32_t> h_idx2(rows, 0), h_idx4(rows, 0), h_idx8(rows, 0);
+            const uint8_t * pm_ptr = reinterpret_cast<const uint8_t *>(pm->data);
+            int32_t c2 = 0, c4 = 0, c8 = 0;
+
+            for (int r = 0; r < rows; ++r) {
+                h_idx2[r] = c2; h_idx4[r] = c4; h_idx8[r] = c8;
+                for (int c = 0; c < cols; ++c) {
+                    int pos = r * cols + c;
+                    uint8_t mbyte = pm_ptr[pos / 4];
+                    uint8_t tier = (mbyte >> ((pos % 4) * 2)) & 0x3;
+                    if (tier >= 3) c2++;
+                    else if (tier == 2) c4++;
+                    else if (tier == 1) c8++;
+                }
+            }
+
+            // 3. Allocate and Copy to CUDA
+            device_packed_t dp;
+            dp.n_fp16 = n_fp16;
+
+            size_t pw_bytes = (size_t) ggml_nbytes(pw);
+            size_t pm_bytes = (size_t) ggml_nbytes(pm);
+            size_t fi_bytes = (size_t) ggml_nbytes(fi);
+
+            cudaError_t err = cudaMalloc(&dp.packed_weights, pw_bytes);
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
+            err = cudaMemcpy(dp.packed_weights, pw->data, pw_bytes, cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); continue; }
+
+            err = cudaMalloc(&dp.packed_mask, pm_bytes);
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); continue; }
+            err = cudaMemcpy(dp.packed_mask, pm->data, pm_bytes, cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); continue; }
+
+            err = cudaMalloc(&dp.fp16_indices, fi_bytes);
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_indices failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); continue; }
+            err = cudaMemcpy(dp.fp16_indices, fi->data, fi_bytes, cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_indices failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); continue; }
+
+            // idx start arrays
+            err = cudaMalloc(&dp.idx2_start, (size_t) rows * sizeof(int32_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx2_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); continue; }
+            err = cudaMemcpy(dp.idx2_start, h_idx2.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx2_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); continue; }
+
+            err = cudaMalloc(&dp.idx4_start, (size_t) rows * sizeof(int32_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx4_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); continue; }
+            err = cudaMemcpy(dp.idx4_start, h_idx4.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx4_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); continue; }
+
+            err = cudaMalloc(&dp.idx8_start, (size_t) rows * sizeof(int32_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx8_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); continue; }
+            err = cudaMemcpy(dp.idx8_start, h_idx8.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx8_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); cudaFree(dp.idx8_start); continue; }
+
+            // fp16 values: may be stored as f32 in gguf; convert if needed
+            if (fv->type == GGML_TYPE_F32) {
+                int64_t nf = n_fp16;
+                std::vector<ggml_fp16_t> tmp_f16((size_t) nf);
+                const float * src = reinterpret_cast<const float *>(fv->data);
+                for (int64_t j = 0; j < nf; ++j) tmp_f16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
+                size_t fv_bytes = (size_t) nf * sizeof(ggml_fp16_t);
+                err = cudaMalloc(&dp.fp16_values, fv_bytes);
+                if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+                err = cudaMemcpy(dp.fp16_values, tmp_f16.data(), fv_bytes, cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+            } else {
+                size_t fv_bytes = (size_t) ggml_nbytes(fv);
+                err = cudaMalloc(&dp.fp16_values, fv_bytes);
+                if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+                err = cudaMemcpy(dp.fp16_values, fv->data, fv_bytes, cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+            }
+
+            dp.is_valid = true;
+            ctx.packed_registry[base] = dp;
+            std::cout << "[bmo_prepare_device_packed_tensors] registered " << base << " rows=" << rows << " cols=" << cols << " n_fp16=" << n_fp16 << "\n";
+            continue;
+
+            cleanup_partial_dp:
+                cudaFree(dp.packed_weights);
+                cudaFree(dp.packed_mask);
+                cudaFree(dp.fp16_indices);
+                cudaFree(dp.idx2_start);
+                cudaFree(dp.idx4_start);
+                cudaFree(dp.idx8_start);
+                cudaFree(dp.fp16_values);
+                continue;
         }
-        
-        // CudaMalloc device buffers
-        void * d_pw = nullptr, * d_pm = nullptr, * d_fi = nullptr, * d_fv = nullptr;
-        void * d_i2s = nullptr, * d_i4s = nullptr, * d_i8s = nullptr;
-        
-        size_t pw_bytes = (size_t) ggml_nbytes(layer.packed_weights);
-        size_t pm_bytes = (size_t) ggml_nbytes(layer.packed_mask);
-        size_t fi_bytes = (size_t) ggml_nbytes(layer.fp16_indices);
-        size_t fv_bytes = (size_t) ggml_nbytes(layer.fp16_values);
-        
-        cudaError_t err = cudaMalloc(&d_pw, pw_bytes);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n";
-            return;
-        }
-        
-        err = cudaMalloc(&d_pm, pm_bytes);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            return;
-        }
-        
-        err = cudaMalloc(&d_fi, fi_bytes);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc fp16_indices failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            cudaFree(d_pm);
-            return;
-        }
-        
-        err = cudaMalloc(&d_fv, fv_bytes);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            cudaFree(d_pm);
-            cudaFree(d_fi);
-            return;
-        }
-        
-        err = cudaMalloc(&d_i2s, (size_t) rows * sizeof(int32_t));
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc idx2_start failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            cudaFree(d_pm);
-            cudaFree(d_fi);
-            cudaFree(d_fv);
-            return;
-        }
-        
-        err = cudaMalloc(&d_i4s, (size_t) rows * sizeof(int32_t));
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc idx4_start failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            cudaFree(d_pm);
-            cudaFree(d_fi);
-            cudaFree(d_fv);
-            cudaFree(d_i2s);
-            return;
-        }
-        
-        err = cudaMalloc(&d_i8s, (size_t) rows * sizeof(int32_t));
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc idx8_start failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            cudaFree(d_pm);
-            cudaFree(d_fi);
-            cudaFree(d_fv);
-            cudaFree(d_i2s);
-            cudaFree(d_i4s);
-            return;
-        }
-        
-        // CudaMemcpy host -> device
-        err = cudaMemcpy(d_pw, h_pw, pw_bytes, cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n";
-            cudaFree(d_pw);
-            cudaFree(d_pm);
-            cudaFree(d_fi);
-            cudaFree(d_fv);
-            cudaFree(d_i2s);
-            cudaFree(d_i4s);
-            cudaFree(d_i8s);
-            return;
-        }
-        
-        err = cudaMemcpy(d_pm, h_pm, pm_bytes, cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n";
-            goto cleanup_after_pm_fail;
-        }
-        
-        err = cudaMemcpy(d_fi, h_fi, fi_bytes, cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy fp16_indices failed: " << cudaGetErrorString(err) << "\n";
-            goto cleanup_after_fi_fail;
-        }
-        
-        err = cudaMemcpy(d_fv, h_fv, fv_bytes, cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n";
-            goto cleanup_after_fv_fail;
-        }
-        
-        err = cudaMemcpy(d_i2s, h_idx2_start.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy idx2_start failed: " << cudaGetErrorString(err) << "\n";
-            goto cleanup_after_i2s_fail;
-        }
-        
-        err = cudaMemcpy(d_i4s, h_idx4_start.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy idx4_start failed: " << cudaGetErrorString(err) << "\n";
-            goto cleanup_after_i4s_fail;
-        }
-        
-        err = cudaMemcpy(d_i8s, h_idx8_start.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy idx8_start failed: " << cudaGetErrorString(err) << "\n";
-            goto cleanup_after_i8s_fail;
-        }
-        
-        // Store device pointers in layer's device_packed struct
-        layer.device_packed.packed_weights = d_pw;
-        layer.device_packed.packed_mask = d_pm;
-        layer.device_packed.fp16_indices = d_fi;
-        layer.device_packed.fp16_values = d_fv;
-        layer.device_packed.idx2_start = d_i2s;
-        layer.device_packed.idx4_start = d_i4s;
-        layer.device_packed.idx8_start = d_i8s;
-        layer.device_packed.n_fp16 = n_fp16;
-        layer.device_packed.is_valid = true;
-        
-        std::cout << "[bmo_prepare_device_packed_tensors] Layer " << i << " GPU allocation successful\n";
-        continue;
-        
-        // Cleanup label hierarchy for error handling
-        cleanup_after_i8s_fail:
-            cudaFree(d_i8s);
-        cleanup_after_i4s_fail:
-            cudaFree(d_i4s);
-        cleanup_after_i2s_fail:
-            cudaFree(d_i2s);
-        cleanup_after_fv_fail:
-            cudaFree(d_fv);
-        cleanup_after_fi_fail:
-            cudaFree(d_fi);
-        cleanup_after_pm_fail:
-            cudaFree(d_pm);
-            cudaFree(d_pw);
     }
 #endif
 }

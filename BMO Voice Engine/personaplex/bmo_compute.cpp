@@ -13,11 +13,19 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#ifdef BMO_ENABLE_CUDA
+#include <cuda_runtime.h>
+#include "ggml-alloc.h"
+#include "ggml-backend.h"
+#include "ggml-cpu.h"
+#endif
 
 namespace {
 
@@ -57,6 +65,7 @@ struct packed_linear_ref {
     ggml_tensor * fp16_values = nullptr;
     ggml_tensor * dense_weight = nullptr;
     ggml_tensor * dense_bias = nullptr;
+    device_packed_t * device_packed = nullptr;
 };
 
 static packed_linear_ref resolve_linear(ggml_context * data_ctx, const std::vector<std::string> & bases) {
@@ -91,6 +100,28 @@ static packed_linear_ref resolve_linear(ggml_context * data_ctx, const std::vect
         }
     }
     return out;
+}
+
+static int parse_temporal_layer_index(const std::string & base) {
+    constexpr const char * prefix = "transformer_layers_";
+    if (base.compare(0, std::strlen(prefix), prefix) != 0) {
+        return -1;
+    }
+
+    const size_t start = std::strlen(prefix);
+    size_t end = start;
+    while (end < base.size() && std::isdigit(static_cast<unsigned char>(base[end]))) {
+        ++end;
+    }
+    if (end == start) {
+        return -1;
+    }
+
+    try {
+        return std::stoi(base.substr(start, end - start));
+    } catch (...) {
+        return -1;
+    }
 }
 
 static void unpack_layer_to_f32(
@@ -175,6 +206,7 @@ static ggml_tensor * apply_linear_with_transient_unpack(
     auto unpack_t0 = std::chrono::steady_clock::now();
 
     packed_linear_ref linear = resolve_linear(model.wctx, base_candidates);
+    // device packed metadata is stored in ctx.packed_registry keyed by base name
 
     if (!linear.packed_weights && !linear.dense_weight) {
         // Naive correctness mode: if a specific projection is not exported in this GGUF,
@@ -211,61 +243,86 @@ static ggml_tensor * apply_linear_with_transient_unpack(
             throw std::runtime_error("incomplete packed tensor set for " + linear.base);
         }
 
-        const int64_t total = (int64_t) rows * (int64_t) cols;
-        if ((int64_t) ctx.shared_scratch_w.size() < total) {
-            ctx.shared_scratch_w.resize((size_t) total);
-        }
-
-        // Memory lifecycle note:
-        // 1) We unpack exactly one layer's packed streams into ctx.shared_scratch_w.
-        // 2) The same scratch buffer is reused for the next layer, so peak unpacked
-        //    host memory is bounded by the largest temporal matrix (~gating linear_in).
-        // 3) This keeps us from storing all 32 unpacked F32 matrices at once.
-        const uint8_t * pw = reinterpret_cast<const uint8_t *>(linear.packed_weights->data);
-        const uint8_t * pm = reinterpret_cast<const uint8_t *>(linear.packed_mask->data);
-        const int32_t * fi = reinterpret_cast<const int32_t *>(linear.fp16_indices->data);
-        const int64_t n_fp16 = ggml_nbytes(linear.fp16_indices) / (int64_t) sizeof(int32_t);
-
-        const ggml_fp16_t * fv16 = nullptr;
-        std::vector<ggml_fp16_t> tmp_f16;
-        if (linear.fp16_values->type == GGML_TYPE_F16) {
-            fv16 = reinterpret_cast<const ggml_fp16_t *>(linear.fp16_values->data);
-        } else if (linear.fp16_values->type == GGML_TYPE_F32) {
-            const float * src = reinterpret_cast<const float *>(linear.fp16_values->data);
-            tmp_f16.resize((size_t) n_fp16);
-            for (int64_t i = 0; i < n_fp16; ++i) {
-                tmp_f16[(size_t) i] = ggml_fp32_to_fp16(src[i]);
-            }
-            fv16 = tmp_f16.data();
-        } else {
-            throw std::runtime_error("unsupported fp16_values type in " + linear.base);
-        }
-
-        unpack_layer_to_f32(
-            pw,
-            pm,
-            rows,
-            cols,
-            n_2bit_bytes,
-            n_4bit_bytes,
-            n_8bit_bytes,
-            scale_low,
-            scale_int4,
-            scale_int8,
-            zp_low,
-            zp_int4,
-            zp_int8,
-            fi,
-            n_fp16,
-            fv16,
-            ctx.shared_scratch_w.data());
-
-        auto unpack_t1 = std::chrono::steady_clock::now();
-        long unpack_ms = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
-        std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_ms);
-
         ggml_tensor * W = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, cols, rows);
-        std::memcpy(W->data, ctx.shared_scratch_w.data(), (size_t) total * sizeof(float));
+
+#ifdef BMO_ENABLE_CUDA
+        if (ctx.cuda_backend && ctx.packed_registry.find(linear.base) != ctx.packed_registry.end()) {
+            device_packed_t & dp_ref = ctx.packed_registry[linear.base];
+            if (dp_ref.is_valid) {
+                bmo_context::kernel_launch_info info;
+                info.W = W;
+                info.dp = &dp_ref;
+                info.rows = rows;
+                info.cols = cols;
+                info.n_2bit_bytes = n_2bit_bytes;
+                info.n_4bit_bytes = n_4bit_bytes;
+                info.n_8bit_bytes = n_8bit_bytes;
+                info.scale_low = scale_low;
+                info.scale_int4 = scale_int4;
+                info.scale_int8 = scale_int8;
+                info.zp_low = zp_low;
+                info.zp_int4 = zp_int4;
+                info.zp_int8 = zp_int8;
+                ctx.pending_kernel_launches.push_back(info);
+            }
+        } else
+#endif
+        {
+            const int64_t total = (int64_t) rows * (int64_t) cols;
+            if ((int64_t) ctx.shared_scratch_w.size() < total) {
+                ctx.shared_scratch_w.resize((size_t) total);
+            }
+
+            // Memory lifecycle note:
+            // 1) We unpack exactly one layer's packed streams into ctx.shared_scratch_w.
+            // 2) The same scratch buffer is reused for the next layer, so peak unpacked
+            //    host memory is bounded by the largest temporal matrix (~gating linear_in).
+            // 3) This keeps us from storing all 32 unpacked F32 matrices at once.
+            const uint8_t * pw = reinterpret_cast<const uint8_t *>(linear.packed_weights->data);
+            const uint8_t * pm = reinterpret_cast<const uint8_t *>(linear.packed_mask->data);
+            const int32_t * fi = reinterpret_cast<const int32_t *>(linear.fp16_indices->data);
+            const int64_t n_fp16 = ggml_nbytes(linear.fp16_indices) / (int64_t) sizeof(int32_t);
+
+            const ggml_fp16_t * fv16 = nullptr;
+            std::vector<ggml_fp16_t> tmp_f16;
+            if (linear.fp16_values->type == GGML_TYPE_F16) {
+                fv16 = reinterpret_cast<const ggml_fp16_t *>(linear.fp16_values->data);
+            } else if (linear.fp16_values->type == GGML_TYPE_F32) {
+                const float * src = reinterpret_cast<const float *>(linear.fp16_values->data);
+                tmp_f16.resize((size_t) n_fp16);
+                for (int64_t i = 0; i < n_fp16; ++i) {
+                    tmp_f16[(size_t) i] = ggml_fp32_to_fp16(src[i]);
+                }
+                fv16 = tmp_f16.data();
+            } else {
+                throw std::runtime_error("unsupported fp16_values type in " + linear.base);
+            }
+
+            unpack_layer_to_f32(
+                pw,
+                pm,
+                rows,
+                cols,
+                n_2bit_bytes,
+                n_4bit_bytes,
+                n_8bit_bytes,
+                scale_low,
+                scale_int4,
+                scale_int8,
+                zp_low,
+                zp_int4,
+                zp_int8,
+                fi,
+                n_fp16,
+                fv16,
+                ctx.shared_scratch_w.data());
+
+            auto unpack_t1 = std::chrono::steady_clock::now();
+            long unpack_ms = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+            std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_ms);
+
+            std::memcpy(W->data, ctx.shared_scratch_w.data(), (size_t) total * sizeof(float));
+        }
 
         y = ggml_mul_mat(wctx, S(W), S(x));
     } else {
@@ -286,6 +343,117 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 }
 
 } // namespace
+
+#ifdef BMO_ENABLE_CUDA
+void launch_unpack_kernel(
+    const device_packed_t * dp,
+    int32_t rows,
+    int32_t cols,
+    int32_t n_2bit_bytes,
+    int32_t n_4bit_bytes,
+    int32_t n_8bit_bytes,
+    float scale_low,
+    float scale_int4,
+    float scale_int8,
+    float zp_low,
+    float zp_int4,
+    float zp_int8,
+    float * out_w);
+#endif
+
+void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf) {
+#ifdef BMO_ENABLE_CUDA
+    if (ctx.cuda_backend && !ctx.pending_kernel_launches.empty()) {
+        ggml_backend_t backend = (ggml_backend_t) ctx.cuda_backend;
+        ggml_backend_t cpu_backend = ggml_backend_cpu_init();
+        ggml_backend_t backends[2] = { backend, cpu_backend };
+        ggml_backend_sched_t sched = ggml_backend_sched_new(backends, nullptr, 2, GGML_DEFAULT_GRAPH_SIZE, false, true);
+        if (!sched) {
+            ctx.pending_kernel_launches.clear();
+            if (cpu_backend) ggml_backend_free(cpu_backend);
+            throw std::runtime_error("bmo_execute_graph: failed to create backend scheduler");
+        }
+
+        try {
+            // Ensure all graph nodes have a concrete backend assignment first.
+            // Packed-unpack targets (W) are explicitly repinned to CUDA below.
+            const int n_nodes = ggml_graph_n_nodes(gf);
+            for (int i = 0; i < n_nodes; ++i) {
+                ggml_tensor * node = ggml_graph_node(gf, i);
+                if (node) {
+                    ggml_backend_sched_set_tensor_backend(sched, node, cpu_backend);
+                    for (int s = 0; s < GGML_MAX_SRC; ++s) {
+                        if (node->src[s]) {
+                            ggml_backend_sched_set_tensor_backend(sched, node->src[s], cpu_backend);
+                        }
+                    }
+                    if (node->view_src) {
+                        ggml_backend_sched_set_tensor_backend(sched, node->view_src, cpu_backend);
+                    }
+                }
+            }
+
+            for (const auto & launch : ctx.pending_kernel_launches) {
+                if (launch.W) {
+                    ggml_backend_sched_set_tensor_backend(sched, launch.W, backend);
+                }
+            }
+
+            // Reserve first so allocator can infer split/buffer layout reliably.
+            if (!ggml_backend_sched_reserve(sched, gf)) {
+                throw std::runtime_error("bmo_execute_graph: failed to reserve graph on backend scheduler");
+            }
+            if (!ggml_backend_sched_alloc_graph(sched, gf)) {
+                throw std::runtime_error("bmo_execute_graph: failed to allocate graph on backend scheduler");
+            }
+
+            for (const auto & launch : ctx.pending_kernel_launches) {
+                if (!launch.W || !launch.dp || !launch.dp->is_valid) {
+                    throw std::runtime_error("bmo_execute_graph: invalid queued kernel launch");
+                }
+                launch_unpack_kernel(
+                    launch.dp,
+                    launch.rows,
+                    launch.cols,
+                    launch.n_2bit_bytes,
+                    launch.n_4bit_bytes,
+                    launch.n_8bit_bytes,
+                    launch.scale_low,
+                    launch.scale_int4,
+                    launch.scale_int8,
+                    launch.zp_low,
+                    launch.zp_int4,
+                    launch.zp_int8,
+                    reinterpret_cast<float *>(launch.W->data));
+            }
+
+            cudaError_t sync_err = cudaDeviceSynchronize();
+            if (sync_err != cudaSuccess) {
+                throw std::runtime_error(std::string("bmo_execute_graph: cudaDeviceSynchronize failed: ") + cudaGetErrorString(sync_err));
+            }
+
+            if (ggml_backend_sched_graph_compute(sched, gf) != GGML_STATUS_SUCCESS) {
+                throw std::runtime_error("bmo_execute_graph: ggml_backend_sched_graph_compute failed");
+            }
+
+            ggml_backend_sched_free(sched);
+            if (cpu_backend) ggml_backend_free(cpu_backend);
+            ctx.pending_kernel_launches.clear();
+            return;
+        } catch (...) {
+            ggml_backend_sched_free(sched);
+            if (cpu_backend) ggml_backend_free(cpu_backend);
+            ctx.pending_kernel_launches.clear();
+            throw;
+        }
+    }
+#endif
+
+    if (ggml_graph_compute_with_ctx(ctx.work_ctx, gf, 32) != GGML_STATUS_SUCCESS) {
+        throw std::runtime_error("bmo_execute_graph: CPU fallback graph compute failed");
+    }
+    ctx.pending_kernel_launches.clear();
+}
 
 ggml_cgraph * bmo_build_temporal_graph(
     bmo_context & ctx,

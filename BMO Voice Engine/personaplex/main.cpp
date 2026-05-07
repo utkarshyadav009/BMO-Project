@@ -46,6 +46,8 @@ int main(int argc, char ** argv) {
     bool debug_dumps = false;
     int n_iterations = 100;
     int n_threads = 32;
+    int layer_begin = 0;
+    int layer_end = -1;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -55,6 +57,10 @@ int main(int argc, char ** argv) {
             n_iterations = std::atoi(argv[++i]);
         } else if (arg == "--n-threads" && i + 1 < argc) {
             n_threads = std::atoi(argv[++i]);
+        } else if (arg == "--layer_begin" && i + 1 < argc) {
+            layer_begin = std::atoi(argv[++i]);
+        } else if (arg == "--layer_end" && i + 1 < argc) {
+            layer_end = std::atoi(argv[++i]);
         } else if (arg == "--debug-dumps") {
             debug_dumps = true;
         } else if (arg[0] != '-') {
@@ -90,19 +96,18 @@ int main(int argc, char ** argv) {
             // Initialize the cascade input with ones, matching verify_all_layers.py
             std::vector<float> current_x(ctx.n_embd, 1.0f);
 
-            for (int i = 0; i < ctx.n_layers; ++i) {
+            const int begin = std::max(0, layer_begin);
+            const int end = (layer_end < 0) ? ctx.n_layers : std::min(layer_end, ctx.n_layers);
+            for (int i = begin; i < end; ++i) {
                 reset_work_ctx(ctx, work_mem_size);
                 
                 ggml_tensor * layer_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
                 std::memcpy(layer_in->data, current_x.data(), ctx.n_embd * sizeof(float));
 
-                // Build ONLY layer i (from i to i+1)
+                // Build only layer i (from i to i+1)
                 ggml_cgraph * gf = bmo_build_temporal_graph(ctx, model, layer_in, 0, i, i + 1);
                 
-                const ggml_status status = ggml_graph_compute_with_ctx(ctx.work_ctx, gf, 1);
-                if (status != GGML_STATUS_SUCCESS) {
-                    throw std::runtime_error("Temporal graph compute failed at layer " + std::to_string(i));
-                }
+                bmo_execute_graph(ctx, gf);
 
                 std::string out_name = "out_layer_" + std::to_string(i);
                 ggml_tensor * layer_out = ggml_graph_get_tensor(gf, out_name.c_str());
@@ -143,10 +148,7 @@ int main(int argc, char ** argv) {
 
             std::cout << "[bmo_main] Depth graph has " << ggml_graph_n_nodes(gf) << " nodes\n";
 
-            const ggml_status status = ggml_graph_compute_with_ctx(ctx.work_ctx, gf, 1);
-            if (status != GGML_STATUS_SUCCESS) {
-                throw std::runtime_error("Depth graph compute failed");
-            }
+            bmo_execute_graph(ctx, gf);
 
             ggml_tensor * out_tensor = ggml_graph_get_tensor(gf, "depth_out_step_0");
             if (!out_tensor || !out_tensor->data) {
@@ -207,7 +209,7 @@ int main(int argc, char ** argv) {
                     ggml_build_forward_expand(dbg_gf, dbg_text_emb);
                     ggml_build_forward_expand(dbg_gf, dbg_x_init);
 
-                    ggml_graph_compute_with_ctx(dbg_ctx, dbg_gf, 1);
+                    bmo_execute_graph(ctx, dbg_gf);
 
                     // Dump debug values
                     ggml_tensor * out_z_s = ggml_graph_get_tensor(dbg_gf, "debug_z_s");
@@ -243,11 +245,8 @@ int main(int argc, char ** argv) {
                     std::fprintf(stderr, "[prof_build] iter=%d phase=temporal layer=%d build_ms=%ld\n", iter, layer, build_ms_temp);
 
                     auto t0_temp = std::chrono::steady_clock::now();
-                    const ggml_status temporal_status = ggml_graph_compute_with_ctx(ctx.work_ctx, temporal_gf, n_threads);
+                    bmo_execute_graph(ctx, temporal_gf);
                     auto t1_temp = std::chrono::steady_clock::now();
-                    if (temporal_status != GGML_STATUS_SUCCESS) {
-                        throw std::runtime_error("Stress test: temporal graph compute failed at iteration " + std::to_string(iter) + " layer " + std::to_string(layer));
-                    }
 
                     long compute_ms_temp = std::chrono::duration_cast<std::chrono::milliseconds>(t1_temp - t0_temp).count();
                     std::fprintf(stderr, "[prof] iter=%d phase=temporal layer=%d compute_ms=%ld\n", iter, layer, compute_ms_temp);
@@ -286,11 +285,8 @@ int main(int argc, char ** argv) {
                     std::fprintf(stderr, "[prof_build] iter=%d phase=depth step=%d build_ms=%ld\n", iter, step, build_ms_depth);
 
                     auto t0_depth = std::chrono::steady_clock::now();
-                    const ggml_status depth_status = ggml_graph_compute_with_ctx(ctx.work_ctx, depth_gf, n_threads);
+                    bmo_execute_graph(ctx, depth_gf);
                     auto t1_depth = std::chrono::steady_clock::now();
-                    if (depth_status != GGML_STATUS_SUCCESS) {
-                        throw std::runtime_error("Stress test: depth graph compute failed at iteration " + std::to_string(iter));
-                    }
 
                     long compute_ms_depth = std::chrono::duration_cast<std::chrono::milliseconds>(t1_depth - t0_depth).count();
                     std::fprintf(stderr, "[prof] iter=%d phase=depth step=%d compute_ms=%ld\n", iter, step, compute_ms_depth);

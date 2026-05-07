@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "ggml.h"
 #include "ggml-cpu.h"
@@ -53,8 +54,8 @@ struct bmo_layer {
     ggml_tensor * norm1_weight = nullptr;  // attention pre-norm
     ggml_tensor * norm2_weight = nullptr;  // FFN pre-norm
 
-    // Device-side pointers for CUDA unpacking (optional)
-    device_packed_t device_packed;
+    // Note: device-side packed pointers are now kept in the runtime registry
+    // keyed by the matrix base name. Do not store device pointers here.
 
     bmo_layer() = default;
 };
@@ -92,19 +93,21 @@ struct bmo_context {
 
     // Per-matrix kernel launch info: collected during graph building, executed post-graph
     struct kernel_launch_info {
-        float * W_data = nullptr;                    // output pointer (GPU)
+        ggml_tensor * W = nullptr;                   // graph tensor whose storage is materialized at execution time
+        device_packed_t * dp = nullptr;              // persistent device-side packed metadata
         int32_t rows = 0, cols = 0;
         int32_t n_2bit_bytes = 0, n_4bit_bytes = 0, n_8bit_bytes = 0;
-        int64_t n_fp16 = 0;
         float scale_low = 1.0f, scale_int4 = 1.0f, scale_int8 = 1.0f;
         float zp_low = 1.5f, zp_int4 = 7.5f, zp_int8 = 127.5f;
-        int layer_idx = -1;
-        std::string base_name;
     };
     std::vector<kernel_launch_info> pending_kernel_launches;
 
     // CUDA backend (if available)
     void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
+
+    // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
+    // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.
+    std::unordered_map<std::string, device_packed_t> packed_registry;
 
     // Model hyperparameters filled at load time
     int32_t n_ctx = 0;
@@ -149,3 +152,5 @@ struct ggml_cgraph * bmo_build_depth_graph(
     struct ggml_tensor * audio_tokens,
     int codebook_step,
     int n_past);
+
+void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf);
