@@ -18,8 +18,15 @@ struct device_packed_t {
     void * idx2_start = nullptr;          // device ptr to tier2 per-row start offsets
     void * idx4_start = nullptr;          // device ptr to tier4 per-row start offsets
     void * idx8_start = nullptr;          // device ptr to tier8 per-row start offsets
+    int32_t rows = 0;
+    int32_t cols = 0;
     int64_t n_fp16 = 0;                   // number of fp16 overrides
     bool is_valid = false;                // flag indicating successful allocation
+};
+
+struct tensor_upload {
+    ggml_tensor * tensor = nullptr;
+    const void * host_data = nullptr;
 };
 
 // A single layer which may be either a temporal (multi-tier quantized)
@@ -104,6 +111,10 @@ struct bmo_context {
 
     // CUDA backend (if available)
     void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
+    void * kv_backend_buffer = nullptr; // ggml_backend_buffer_t for KV tensors
+    void * cuda_unpack_scratch = nullptr; // float* device scratch for unpacked matrix
+    size_t cuda_unpack_scratch_bytes = 0;
+    void * current_execution_buffer = nullptr; // ggml_backend_buffer_t for active graph
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
     // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.
@@ -128,12 +139,18 @@ struct bmo_context {
     ggml_context * work_ctx = nullptr;
     std::vector<uint8_t> work_mem;
     std::vector<float> shared_scratch_w;
+    struct owned_tensor_upload {
+        ggml_tensor * tensor = nullptr;
+        std::vector<uint8_t> bytes;
+    };
+    std::vector<owned_tensor_upload> graph_uploads;
 };
 
 // Loader and allocator APIs
 void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx);
 void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx);
 void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx);
+void bmo_free_cuda_resources(bmo_context & ctx);
 
 // Compute graph builder
 struct ggml_cgraph * bmo_build_temporal_graph(
@@ -153,4 +170,4 @@ struct ggml_cgraph * bmo_build_depth_graph(
     int codebook_step,
     int n_past);
 
-void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf);
+void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf, const std::vector<tensor_upload> & inputs = {});

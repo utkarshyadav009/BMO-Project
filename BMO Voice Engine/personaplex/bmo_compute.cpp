@@ -22,12 +22,35 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 
 #ifdef BMO_ENABLE_CUDA
 #include <cuda_runtime.h>
-#include "ggml-alloc.h"
 #include "ggml-backend.h"
-#include "ggml-cpu.h"
+#endif
+
+#ifdef BMO_ENABLE_CUDA
+void launch_unpack_kernel(
+    const device_packed_t * dp,
+    int32_t rows,
+    int32_t cols,
+    int32_t n_2bit_bytes,
+    int32_t n_4bit_bytes,
+    int32_t n_8bit_bytes,
+    float scale_low,
+    float scale_int4,
+    float scale_int8,
+    float zp_low,
+    float zp_int4,
+    float zp_int8,
+    float * out_w);
 #endif
 
 namespace {
+
+static void stage_tensor_upload(bmo_context & ctx, ggml_tensor * tensor, const void * data, size_t size) {
+    bmo_context::owned_tensor_upload up;
+    up.tensor = tensor;
+    up.bytes.resize(size);
+    std::memcpy(up.bytes.data(), data, size);
+    ctx.graph_uploads.push_back(std::move(up));
+}
 
 static inline uint8_t unpack_u2_le(uint8_t byte, int lane) {
     return (byte >> (lane * 2)) & 0x3;
@@ -264,8 +287,14 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 info.zp_int4 = zp_int4;
                 info.zp_int8 = zp_int8;
                 ctx.pending_kernel_launches.push_back(info);
+
+                y = ggml_mul_mat(wctx, S(W), S(x));
+                if (linear.dense_bias) {
+                    y = ggml_add(wctx, y, linear.dense_bias);
+                }
+                return y;
             }
-        } else
+        }
 #endif
         {
             const int64_t total = (int64_t) rows * (int64_t) cols;
@@ -344,67 +373,31 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 
 } // namespace
 
+void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<tensor_upload> & inputs) {
 #ifdef BMO_ENABLE_CUDA
-void launch_unpack_kernel(
-    const device_packed_t * dp,
-    int32_t rows,
-    int32_t cols,
-    int32_t n_2bit_bytes,
-    int32_t n_4bit_bytes,
-    int32_t n_8bit_bytes,
-    float scale_low,
-    float scale_int4,
-    float scale_int8,
-    float zp_low,
-    float zp_int4,
-    float zp_int8,
-    float * out_w);
-#endif
-
-void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf) {
-#ifdef BMO_ENABLE_CUDA
-    if (ctx.cuda_backend && !ctx.pending_kernel_launches.empty()) {
+    if (ctx.cuda_backend && ggml_get_no_alloc(ctx.work_ctx)) {
+        if (ctx.current_execution_buffer) {
+            ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.current_execution_buffer);
+            ctx.current_execution_buffer = nullptr;
+        }
         ggml_backend_t backend = (ggml_backend_t) ctx.cuda_backend;
-        ggml_backend_t cpu_backend = ggml_backend_cpu_init();
-        ggml_backend_t backends[2] = { backend, cpu_backend };
-        ggml_backend_sched_t sched = ggml_backend_sched_new(backends, nullptr, 2, GGML_DEFAULT_GRAPH_SIZE, false, true);
-        if (!sched) {
+        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(ctx.work_ctx, backend);
+        if (!buf) {
+            ctx.graph_uploads.clear();
             ctx.pending_kernel_launches.clear();
-            if (cpu_backend) ggml_backend_free(cpu_backend);
-            throw std::runtime_error("bmo_execute_graph: failed to create backend scheduler");
+            throw std::runtime_error("bmo_execute_graph: failed to allocate backend tensors");
         }
 
         try {
-            // Ensure all graph nodes have a concrete backend assignment first.
-            // Packed-unpack targets (W) are explicitly repinned to CUDA below.
-            const int n_nodes = ggml_graph_n_nodes(gf);
-            for (int i = 0; i < n_nodes; ++i) {
-                ggml_tensor * node = ggml_graph_node(gf, i);
-                if (node) {
-                    ggml_backend_sched_set_tensor_backend(sched, node, cpu_backend);
-                    for (int s = 0; s < GGML_MAX_SRC; ++s) {
-                        if (node->src[s]) {
-                            ggml_backend_sched_set_tensor_backend(sched, node->src[s], cpu_backend);
-                        }
-                    }
-                    if (node->view_src) {
-                        ggml_backend_sched_set_tensor_backend(sched, node->view_src, cpu_backend);
-                    }
+            for (const auto & in : inputs) {
+                if (in.tensor && in.host_data) {
+                    ggml_backend_tensor_set(in.tensor, in.host_data, 0, ggml_nbytes(in.tensor));
                 }
             }
-
-            for (const auto & launch : ctx.pending_kernel_launches) {
-                if (launch.W) {
-                    ggml_backend_sched_set_tensor_backend(sched, launch.W, backend);
+            for (const auto & in : ctx.graph_uploads) {
+                if (in.tensor && !in.bytes.empty()) {
+                    ggml_backend_tensor_set(in.tensor, in.bytes.data(), 0, in.bytes.size());
                 }
-            }
-
-            // Reserve first so allocator can infer split/buffer layout reliably.
-            if (!ggml_backend_sched_reserve(sched, gf)) {
-                throw std::runtime_error("bmo_execute_graph: failed to reserve graph on backend scheduler");
-            }
-            if (!ggml_backend_sched_alloc_graph(sched, gf)) {
-                throw std::runtime_error("bmo_execute_graph: failed to allocate graph on backend scheduler");
             }
 
             for (const auto & launch : ctx.pending_kernel_launches) {
@@ -432,26 +425,28 @@ void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf) {
                 throw std::runtime_error(std::string("bmo_execute_graph: cudaDeviceSynchronize failed: ") + cudaGetErrorString(sync_err));
             }
 
-            if (ggml_backend_sched_graph_compute(sched, gf) != GGML_STATUS_SUCCESS) {
-                throw std::runtime_error("bmo_execute_graph: ggml_backend_sched_graph_compute failed");
+            if (ggml_backend_graph_compute(backend, gf) != GGML_STATUS_SUCCESS) {
+                throw std::runtime_error("bmo_execute_graph: ggml_backend_graph_compute failed");
             }
 
-            ggml_backend_sched_free(sched);
-            if (cpu_backend) ggml_backend_free(cpu_backend);
+            ctx.current_execution_buffer = buf;
+            ctx.graph_uploads.clear();
             ctx.pending_kernel_launches.clear();
             return;
         } catch (...) {
-            ggml_backend_sched_free(sched);
-            if (cpu_backend) ggml_backend_free(cpu_backend);
+            ggml_backend_buffer_free(buf);
+            ctx.graph_uploads.clear();
             ctx.pending_kernel_launches.clear();
             throw;
         }
     }
 #endif
 
-    if (ggml_graph_compute_with_ctx(ctx.work_ctx, gf, 32) != GGML_STATUS_SUCCESS) {
-        throw std::runtime_error("bmo_execute_graph: CPU fallback graph compute failed");
+    const ggml_status status = ggml_graph_compute_with_ctx(ctx.work_ctx, gf, /*n_threads=*/32);
+    if (status != GGML_STATUS_SUCCESS) {
+        throw std::runtime_error("ggml_graph_compute_with_ctx failed");
     }
+    ctx.graph_uploads.clear();
     ctx.pending_kernel_launches.clear();
 }
 
@@ -489,13 +484,15 @@ ggml_cgraph * bmo_build_temporal_graph(
 
     ggml_context * wctx = ctx.work_ctx;
     ggml_cgraph * gf = ggml_new_graph(wctx);
+    ctx.graph_uploads.clear();
 
     // Position ids include n_past so RoPE/KV indexing follows autoregressive offset.
     ggml_tensor * pos = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, n_token);
-    int32_t * pos_ptr = reinterpret_cast<int32_t *>(pos->data);
+    std::vector<int32_t> pos_host((size_t) n_token);
     for (int64_t t = 0; t < n_token; ++t) {
-        pos_ptr[t] = (int32_t) n_past + (int32_t) t;
+        pos_host[(size_t) t] = (int32_t) n_past + (int32_t) t;
     }
+    stage_tensor_upload(ctx, pos, pos_host.data(), (size_t) n_token * sizeof(int32_t));
 
     ggml_tensor * x = ggml_cont(wctx, S(input_tokens));
 
@@ -692,6 +689,7 @@ ggml_cgraph * bmo_build_depth_graph(
 
     ggml_context * wctx = ctx.work_ctx;
     ggml_cgraph * gf = ggml_new_graph(wctx);
+    ctx.graph_uploads.clear();
 
     // Keep the depth stack causally aligned with the temporal stack interface.
     (void) n_past;
@@ -849,10 +847,11 @@ ggml_cgraph * bmo_build_depth_graph(
         }
 
         ggml_tensor * pos = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, n_token);
-        int32_t * pos_ptr = reinterpret_cast<int32_t *>(pos->data);
+        std::vector<int32_t> pos_host((size_t) n_token);
         for (int64_t t = 0; t < n_token; ++t) {
-            pos_ptr[t] = (int32_t) n_past + (int32_t) t;
+            pos_host[(size_t) t] = (int32_t) n_past + (int32_t) t;
         }
+        stage_tensor_upload(ctx, pos, pos_host.data(), (size_t) n_token * sizeof(int32_t));
 
         ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
         ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);

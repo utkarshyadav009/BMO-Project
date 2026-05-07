@@ -8,6 +8,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#ifdef BMO_ENABLE_CUDA
+#include "ggml-backend.h"
+#endif
 
 static void reset_work_ctx(bmo_context & ctx, size_t work_mem_size) {
     if (ctx.work_ctx) {
@@ -18,7 +21,7 @@ static void reset_work_ctx(bmo_context & ctx, size_t work_mem_size) {
     ggml_init_params wp = {
         work_mem_size,
         ctx.work_mem.data(),
-        false,
+        true,
     };
     ctx.work_ctx = ggml_init(wp);
     if (!ctx.work_ctx) {
@@ -26,17 +29,43 @@ static void reset_work_ctx(bmo_context & ctx, size_t work_mem_size) {
     }
 }
 
-static void dump_tensor(const char * path, ggml_tensor * t) {
-    if (!t || !t->data) {
-        throw std::runtime_error(std::string("Missing graph tensor for dump: ") + path);
+static void release_execution_buffer(bmo_context & ctx) {
+#ifdef BMO_ENABLE_CUDA
+    if (ctx.current_execution_buffer) {
+        ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.current_execution_buffer);
+        ctx.current_execution_buffer = nullptr;
     }
+#else
+    (void) ctx;
+#endif
+}
+
+static void copy_tensor_to_host(bmo_context & ctx, ggml_tensor * t, void * dst, size_t nbytes) {
+    if (!t) {
+        throw std::runtime_error("Missing graph tensor");
+    }
+#ifdef BMO_ENABLE_CUDA
+    if (ctx.current_execution_buffer) {
+        ggml_backend_tensor_get(t, dst, 0, nbytes);
+        return;
+    }
+#endif
+    if (!t->data) {
+        throw std::runtime_error("Tensor has no host data");
+    }
+    std::memcpy(dst, t->data, nbytes);
+}
+
+static void dump_tensor(bmo_context & ctx, const char * path, ggml_tensor * t) {
+    std::vector<uint8_t> host((size_t) ggml_nbytes(t));
+    copy_tensor_to_host(ctx, t, host.data(), host.size());
 
     FILE * out_file = fopen(path, "wb");
     if (!out_file) {
         throw std::runtime_error(std::string("Failed to open ") + path + " for writing");
     }
 
-    fwrite(t->data, 1, ggml_nbytes(t), out_file);
+    fwrite(host.data(), 1, host.size(), out_file);
     fclose(out_file);
 }
 
@@ -102,12 +131,12 @@ int main(int argc, char ** argv) {
                 reset_work_ctx(ctx, work_mem_size);
                 
                 ggml_tensor * layer_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
-                std::memcpy(layer_in->data, current_x.data(), ctx.n_embd * sizeof(float));
+                std::vector<tensor_upload> inputs = { { layer_in, current_x.data() } };
 
                 // Build only layer i (from i to i+1)
                 ggml_cgraph * gf = bmo_build_temporal_graph(ctx, model, layer_in, 0, i, i + 1);
                 
-                bmo_execute_graph(ctx, gf);
+                bmo_execute_graph(ctx, gf, inputs);
 
                 std::string out_name = "out_layer_" + std::to_string(i);
                 ggml_tensor * layer_out = ggml_graph_get_tensor(gf, out_name.c_str());
@@ -116,13 +145,14 @@ int main(int argc, char ** argv) {
                 }
 
                 // Copy output back to current_x for the next layer's input
-                std::memcpy(current_x.data(), layer_out->data, ctx.n_embd * sizeof(float));
+                copy_tensor_to_host(ctx, layer_out, current_x.data(), (size_t) ctx.n_embd * sizeof(float));
 
                 if (debug_dumps) {
                     std::string dump_path = "cpp_out_layer_" + std::to_string(i) + ".bin";
-                    dump_tensor(dump_path.c_str(), layer_out);
+                    dump_tensor(ctx, dump_path.c_str(), layer_out);
                     std::cout << "[bmo_main] Dumped " << dump_path << "\n";
                 }
+                release_execution_buffer(ctx);
             }
             std::cout << "[SUCCESS] Temporal validation cascade completed!\n";
 
@@ -133,13 +163,18 @@ int main(int argc, char ** argv) {
             ggml_tensor * temporal_out = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
             ggml_tensor * text_tokens = ggml_new_tensor_1d(ctx.work_ctx, GGML_TYPE_I32, 1);
             ggml_tensor * audio_tokens = ggml_new_tensor_1d(ctx.work_ctx, GGML_TYPE_I32, 1);
-            if (!temporal_out || !temporal_out->data || !text_tokens || !text_tokens->data || !audio_tokens || !audio_tokens->data) {
+            if (!temporal_out || !text_tokens || !audio_tokens) {
                 throw std::runtime_error("Failed to allocate depth validation tensors");
             }
 
-            std::fill_n(reinterpret_cast<float *>(temporal_out->data), (size_t) ggml_nelements(temporal_out), 1.0f);
-            reinterpret_cast<int32_t *>(text_tokens->data)[0] = 0;
-            reinterpret_cast<int32_t *>(audio_tokens->data)[0] = 0;
+            std::vector<float> temporal_host((size_t) ggml_nelements(temporal_out), 1.0f);
+            int32_t text_host = 0;
+            int32_t audio_host = 0;
+            std::vector<tensor_upload> inputs = {
+                { temporal_out, temporal_host.data() },
+                { text_tokens, &text_host },
+                { audio_tokens, &audio_host },
+            };
 
             ggml_cgraph * gf = bmo_build_depth_graph(ctx, model, temporal_out, text_tokens, audio_tokens, 0, 0);
             if (!gf) {
@@ -148,26 +183,26 @@ int main(int argc, char ** argv) {
 
             std::cout << "[bmo_main] Depth graph has " << ggml_graph_n_nodes(gf) << " nodes\n";
 
-            bmo_execute_graph(ctx, gf);
+            bmo_execute_graph(ctx, gf, inputs);
 
             ggml_tensor * out_tensor = ggml_graph_get_tensor(gf, "depth_out_step_0");
-            if (!out_tensor || !out_tensor->data) {
+            if (!out_tensor) {
                 throw std::runtime_error("Missing graph tensor: depth_out_step_0");
             }
 
             if (debug_dumps) {
                 const std::string dump_path = "cpp_depth_out.bin";
-                dump_tensor(dump_path.c_str(), out_tensor);
+                dump_tensor(ctx, dump_path.c_str(), out_tensor);
                 std::cout << "[bmo_main] Dumped depth output (" << ggml_nbytes(out_tensor)
                           << " bytes) to " << dump_path << "\n";
 
                 auto dump_named = [&](const char * name, const char * path) {
                     ggml_tensor * t = ggml_graph_get_tensor(gf, name);
-                    if (!t || !t->data) {
+                    if (!t) {
                         std::cout << "[bmo_main] Missing debug tensor: " << name << "\n";
                         return;
                     }
-                    dump_tensor(path, t);
+                    dump_tensor(ctx, path, t);
                     std::cout << "[bmo_main] Dumped " << name << " to " << path << "\n";
                 };
 
@@ -190,8 +225,12 @@ int main(int argc, char ** argv) {
                     // Recreate input tensors
                     ggml_tensor * dbg_temporal_out = ggml_new_tensor_2d(dbg_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
                     ggml_tensor * dbg_text_tokens = ggml_new_tensor_1d(dbg_ctx, GGML_TYPE_I32, 1);
-                    std::fill_n(reinterpret_cast<float *>(dbg_temporal_out->data), (size_t) ggml_nelements(dbg_temporal_out), 1.0f);
-                    reinterpret_cast<int32_t *>(dbg_text_tokens->data)[0] = 0;
+                    std::vector<float> dbg_temporal_host((size_t) ggml_nelements(dbg_temporal_out), 1.0f);
+                    int32_t dbg_text_host = 0;
+                    std::vector<tensor_upload> dbg_inputs = {
+                        { dbg_temporal_out, dbg_temporal_host.data() },
+                        { dbg_text_tokens, &dbg_text_host },
+                    };
 
                     // Compute z_s (depformer_in projection)
                     ggml_tensor * dbg_z_s = ggml_mul_mat(dbg_ctx, model.depformer_in[0], dbg_temporal_out);
@@ -209,20 +248,22 @@ int main(int argc, char ** argv) {
                     ggml_build_forward_expand(dbg_gf, dbg_text_emb);
                     ggml_build_forward_expand(dbg_gf, dbg_x_init);
 
-                    bmo_execute_graph(ctx, dbg_gf);
+                    bmo_execute_graph(ctx, dbg_gf, dbg_inputs);
 
                     // Dump debug values
                     ggml_tensor * out_z_s = ggml_graph_get_tensor(dbg_gf, "debug_z_s");
                     ggml_tensor * out_text_emb = ggml_graph_get_tensor(dbg_gf, "debug_text_emb");
                     ggml_tensor * out_x_init = ggml_graph_get_tensor(dbg_gf, "debug_x_init");
 
-                    if (out_z_s) dump_tensor("cpp_debug_z_s.bin", out_z_s);
-                    if (out_text_emb) dump_tensor("cpp_debug_text_emb.bin", out_text_emb);
-                    if (out_x_init) dump_tensor("cpp_debug_x_init.bin", out_x_init);
+                    if (out_z_s) dump_tensor(ctx, "cpp_debug_z_s.bin", out_z_s);
+                    if (out_text_emb) dump_tensor(ctx, "cpp_debug_text_emb.bin", out_text_emb);
+                    if (out_x_init) dump_tensor(ctx, "cpp_debug_x_init.bin", out_x_init);
 
                     std::cout << "[bmo_main] Dumped debug tensors (z_s, text_emb, x_init)\n";
+                    release_execution_buffer(ctx);
                 }
             }
+            release_execution_buffer(ctx);
 
             std::cout << "[SUCCESS] Depth-step 0 validation completed!\n";
         } else if (mode == "stress_test") {
@@ -236,7 +277,7 @@ int main(int argc, char ** argv) {
                 for (int layer = 0; layer < ctx.n_layers; ++layer) {
                     reset_work_ctx(ctx, work_mem_size);
                     ggml_tensor * layer_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
-                    std::memcpy(layer_in->data, temporal_state.data(), ctx.n_embd * sizeof(float));
+                    std::vector<tensor_upload> temporal_inputs = { { layer_in, temporal_state.data() } };
 
                     auto build_t0_temp = std::chrono::steady_clock::now();
                     ggml_cgraph * temporal_gf = bmo_build_temporal_graph(ctx, model, layer_in, 0, layer, layer + 1);
@@ -245,7 +286,7 @@ int main(int argc, char ** argv) {
                     std::fprintf(stderr, "[prof_build] iter=%d phase=temporal layer=%d build_ms=%ld\n", iter, layer, build_ms_temp);
 
                     auto t0_temp = std::chrono::steady_clock::now();
-                    bmo_execute_graph(ctx, temporal_gf);
+                    bmo_execute_graph(ctx, temporal_gf, temporal_inputs);
                     auto t1_temp = std::chrono::steady_clock::now();
 
                     long compute_ms_temp = std::chrono::duration_cast<std::chrono::milliseconds>(t1_temp - t0_temp).count();
@@ -253,10 +294,11 @@ int main(int argc, char ** argv) {
 
                     const std::string temporal_out_name = "out_layer_" + std::to_string(layer);
                     ggml_tensor * temporal_out = ggml_graph_get_tensor(temporal_gf, temporal_out_name.c_str());
-                    if (!temporal_out || !temporal_out->data) {
+                    if (!temporal_out) {
                         throw std::runtime_error("Stress test: missing temporal output at iteration " + std::to_string(iter) + " layer " + std::to_string(layer));
                     }
-                    std::memcpy(temporal_state.data(), temporal_out->data, ctx.n_embd * sizeof(float));
+                    copy_tensor_to_host(ctx, temporal_out, temporal_state.data(), (size_t) ctx.n_embd * sizeof(float));
+                    release_execution_buffer(ctx);
 
                     ggml_graph_clear(temporal_gf);
                     ggml_free(ctx.work_ctx);
@@ -270,13 +312,17 @@ int main(int argc, char ** argv) {
                     ggml_tensor * depth_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
                     ggml_tensor * text_tokens = ggml_new_tensor_1d(ctx.work_ctx, GGML_TYPE_I32, 1);
                     ggml_tensor * audio_tokens = ggml_new_tensor_1d(ctx.work_ctx, GGML_TYPE_I32, 1);
-                    if (!depth_in || !depth_in->data || !text_tokens || !text_tokens->data || !audio_tokens || !audio_tokens->data) {
+                    if (!depth_in || !text_tokens || !audio_tokens) {
                         throw std::runtime_error("Stress test: failed to allocate depth inputs at iteration " + std::to_string(iter));
                     }
 
-                    std::memcpy(depth_in->data, temporal_state.data(), ctx.n_embd * sizeof(float));
-                    reinterpret_cast<int32_t *>(text_tokens->data)[0] = 0;
-                    reinterpret_cast<int32_t *>(audio_tokens->data)[0] = 0;
+                    int32_t text_host = 0;
+                    int32_t audio_host = 0;
+                    std::vector<tensor_upload> depth_inputs = {
+                        { depth_in, temporal_state.data() },
+                        { text_tokens, &text_host },
+                        { audio_tokens, &audio_host },
+                    };
 
                     auto build_t0_depth = std::chrono::steady_clock::now();
                     ggml_cgraph * depth_gf = bmo_build_depth_graph(ctx, model, depth_in, text_tokens, audio_tokens, step, 0);
@@ -285,7 +331,8 @@ int main(int argc, char ** argv) {
                     std::fprintf(stderr, "[prof_build] iter=%d phase=depth step=%d build_ms=%ld\n", iter, step, build_ms_depth);
 
                     auto t0_depth = std::chrono::steady_clock::now();
-                    bmo_execute_graph(ctx, depth_gf);
+                    bmo_execute_graph(ctx, depth_gf, depth_inputs);
+                    release_execution_buffer(ctx);
                     auto t1_depth = std::chrono::steady_clock::now();
 
                     long compute_ms_depth = std::chrono::duration_cast<std::chrono::milliseconds>(t1_depth - t0_depth).count();
@@ -330,6 +377,8 @@ int main(int argc, char ** argv) {
             ggml_free(ctx.work_ctx);
             ctx.work_ctx = nullptr;
         }
+        release_execution_buffer(ctx);
+        bmo_free_cuda_resources(ctx);
         std::cout << "[bmo_main] Test completed successfully!\n";
 
         return 0;
@@ -339,6 +388,8 @@ int main(int argc, char ** argv) {
             ggml_free(ctx.work_ctx);
             ctx.work_ctx = nullptr;
         }
+        release_execution_buffer(ctx);
+        bmo_free_cuda_resources(ctx);
         return 1;
     }
 }
