@@ -8,6 +8,19 @@
 #include "ggml-cpu.h"
 #include "gguf.h"
 
+// Device-side packed tensor metadata (for CUDA unpacking)
+struct device_packed_t {
+    void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
+    void * packed_mask = nullptr;         // device ptr to tier mask
+    void * fp16_indices = nullptr;        // device ptr to fp16 index array
+    void * fp16_values = nullptr;         // device ptr to fp16 value array
+    void * idx2_start = nullptr;          // device ptr to tier2 per-row start offsets
+    void * idx4_start = nullptr;          // device ptr to tier4 per-row start offsets
+    void * idx8_start = nullptr;          // device ptr to tier8 per-row start offsets
+    int64_t n_fp16 = 0;                   // number of fp16 overrides
+    bool is_valid = false;                // flag indicating successful allocation
+};
+
 // A single layer which may be either a temporal (multi-tier quantized)
 // or a standard unquantized depth layer. Fields not used for a given
 // layer type are left nullptr.
@@ -39,6 +52,9 @@ struct bmo_layer {
     // Learned RMSNorm scale weights (gamma)
     ggml_tensor * norm1_weight = nullptr;  // attention pre-norm
     ggml_tensor * norm2_weight = nullptr;  // FFN pre-norm
+
+    // Device-side pointers for CUDA unpacking (optional)
+    device_packed_t device_packed;
 
     bmo_layer() = default;
 };
@@ -74,6 +90,22 @@ struct bmo_context {
     // GGML contexts
     ggml_context * kv_ctx = nullptr;   // dedicated KV cache context
 
+    // Per-matrix kernel launch info: collected during graph building, executed post-graph
+    struct kernel_launch_info {
+        float * W_data = nullptr;                    // output pointer (GPU)
+        int32_t rows = 0, cols = 0;
+        int32_t n_2bit_bytes = 0, n_4bit_bytes = 0, n_8bit_bytes = 0;
+        int64_t n_fp16 = 0;
+        float scale_low = 1.0f, scale_int4 = 1.0f, scale_int8 = 1.0f;
+        float zp_low = 1.5f, zp_int4 = 7.5f, zp_int8 = 127.5f;
+        int layer_idx = -1;
+        std::string base_name;
+    };
+    std::vector<kernel_launch_info> pending_kernel_launches;
+
+    // CUDA backend (if available)
+    void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
+
     // Model hyperparameters filled at load time
     int32_t n_ctx = 0;
     int32_t n_layers = 0;
@@ -98,6 +130,7 @@ struct bmo_context {
 // Loader and allocator APIs
 void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx);
 void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx);
+void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx);
 
 // Compute graph builder
 struct ggml_cgraph * bmo_build_temporal_graph(

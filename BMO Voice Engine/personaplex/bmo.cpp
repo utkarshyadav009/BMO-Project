@@ -16,6 +16,12 @@
 #include <unistd.h>
 #endif
 
+#ifdef BMO_ENABLE_CUDA
+#include <cuda_runtime.h>
+#include "ggml-backend.h"
+#include "ggml-cuda.h"
+#endif
+
 extern "C" {
 #include "ggml.h"
 #include "gguf.h"
@@ -298,8 +304,329 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     ctx.weights_bytes = total_bytes;
 
     std::cout << "[bmo_load_model] Loaded model '" << fname << "'\n";
+    
+    // If no temporal packed artifacts were discovered during mapping, print
+    // a short listing of GGUF tensor names to aid debugging of naming variants.
+    int found_packed = 0;
+    for (const auto & L : model.temporal_layers) if (L.packed_weights) ++found_packed;
+    if (found_packed == 0) {
+        std::cerr << "[bmo_load_model] Warning: no packed_weights mapped for any temporal layer\n";
+        if (gctx) {
+            const int64_t n_tensors = gguf_get_n_tensors(gctx);
+            std::cerr << "[bmo_load_model] GGUF tensor count=" << n_tensors << ". Listing first 200 names:\n";
+            for (int64_t tid = 0; tid < n_tensors && tid < 200; ++tid) {
+                const char * name = gguf_get_tensor_name(gctx, tid);
+                if (name) std::cerr << "  " << tid << ": " << name << "\n";
+            }
+        }
+    }
+
+    // Allocate and transfer packed tensors to GPU if CUDA is enabled
+    bmo_prepare_device_packed_tensors(model, ctx);
+    
     std::cout << "[bmo_load_model] n_layers=" << ctx.n_layers << " n_heads=" << ctx.n_heads << " n_embd=" << ctx.n_embd << " n_ctx=" << ctx.n_ctx << "\n";
     std::cout << "[bmo_load_model] Total weight bytes: " << (double) total_bytes / (1024.0 * 1024.0) << " MB\n";
+}
+
+#ifdef BMO_ENABLE_CUDA
+// Forward declaration for CUDA helper
+extern "C" {
+    void launch_unpack_kernel(
+        const void * packed_weights,
+        const void * packed_mask,
+        const void * fp16_indices,
+        const void * fp16_values,
+        const int * idx2_start,
+        const int * idx4_start,
+        const int * idx8_start,
+        int rows,
+        int cols,
+        int64_t n_fp16,
+        int n_2bit_bytes,
+        int n_4bit_bytes,
+        int n_8bit_bytes,
+        float scale_low,
+        float scale_int4,
+        float scale_int8,
+        float zp_low,
+        float zp_int4,
+        float zp_int8,
+        float * out_w);
+}
+#endif
+
+void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
+#ifndef BMO_ENABLE_CUDA
+    std::cerr << "[bmo_prepare_device_packed_tensors] CUDA not enabled; skipping GPU allocation\n";
+    return;
+#endif
+
+#ifdef BMO_ENABLE_CUDA
+    if (!ctx.cuda_backend) {
+        ggml_backend_t backend = ggml_backend_cuda_init(0);
+        if (!backend) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] failed to initialize CUDA backend; skipping\n";
+            return;
+        }
+        ctx.cuda_backend = backend;
+    }
+
+    // Quick inventory: count layers that have packed artifacts mapped
+    int total_layers = (int) model.temporal_layers.size();
+    int have_packed = 0;
+    for (size_t _i = 0; _i < model.temporal_layers.size(); ++_i) {
+        if (model.temporal_layers[_i].packed_weights) ++have_packed;
+    }
+    std::cout << "[bmo_prepare_device_packed_tensors] layers=" << total_layers << " have_packed=" << have_packed << "\n";
+
+    // For each temporal layer, allocate and transfer packed tensors to device
+    for (size_t i = 0; i < model.temporal_layers.size(); ++i) {
+        bmo_layer & layer = model.temporal_layers[i];
+        
+        // Skip if no packed weights (dense-only layer)
+        if (!layer.packed_weights || !layer.packed_mask || !layer.fp16_indices || !layer.fp16_values) {
+            continue;
+        }
+        
+        // Extract metadata from existing layer tensors
+        // For rows: use packed_mask dimensions (it should have the shape info we need)
+        // packed_mask is uint8 with 4 uint2 quants per output channel (row)
+        int32_t rows = (int32_t) layer.packed_mask->ne[0];  // First dimension of packed_mask
+        int32_t cols = (int32_t) layer.packed_weights->ne[0]; // packed_weights is 1D
+        
+        if (rows <= 0 || cols <= 0) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] Warning: invalid dims for layer " << i 
+                      << " (rows=" << rows << " cols=" << cols << "); skipping\n";
+            continue;
+        }
+        
+        // Byte counts derived from packed layout
+        int32_t n_2bit_bytes = (int32_t) (layer.packed_mask->ne[0] * layer.packed_mask->ne[1]) / 4;  // 2 bits per element
+        int32_t n_4bit_bytes = 0;  // Not explicitly tracked in layer; derive from remaining packed_weights
+        int32_t n_8bit_bytes = 0;
+        
+        // Read quantization scales from tensors (if available) or use defaults
+        float scale_low = 1.0f;
+        float scale_int4 = 1.0f;
+        float scale_int8 = 1.0f;
+        
+        if (layer.scale_low && layer.scale_low->data) {
+            scale_low = *((float*) layer.scale_low->data);
+        }
+        if (layer.scale_int4 && layer.scale_int4->data) {
+            scale_int4 = *((float*) layer.scale_int4->data);
+        }
+        // Note: scale_int8 may not be available in layer structure
+        
+        float zp_low = 1.5f;
+        float zp_int4 = 7.5f;
+        float zp_int8 = 127.5f;
+        
+        int64_t n_fp16 = ggml_nbytes(layer.fp16_indices) / (int64_t) sizeof(int32_t);
+        
+        std::cout << "[bmo_prepare_device_packed_tensors] Layer " << i 
+                  << ": rows=" << rows << " cols=" << cols 
+                  << " n_2bit=" << n_2bit_bytes << " n_4bit=" << n_4bit_bytes 
+                  << " n_8bit=" << n_8bit_bytes << " n_fp16=" << n_fp16 << "\n";
+        
+        // Allocate device buffers via cudaMalloc
+        const uint8_t * h_pw = reinterpret_cast<const uint8_t *>(layer.packed_weights->data);
+        const uint8_t * h_pm = reinterpret_cast<const uint8_t *>(layer.packed_mask->data);
+        const int32_t * h_fi = reinterpret_cast<const int32_t *>(layer.fp16_indices->data);
+        const ggml_fp16_t * h_fv = nullptr;
+        
+        // Handle fp16_values type conversion if needed
+        std::vector<ggml_fp16_t> tmp_fv16;
+        if (layer.fp16_values->type == GGML_TYPE_F16) {
+            h_fv = reinterpret_cast<const ggml_fp16_t *>(layer.fp16_values->data);
+        } else if (layer.fp16_values->type == GGML_TYPE_F32) {
+            const float * src = reinterpret_cast<const float *>(layer.fp16_values->data);
+            tmp_fv16.resize((size_t) n_fp16);
+            for (int64_t j = 0; j < n_fp16; ++j) {
+                tmp_fv16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
+            }
+            h_fv = tmp_fv16.data();
+        } else {
+            std::cerr << "[bmo_prepare_device_packed_tensors] Warning: unsupported fp16_values type in layer " << i << "; skipping\n";
+            continue;
+        }
+        
+        // Compute idx*_start prefix sum arrays on host
+        std::vector<int32_t> h_idx2_start, h_idx4_start, h_idx8_start;
+        const uint8_t * pm_ptr = h_pm;
+        
+        h_idx2_start.resize((size_t) rows, 0);
+        h_idx4_start.resize((size_t) rows, 0);
+        h_idx8_start.resize((size_t) rows, 0);
+        
+        int32_t cnt2 = 0, cnt4 = 0, cnt8 = 0;
+        for (int r = 0; r < rows; ++r) {
+            h_idx2_start[(size_t) r] = cnt2;
+            h_idx4_start[(size_t) r] = cnt4;
+            h_idx8_start[(size_t) r] = cnt8;
+            
+            for (int c = 0; c < cols; ++c) {
+                // Peek at tier for this (r, c) element to build prefix sum
+                int byte_idx = r * cols + c; // or based on packed storage layout
+                uint8_t tier = (pm_ptr[byte_idx / 4] >> ((byte_idx % 4) * 2)) & 0x3;
+                if (tier == 0) cnt2 += 1;
+                else if (tier == 1) cnt4 += 1;
+                else if (tier == 2) cnt8 += 1;
+            }
+        }
+        
+        // CudaMalloc device buffers
+        void * d_pw = nullptr, * d_pm = nullptr, * d_fi = nullptr, * d_fv = nullptr;
+        void * d_i2s = nullptr, * d_i4s = nullptr, * d_i8s = nullptr;
+        
+        size_t pw_bytes = (size_t) ggml_nbytes(layer.packed_weights);
+        size_t pm_bytes = (size_t) ggml_nbytes(layer.packed_mask);
+        size_t fi_bytes = (size_t) ggml_nbytes(layer.fp16_indices);
+        size_t fv_bytes = (size_t) ggml_nbytes(layer.fp16_values);
+        
+        cudaError_t err = cudaMalloc(&d_pw, pw_bytes);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n";
+            return;
+        }
+        
+        err = cudaMalloc(&d_pm, pm_bytes);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            return;
+        }
+        
+        err = cudaMalloc(&d_fi, fi_bytes);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc fp16_indices failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            cudaFree(d_pm);
+            return;
+        }
+        
+        err = cudaMalloc(&d_fv, fv_bytes);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            cudaFree(d_pm);
+            cudaFree(d_fi);
+            return;
+        }
+        
+        err = cudaMalloc(&d_i2s, (size_t) rows * sizeof(int32_t));
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc idx2_start failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            cudaFree(d_pm);
+            cudaFree(d_fi);
+            cudaFree(d_fv);
+            return;
+        }
+        
+        err = cudaMalloc(&d_i4s, (size_t) rows * sizeof(int32_t));
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc idx4_start failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            cudaFree(d_pm);
+            cudaFree(d_fi);
+            cudaFree(d_fv);
+            cudaFree(d_i2s);
+            return;
+        }
+        
+        err = cudaMalloc(&d_i8s, (size_t) rows * sizeof(int32_t));
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc idx8_start failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            cudaFree(d_pm);
+            cudaFree(d_fi);
+            cudaFree(d_fv);
+            cudaFree(d_i2s);
+            cudaFree(d_i4s);
+            return;
+        }
+        
+        // CudaMemcpy host -> device
+        err = cudaMemcpy(d_pw, h_pw, pw_bytes, cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n";
+            cudaFree(d_pw);
+            cudaFree(d_pm);
+            cudaFree(d_fi);
+            cudaFree(d_fv);
+            cudaFree(d_i2s);
+            cudaFree(d_i4s);
+            cudaFree(d_i8s);
+            return;
+        }
+        
+        err = cudaMemcpy(d_pm, h_pm, pm_bytes, cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n";
+            goto cleanup_after_pm_fail;
+        }
+        
+        err = cudaMemcpy(d_fi, h_fi, fi_bytes, cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy fp16_indices failed: " << cudaGetErrorString(err) << "\n";
+            goto cleanup_after_fi_fail;
+        }
+        
+        err = cudaMemcpy(d_fv, h_fv, fv_bytes, cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n";
+            goto cleanup_after_fv_fail;
+        }
+        
+        err = cudaMemcpy(d_i2s, h_idx2_start.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy idx2_start failed: " << cudaGetErrorString(err) << "\n";
+            goto cleanup_after_i2s_fail;
+        }
+        
+        err = cudaMemcpy(d_i4s, h_idx4_start.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy idx4_start failed: " << cudaGetErrorString(err) << "\n";
+            goto cleanup_after_i4s_fail;
+        }
+        
+        err = cudaMemcpy(d_i8s, h_idx8_start.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy idx8_start failed: " << cudaGetErrorString(err) << "\n";
+            goto cleanup_after_i8s_fail;
+        }
+        
+        // Store device pointers in layer's device_packed struct
+        layer.device_packed.packed_weights = d_pw;
+        layer.device_packed.packed_mask = d_pm;
+        layer.device_packed.fp16_indices = d_fi;
+        layer.device_packed.fp16_values = d_fv;
+        layer.device_packed.idx2_start = d_i2s;
+        layer.device_packed.idx4_start = d_i4s;
+        layer.device_packed.idx8_start = d_i8s;
+        layer.device_packed.n_fp16 = n_fp16;
+        layer.device_packed.is_valid = true;
+        
+        std::cout << "[bmo_prepare_device_packed_tensors] Layer " << i << " GPU allocation successful\n";
+        continue;
+        
+        // Cleanup label hierarchy for error handling
+        cleanup_after_i8s_fail:
+            cudaFree(d_i8s);
+        cleanup_after_i4s_fail:
+            cudaFree(d_i4s);
+        cleanup_after_i2s_fail:
+            cudaFree(d_i2s);
+        cleanup_after_fv_fail:
+            cudaFree(d_fv);
+        cleanup_after_fi_fail:
+            cudaFree(d_fi);
+        cleanup_after_pm_fail:
+            cudaFree(d_pm);
+            cudaFree(d_pw);
+    }
+#endif
 }
 
 void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {

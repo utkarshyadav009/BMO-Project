@@ -173,8 +173,20 @@ static void unpack_layer_to_f32(
 
 int main(int argc, char ** argv) {
     try {
-        const std::string gguf_path = (argc >= 2) ? argv[1] : "bmo_weights.gguf";
-        const std::string layer_base = (argc >= 3) ? argv[2] : "transformer_layers_0_gating_linear_in";
+        std::string gguf_path = "bmo_weights.gguf";
+        std::string layer_base = "transformer_layers_0_gating_linear_in";
+        bool list_mode = false;
+
+        if (argc >= 2) {
+            std::string a1 = argv[1];
+            if (a1 == "--list") {
+                list_mode = true;
+                if (argc >= 3) gguf_path = argv[2];
+            } else {
+                gguf_path = a1;
+                if (argc >= 3) layer_base = argv[2];
+            }
+        }
 
         // Load GGUF.
         ggml_context * data_ctx = nullptr;
@@ -189,6 +201,18 @@ int main(int argc, char ** argv) {
         }
         if (!data_ctx) {
             throw std::runtime_error("GGUF loaded but data context is null");
+        }
+
+        // Special mode: list tensor names and exit
+        if (list_mode) {
+            const int64_t n_tensors = gguf_get_n_tensors(gctx);
+            std::cout << "GGUF tensor count=" << n_tensors << std::endl;
+            for (int64_t tid = 0; tid < n_tensors; ++tid) {
+                const char * name = gguf_get_tensor_name(gctx, tid);
+                if (name) std::cout << tid << ": " << name << std::endl;
+            }
+            gguf_free(gctx);
+            return 0;
         }
 
         // Retrieve required tensors for this single packed layer.

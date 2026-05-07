@@ -1,4 +1,4 @@
-#include "bmo.h"
+﻿#include "bmo.h"
 
 #include <stdlib.h>
 #include <stdio.h>

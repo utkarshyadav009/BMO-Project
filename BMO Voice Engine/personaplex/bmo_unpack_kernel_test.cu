@@ -95,6 +95,7 @@ static void unpack_layer_to_f32_cpu(
 }
 
 // CUDA kernel: one thread per row, sequential scan across columns
+// Output: float* (not __half) for direct graph integration
 __global__ void unpack_kernel(
     const uint8_t * packed_weights,
     const uint8_t * packed_mask,
@@ -112,7 +113,7 @@ __global__ void unpack_kernel(
     const int32_t * idx2_start,
     const int32_t * idx4_start,
     const int32_t * idx8_start,
-    __half * out_half) {
+    float * out_w) {
     int r = blockIdx.x * blockDim.x + threadIdx.x;
     if (r >= rows) return;
 
@@ -148,16 +149,16 @@ __global__ void unpack_kernel(
             // tier 0 (fp16 outliers) leave as 0, will be overwritten by fp16 kernel
             v = 0.0f;
         }
-        out_half[pos] = __float2half(v);
+        out_w[pos] = v;
     }
 }
 
 // Kernel to apply fp16 outliers (host-provided floats)
-__global__ void apply_fp16_overrides(const int32_t * fp16_idx, const float * fp16_vals, int64_t n_fp16, __half * out_half) {
+__global__ void apply_fp16_overrides(const int32_t * fp16_idx, const float * fp16_vals, int64_t n_fp16, float * out_w) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_fp16) return;
     int pos = fp16_idx[i];
-    out_half[pos] = __float2half(fp16_vals[i]);
+    out_w[pos] = fp16_vals[i];
 }
 
 int main(int argc, char ** argv) {
@@ -271,7 +272,7 @@ int main(int argc, char ** argv) {
     // Allocate device buffers
     uint8_t * d_pw = nullptr;
     uint8_t * d_pm = nullptr;
-    __half * d_out = nullptr;
+    float * d_out = nullptr;
     int32_t * d_idx2 = nullptr;
     int32_t * d_idx4 = nullptr;
     int32_t * d_idx8 = nullptr;
@@ -284,7 +285,7 @@ int main(int argc, char ** argv) {
     if (err != cudaSuccess) { std::cerr << "cudaMalloc d_pw failed: " << cudaGetErrorString(err) << std::endl; return 10; }
     err = cudaMalloc(&d_pm, (size_t)((total + 3) / 4));
     if (err != cudaSuccess) { std::cerr << "cudaMalloc d_pm failed: " << cudaGetErrorString(err) << std::endl; return 11; }
-    err = cudaMalloc(&d_out, (size_t) total * sizeof(__half));
+    err = cudaMalloc(&d_out, (size_t) total * sizeof(float));
     if (err != cudaSuccess) { std::cerr << "cudaMalloc d_out failed: " << cudaGetErrorString(err) << std::endl; return 12; }
     err = cudaMalloc(&d_idx2, (size_t) rows * sizeof(int32_t));
     if (err != cudaSuccess) { std::cerr << "cudaMalloc d_idx2 failed: " << cudaGetErrorString(err) << std::endl; return 13; }
@@ -340,13 +341,9 @@ int main(int argc, char ** argv) {
     cudaEventElapsedTime(&kernel_ms, start, stop);
 
     // Copy back
-    std::vector<__half> host_half((size_t) total);
-    err = cudaMemcpy(host_half.data(), d_out, (size_t) total * sizeof(__half), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { std::cerr << "cudaMemcpy out failed: " << cudaGetErrorString(err) << std::endl; return 25; }
-
-    // Convert to float
     std::vector<float> gpu_out((size_t) total);
-    for (int64_t i = 0; i < total; ++i) gpu_out[(size_t) i] = __half2float(host_half[(size_t) i]);
+    err = cudaMemcpy(gpu_out.data(), d_out, (size_t) total * sizeof(float), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) { std::cerr << "cudaMemcpy out failed: " << cudaGetErrorString(err) << std::endl; return 25; }
 
     // Compare
     double max_abs_diff = 0.0;
@@ -361,14 +358,15 @@ int main(int argc, char ** argv) {
         if (diff > max_abs_diff) max_abs_diff = diff;
         bool mismatch = false;
         if (tier >= 3) {
-            // Tier 2-bit
+            // Tier 2-bit: should be bit-exact with fp32 output
             if (a != b) { mismatch_tier2++; mismatch = true; }
         } else if (tier == 2) {
             if (a != b) { mismatch_tier4++; mismatch = true; }
         } else if (tier == 1) {
             if (a != b) { mismatch_tier8++; mismatch = true; }
         } else {
-            if (diff > 1e-6) { mismatch_fp16++; mismatch = true; }
+            // tier 0 (fp16 outliers): should be bit-exact with fp32 output
+            if (a != b) { mismatch_fp16++; mismatch = true; }
         }
         if (mismatch && mismatches.size() < 5) mismatches.push_back({pos, {a,b}});
     }
@@ -379,7 +377,9 @@ int main(int argc, char ** argv) {
               << " tier8(8bit)=" << mismatch_tier8
               << " fp16_outliers=" << mismatch_fp16 << std::endl;
     std::cout << "kernel_ms=" << kernel_ms << " ms" << std::endl;
-    if (!mismatches.empty()) {
+    if (!mismatch_tier2 && !mismatch_tier4 && !mismatch_tier8 && !mismatch_fp16) {
+        std::cout << "[PASS] All outputs bit-exact (fp32)!" << std::endl;
+    } else if (!mismatches.empty()) {
         std::cout << "First mismatches (pos cpu gpu):\n";
         for (auto &m : mismatches) {
             std::cout << " pos=" << m.first << " cpu=" << m.second.first << " gpu=" << m.second.second << "\n";

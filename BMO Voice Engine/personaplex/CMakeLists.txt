@@ -17,6 +17,9 @@ set(LLAMA_CPP_TAG "master" CACHE STRING "llama.cpp git tag/branch for FetchConte
 
 if(BMO_ENABLE_CUDA)
     set(GGML_CUDA ON CACHE BOOL "Enable ggml CUDA backend" FORCE)
+    add_compile_definitions(BMO_ENABLE_CUDA)
+    # Find CUDA toolkit for runtime linking
+    find_package(CUDAToolkit REQUIRED)
 endif()
 
 if(EXISTS "${LLAMA_CPP_DIR}/ggml/CMakeLists.txt")
@@ -45,6 +48,11 @@ else()
 endif()
 
 add_library(bmo STATIC bmo.cpp bmo_compute.cpp)
+
+# Link bmo against CUDA runtime if CUDA is enabled
+if(BMO_ENABLE_CUDA)
+    target_link_libraries(bmo PRIVATE CUDA::cudart CUDA::cuda_driver)
+endif()
 
 # Main test binary (minimal correctness harness)
 add_executable(bmo_minimal bmo_minimal.cpp)
@@ -82,6 +90,9 @@ endforeach()
 if(NOT _link_targets)
     message(FATAL_ERROR "No ggml targets were discovered. Check llama.cpp/ggml build output.")
 endif()
+
+# Link bmo library against ggml targets
+target_link_libraries(bmo PRIVATE ${_link_targets})
 
 message(STATUS "Linking bmo_minimal and bmo_main with targets: ${_link_targets}")
 target_link_libraries(bmo_minimal PRIVATE ${_link_targets} bmo)
