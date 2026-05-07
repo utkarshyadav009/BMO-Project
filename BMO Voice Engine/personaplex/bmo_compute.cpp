@@ -12,6 +12,7 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
@@ -171,6 +172,8 @@ static ggml_tensor * apply_linear_with_transient_unpack(
     ggml_tensor * x,
     const std::vector<std::string> & base_candidates) {
 
+    auto unpack_t0 = std::chrono::steady_clock::now();
+
     packed_linear_ref linear = resolve_linear(model.wctx, base_candidates);
 
     if (!linear.packed_weights && !linear.dense_weight) {
@@ -257,6 +260,10 @@ static ggml_tensor * apply_linear_with_transient_unpack(
             fv16,
             ctx.shared_scratch_w.data());
 
+        auto unpack_t1 = std::chrono::steady_clock::now();
+        long unpack_ms = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+        std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_ms);
+
         ggml_tensor * W = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, cols, rows);
         std::memcpy(W->data, ctx.shared_scratch_w.data(), (size_t) total * sizeof(float));
 
@@ -267,6 +274,12 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 
     if (linear.dense_bias) {
         y = ggml_add(wctx, y, linear.dense_bias);
+    }
+
+    auto unpack_t1 = std::chrono::steady_clock::now();
+    long unpack_us = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+    if (!linear.packed_weights) {
+        std::fprintf(stderr, "[prof_unpack] base=%s dense_path_us=%ld\n", linear.base.c_str(), unpack_us);
     }
 
     return y;

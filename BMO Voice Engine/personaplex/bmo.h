@@ -4,11 +4,9 @@
 #include <string>
 #include <vector>
 
-extern "C" {
 #include "ggml.h"
 #include "ggml-cpu.h"
 #include "gguf.h"
-}
 
 // A single layer which may be either a temporal (multi-tier quantized)
 // or a standard unquantized depth layer. Fields not used for a given

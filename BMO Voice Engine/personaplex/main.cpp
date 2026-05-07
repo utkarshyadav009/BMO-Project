@@ -236,7 +236,12 @@ int main(int argc, char ** argv) {
                     ggml_tensor * layer_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
                     std::memcpy(layer_in->data, temporal_state.data(), ctx.n_embd * sizeof(float));
 
+                    auto build_t0_temp = std::chrono::steady_clock::now();
                     ggml_cgraph * temporal_gf = bmo_build_temporal_graph(ctx, model, layer_in, 0, layer, layer + 1);
+                    auto build_t1_temp = std::chrono::steady_clock::now();
+                    long build_ms_temp = std::chrono::duration_cast<std::chrono::milliseconds>(build_t1_temp - build_t0_temp).count();
+                    std::fprintf(stderr, "[prof_build] iter=%d phase=temporal layer=%d build_ms=%ld\n", iter, layer, build_ms_temp);
+
                     auto t0_temp = std::chrono::steady_clock::now();
                     const ggml_status temporal_status = ggml_graph_compute_with_ctx(ctx.work_ctx, temporal_gf, n_threads);
                     auto t1_temp = std::chrono::steady_clock::now();
@@ -274,7 +279,12 @@ int main(int argc, char ** argv) {
                     reinterpret_cast<int32_t *>(text_tokens->data)[0] = 0;
                     reinterpret_cast<int32_t *>(audio_tokens->data)[0] = 0;
 
+                    auto build_t0_depth = std::chrono::steady_clock::now();
                     ggml_cgraph * depth_gf = bmo_build_depth_graph(ctx, model, depth_in, text_tokens, audio_tokens, step, 0);
+                    auto build_t1_depth = std::chrono::steady_clock::now();
+                    long build_ms_depth = std::chrono::duration_cast<std::chrono::milliseconds>(build_t1_depth - build_t0_depth).count();
+                    std::fprintf(stderr, "[prof_build] iter=%d phase=depth step=%d build_ms=%ld\n", iter, step, build_ms_depth);
+
                     auto t0_depth = std::chrono::steady_clock::now();
                     const ggml_status depth_status = ggml_graph_compute_with_ctx(ctx.work_ctx, depth_gf, n_threads);
                     auto t1_depth = std::chrono::steady_clock::now();

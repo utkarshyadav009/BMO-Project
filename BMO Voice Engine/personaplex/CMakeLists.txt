@@ -1,11 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
-project(bmo_minimal LANGUAGES C CXX)
+
+option(BMO_ENABLE_CUDA "Enable ggml CUDA backend when available" OFF)
+
+if(BMO_ENABLE_CUDA)
+    project(bmo_minimal LANGUAGES C CXX CUDA)
+else()
+    project(bmo_minimal LANGUAGES C CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-option(BMO_ENABLE_CUDA "Enable ggml CUDA backend when available" OFF)
 option(BMO_USE_FETCHCONTENT "Fetch llama.cpp if local submodule is missing" OFF)
 set(LLAMA_CPP_DIR "${CMAKE_SOURCE_DIR}/llama.cpp" CACHE PATH "Path to llama.cpp source tree")
 set(LLAMA_CPP_TAG "master" CACHE STRING "llama.cpp git tag/branch for FetchContent fallback")
@@ -86,3 +91,9 @@ target_link_libraries(bmo_main PRIVATE ${_link_targets} bmo)
 add_executable(bmo_cuda_test bmo_cuda_test.cpp)
 target_include_directories(bmo_cuda_test PRIVATE "${CMAKE_SOURCE_DIR}")
 target_link_libraries(bmo_cuda_test PRIVATE ${_link_targets} bmo)
+
+# Standalone CUDA unpack kernel validation
+add_executable(bmo_unpack_kernel_test bmo_unpack_kernel_test.cu)
+target_include_directories(bmo_unpack_kernel_test PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(bmo_unpack_kernel_test PRIVATE ${_link_targets} bmo)
+set_target_properties(bmo_unpack_kernel_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
