@@ -1,8 +1,10 @@
 #include "bmo.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -42,11 +44,17 @@ int main(int argc, char ** argv) {
     std::string fname = "bmo_weights.gguf";
     std::string mode = "depth_cascade"; // default to depth for backwards compat
     bool debug_dumps = false;
+    int n_iterations = 100;
+    int n_threads = 32;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--mode" && i + 1 < argc) {
             mode = argv[++i];
+        } else if (arg == "--n-iterations" && i + 1 < argc) {
+            n_iterations = std::atoi(argv[++i]);
+        } else if (arg == "--n-threads" && i + 1 < argc) {
+            n_threads = std::atoi(argv[++i]);
         } else if (arg == "--debug-dumps") {
             debug_dumps = true;
         } else if (arg[0] != '-') {
@@ -216,13 +224,11 @@ int main(int argc, char ** argv) {
 
             std::cout << "[SUCCESS] Depth-step 0 validation completed!\n";
         } else if (mode == "stress_test") {
-            std::cout << "[bmo_main] Running Stress Test (100 iterations)...\n";
+            std::cout << "[bmo_main] Running Stress Test (" << n_iterations << " iterations)...\n";
 
             std::vector<float> temporal_state(ctx.n_embd, 1.0f);
-            for (int iter = 0; iter < 100; ++iter) {
-                if ((iter % 5) == 0) {
-                    std::cout << "[bmo_main] Stress iteration " << (iter + 1) << "/100\n";
-                }
+            auto loop_start = std::chrono::steady_clock::now();
+            for (int iter = 0; iter < n_iterations; ++iter) {
                 // Temporal pass over all layers, one layer at a time, to keep the
                 // transient graph well within the 2 GB work arena.
                 for (int layer = 0; layer < ctx.n_layers; ++layer) {
@@ -231,10 +237,15 @@ int main(int argc, char ** argv) {
                     std::memcpy(layer_in->data, temporal_state.data(), ctx.n_embd * sizeof(float));
 
                     ggml_cgraph * temporal_gf = bmo_build_temporal_graph(ctx, model, layer_in, 0, layer, layer + 1);
-                    const ggml_status temporal_status = ggml_graph_compute_with_ctx(ctx.work_ctx, temporal_gf, 1);
+                    auto t0_temp = std::chrono::steady_clock::now();
+                    const ggml_status temporal_status = ggml_graph_compute_with_ctx(ctx.work_ctx, temporal_gf, n_threads);
+                    auto t1_temp = std::chrono::steady_clock::now();
                     if (temporal_status != GGML_STATUS_SUCCESS) {
                         throw std::runtime_error("Stress test: temporal graph compute failed at iteration " + std::to_string(iter) + " layer " + std::to_string(layer));
                     }
+
+                    long compute_ms_temp = std::chrono::duration_cast<std::chrono::milliseconds>(t1_temp - t0_temp).count();
+                    std::fprintf(stderr, "[prof] iter=%d phase=temporal layer=%d compute_ms=%ld\n", iter, layer, compute_ms_temp);
 
                     const std::string temporal_out_name = "out_layer_" + std::to_string(layer);
                     ggml_tensor * temporal_out = ggml_graph_get_tensor(temporal_gf, temporal_out_name.c_str());
@@ -264,14 +275,43 @@ int main(int argc, char ** argv) {
                     reinterpret_cast<int32_t *>(audio_tokens->data)[0] = 0;
 
                     ggml_cgraph * depth_gf = bmo_build_depth_graph(ctx, model, depth_in, text_tokens, audio_tokens, step, 0);
-                    const ggml_status depth_status = ggml_graph_compute_with_ctx(ctx.work_ctx, depth_gf, 1);
+                    auto t0_depth = std::chrono::steady_clock::now();
+                    const ggml_status depth_status = ggml_graph_compute_with_ctx(ctx.work_ctx, depth_gf, n_threads);
+                    auto t1_depth = std::chrono::steady_clock::now();
                     if (depth_status != GGML_STATUS_SUCCESS) {
                         throw std::runtime_error("Stress test: depth graph compute failed at iteration " + std::to_string(iter));
                     }
 
+                    long compute_ms_depth = std::chrono::duration_cast<std::chrono::milliseconds>(t1_depth - t0_depth).count();
+                    std::fprintf(stderr, "[prof] iter=%d phase=depth step=%d compute_ms=%ld\n", iter, step, compute_ms_depth);
+
                     ggml_graph_clear(depth_gf);
                     ggml_free(ctx.work_ctx);
                     ctx.work_ctx = nullptr;
+                }
+
+                {
+                    auto now = std::chrono::steady_clock::now();
+                    long iter_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - loop_start).count();
+                    loop_start = now;
+
+                    long rss_kb = 0;
+                    FILE * f = fopen("/proc/self/status", "r");
+                    if (f) {
+                        char line[256];
+                        while (fgets(line, sizeof(line), f)) {
+                            if (strncmp(line, "VmRSS:", 6) == 0) {
+                                sscanf(line + 6, "%ld", &rss_kb);
+                                break;
+                            }
+                        }
+                        fclose(f);
+                    }
+
+                    std::cout << "[stress] iter=" << (iter + 1)
+                              << " iter_ms=" << iter_ms
+                              << " rss_mb=" << (rss_kb / 1024)
+                              << std::endl;
                 }
             }
 

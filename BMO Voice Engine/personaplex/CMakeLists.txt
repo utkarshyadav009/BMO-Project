@@ -81,3 +81,8 @@ endif()
 message(STATUS "Linking bmo_minimal and bmo_main with targets: ${_link_targets}")
 target_link_libraries(bmo_minimal PRIVATE ${_link_targets} bmo)
 target_link_libraries(bmo_main PRIVATE ${_link_targets} bmo)
+
+# Minimal CUDA/ggml sanity test for backend verification
+add_executable(bmo_cuda_test bmo_cuda_test.cpp)
+target_include_directories(bmo_cuda_test PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(bmo_cuda_test PRIVATE ${_link_targets} bmo)
