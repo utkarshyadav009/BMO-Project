@@ -23,6 +23,9 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 #ifdef BMO_ENABLE_CUDA
 #include <cuda_runtime.h>
 #endif
+#ifdef BMO_JETSON
+#include <sys/mman.h>
+#endif
 
 #ifdef BMO_ENABLE_CUDA
 #ifndef BMO_JETSON
@@ -383,7 +386,6 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 if (!ctx.cuda_packed_stream_buffer || ctx.cuda_packed_stream_buffer_bytes == 0) {
                     throw std::runtime_error("Jetson packed stream buffer is not allocated");
                 }
-                const size_t bo_size = dp_ref.host_block_offset.size() * sizeof(int32_t);
                 uint8_t * base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
                 size_t offset = 0;
 
@@ -402,18 +404,43 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     offset += dp_ref.fv_size;
                 }
 
+                // Build block offsets JIT into the stream buffer.
                 void * d_offsets = base + offset;
-                std::memcpy(d_offsets, dp_ref.host_block_offset.data(), bo_size);
+                int32_t * bo_ptr = reinterpret_cast<int32_t *>(d_offsets);
+                const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(dp_ref.host_packed_mask);
+                int32_t c2 = 0, c4 = 0, c8 = 0, c16 = 0;
+                const int32_t bs = dp_ref.block_size > 0 ? dp_ref.block_size : 32;
+                for (int32_t block_idx = 0; block_idx < dp_ref.n_blocks; ++block_idx) {
+                    const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
+                    const uint8_t tier = (mbyte >> ((block_idx % 4) * 2)) & 0x3;
+                    if (tier == 0) {
+                        bo_ptr[block_idx] = c16;
+                        c16 += bs;
+                    } else if (tier == 1) {
+                        bo_ptr[block_idx] = c8;
+                        c8 += bs;
+                    } else if (tier == 2) {
+                        bo_ptr[block_idx] = c4;
+                        c4 += bs;
+                    } else {
+                        bo_ptr[block_idx] = c2;
+                        c2 += bs;
+                    }
+                }
+                const size_t bo_size = (size_t) dp_ref.n_blocks * sizeof(int32_t);
                 offset += bo_size;
-                if (offset > 128ULL * 1024ULL * 1024ULL || offset > ctx.cuda_packed_stream_buffer_bytes) {
+                if (offset > ctx.cuda_packed_stream_buffer_bytes) {
                     throw std::runtime_error("Stream buffer overflow!");
                 }
 
+                if (!ctx.cuda_unpack_scratch_dev) {
+                    throw std::runtime_error("Jetson unpack scratch has no device pointer (cudaHostGetDevicePointer failed)");
+                }
                 launch_unpack_kernel_streamed(
                     d_weights,
                     d_mask,
                     d_fv,
-                    reinterpret_cast<const int32_t *>(d_offsets),
+                    bo_ptr,
                     rows,
                     cols,
                     dp_ref.block_size > 0 ? dp_ref.block_size : 32,
@@ -426,7 +453,7 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     zp_low,
                     zp_int4,
                     zp_int8,
-                    reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
+                    reinterpret_cast<float *>(ctx.cuda_unpack_scratch_dev));
 #else
                 launch_unpack_kernel(
                     &dp_ref,
@@ -451,6 +478,13 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 #endif
                 if (sync_err != cudaSuccess) {
                     throw std::runtime_error(std::string("CUDA sync failed after unpack for ") + linear.base + ": " + cudaGetErrorString(sync_err));
+                }
+
+                // Evict streamed mmap pages from Linux page cache to reduce RSS growth.
+                (void) posix_madvise(dp_ref.host_packed_weights, dp_ref.pw_size, POSIX_MADV_DONTNEED);
+                (void) posix_madvise(dp_ref.host_packed_mask, dp_ref.pm_size, POSIX_MADV_DONTNEED);
+                if (dp_ref.host_fp16_values) {
+                    (void) posix_madvise(dp_ref.host_fp16_values, dp_ref.fv_size, POSIX_MADV_DONTNEED);
                 }
 
 #ifdef BMO_JETSON

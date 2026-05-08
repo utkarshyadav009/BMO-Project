@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <cstring>
-#include <cassert>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -259,30 +258,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                 continue;
             }
 
-            const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(pm->data);
-            std::vector<int32_t> block_offset((size_t) n_blocks, 0);
-            int32_t c2 = 0;
-            int32_t c4 = 0;
-            int32_t c8 = 0;
-            int32_t c16 = 0;
-            for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
-                const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
-                const uint8_t tier = unpack_u2_le(mbyte, block_idx % 4);
-                if (tier == 0) {
-                    block_offset[(size_t) block_idx] = c16;
-                    c16 += block_size;
-                } else if (tier == 1) {
-                    block_offset[(size_t) block_idx] = c8;
-                    c8 += block_size;
-                } else if (tier == 2) {
-                    block_offset[(size_t) block_idx] = c4;
-                    c4 += block_size;
-                } else {
-                    block_offset[(size_t) block_idx] = c2;
-                    c2 += block_size;
-                }
-            }
-
             int64_t n_fp16 = 0;
             if (fv->type == GGML_TYPE_F16) {
                 n_fp16 = ggml_nbytes(fv) / sizeof(ggml_fp16_t);
@@ -309,6 +284,30 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             const int32_t n_blocks_from_mask = static_cast<int32_t>(pm_bytes * 4);
             n_blocks = n_blocks_from_mask;
             dp.n_blocks = n_blocks_from_mask;
+#else
+            const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(pm->data);
+            std::vector<int32_t> block_offset((size_t) n_blocks, 0);
+            int32_t c2 = 0;
+            int32_t c4 = 0;
+            int32_t c8 = 0;
+            int32_t c16 = 0;
+            for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
+                const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
+                const uint8_t tier = unpack_u2_le(mbyte, block_idx % 4);
+                if (tier == 0) {
+                    block_offset[(size_t) block_idx] = c16;
+                    c16 += block_size;
+                } else if (tier == 1) {
+                    block_offset[(size_t) block_idx] = c8;
+                    c8 += block_size;
+                } else if (tier == 2) {
+                    block_offset[(size_t) block_idx] = c4;
+                    c4 += block_size;
+                } else {
+                    block_offset[(size_t) block_idx] = c2;
+                    c2 += block_size;
+                }
+            }
 #endif
 
             cudaError_t err = cudaSuccess;
@@ -324,30 +323,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             dp.pm_size = pm_bytes;
             dp.host_fp16_values = fv->data;
             dp.fv_size = (size_t) ggml_nbytes(fv);
-            dp.host_block_offset.clear();
-            dp.host_block_offset.resize((size_t) n_blocks, 0);
-            c2 = 0;
-            c4 = 0;
-            c8 = 0;
-            c16 = 0;
-            for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
-                const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
-                const uint8_t tier = unpack_u2_le(mbyte, block_idx % 4);
-                if (tier == 0) {
-                    dp.host_block_offset[(size_t) block_idx] = c16;
-                    c16 += block_size;
-                } else if (tier == 1) {
-                    dp.host_block_offset[(size_t) block_idx] = c8;
-                    c8 += block_size;
-                } else if (tier == 2) {
-                    dp.host_block_offset[(size_t) block_idx] = c4;
-                    c4 += block_size;
-                } else {
-                    dp.host_block_offset[(size_t) block_idx] = c2;
-                    c2 += block_size;
-                }
-            }
-            assert(dp.host_block_offset.size() == (size_t) n_blocks);
 #else
             err = cudaMalloc(&dp.packed_weights, pw_bytes);
             if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
@@ -401,7 +376,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     const size_t scratch_bytes = max_unpack_elems * sizeof(float);
 #ifdef BMO_JETSON
     if (max_unpack_elems > 0) {
-        size_t stream_size = 128ULL * 1024 * 1024; // 128 MB is enough for our largest matrix
+        size_t stream_size = 45ULL * 1024 * 1024; // 45 MB is enough for our largest matrix
         cudaError_t stream_err = cudaMallocManaged(&ctx.cuda_packed_stream_buffer, stream_size);
         if (stream_err == cudaSuccess) {
             ctx.cuda_packed_stream_buffer_bytes = stream_size;
@@ -417,10 +392,22 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 #endif
     if (scratch_bytes > 0) {
 #ifdef BMO_JETSON
-        cudaError_t err = cudaMallocManaged(&ctx.cuda_unpack_scratch, scratch_bytes);
+        // Page-locked mapped host memory: avoids NvMap fragmentation from cudaMallocManaged on Jetson.
+        cudaError_t err = cudaHostAlloc(&ctx.cuda_unpack_scratch, scratch_bytes, cudaHostAllocMapped);
+        ctx.cuda_unpack_scratch_dev = nullptr;
         if (err == cudaSuccess) {
-            cudaMemAdvise(ctx.cuda_unpack_scratch, scratch_bytes, cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId);
             ctx.cuda_unpack_scratch_managed = true;
+            void * dev_ptr = nullptr;
+            cudaError_t map_err = cudaHostGetDevicePointer(&dev_ptr, ctx.cuda_unpack_scratch, 0);
+            if (map_err == cudaSuccess) {
+                ctx.cuda_unpack_scratch_dev = dev_ptr;
+            } else {
+                std::cerr << "[bmo_prepare_device_packed_tensors] cudaHostGetDevicePointer failed: "
+                          << cudaGetErrorString(map_err) << "\n";
+                cudaFreeHost(ctx.cuda_unpack_scratch);
+                ctx.cuda_unpack_scratch = nullptr;
+                err = map_err;
+            }
         }
 #else
         cudaError_t err = cudaMalloc(&ctx.cuda_unpack_scratch, scratch_bytes);
@@ -430,13 +417,15 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             std::cout << "[bmo_prepare_device_packed_tensors] cuda_unpack_scratch="
                       << (double) scratch_bytes / (1024.0 * 1024.0) << " MB"
 #ifdef BMO_JETSON
-                      << " managed"
+                      << " pinned mapped (host)"
 #endif
                       << "\n";
         } else {
             ctx.cuda_unpack_scratch = nullptr;
+            ctx.cuda_unpack_scratch_dev = nullptr;
             ctx.cuda_unpack_scratch_bytes = 0;
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc scratch failed: "
+            ctx.cuda_unpack_scratch_managed = false;
+            std::cerr << "[bmo_prepare_device_packed_tensors] scratch allocation failed: "
                       << cudaGetErrorString(err) << "\n";
         }
     }
@@ -452,9 +441,14 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
     ctx.packed_registry.clear();
 
     if (ctx.cuda_unpack_scratch) {
+#ifdef BMO_JETSON
+        cudaFreeHost(ctx.cuda_unpack_scratch);
+#else
         cudaFree(ctx.cuda_unpack_scratch);
+#endif
         ctx.cuda_unpack_scratch = nullptr;
     }
+    ctx.cuda_unpack_scratch_dev = nullptr;
     ctx.cuda_unpack_scratch_bytes = 0;
     ctx.cuda_unpack_scratch_managed = false;
     if (ctx.cuda_packed_stream_buffer) {
@@ -472,6 +466,12 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
         throw std::runtime_error("KV cache init requires valid n_layers, n_heads and head_dim in context");
     }
 
+#ifdef BMO_JETSON
+    if (n_ctx > 128) {
+        std::cout << "[bmo_jetson] Overriding n_ctx from " << n_ctx << " to 128 to prevent OOM\n";
+        n_ctx = 128;
+    }
+#endif
     ctx.n_ctx = n_ctx;
 
     // Estimate required memory: two caches (k and v) stored as f16

@@ -19,7 +19,6 @@ struct device_packed_t {
     size_t pm_size = 0;
     void * host_fp16_values = nullptr;
     size_t fv_size = 0;
-    std::vector<int32_t> host_block_offset;
 #else
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
     void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
@@ -112,7 +111,8 @@ struct bmo_context {
 
     // CUDA backend (if available)
     void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
-    void * cuda_unpack_scratch = nullptr; // float* device scratch for unpacked matrix
+    void * cuda_unpack_scratch = nullptr; // float* scratch for unpacked matrix (host ptr if pinned mapped)
+    void * cuda_unpack_scratch_dev = nullptr; // Jetson: device alias from cudaHostGetDevicePointer
     size_t cuda_unpack_scratch_bytes = 0;
     bool cuda_unpack_scratch_managed = false;
     void * cuda_packed_stream_buffer = nullptr;
