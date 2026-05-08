@@ -22,6 +22,7 @@ if(BMO_ENABLE_CUDA)
     find_package(CUDAToolkit REQUIRED)
 
     if(BMO_TARGET_JETSON)
+        add_compile_definitions(BMO_TARGET_JETSON)
         set(CMAKE_CUDA_ARCHITECTURES "87" CACHE STRING "CUDA Architecture for Jetson Orin Nano" FORCE)
         add_compile_options(
             "$<$<COMPILE_LANGUAGE:C,CXX>:-O3>"

@@ -90,7 +90,12 @@ int main(int argc, char ** argv) {
         std::cout << "[bmo_main] kv_bytes      = " << (double) ctx.kv_bytes / (1024.0 * 1024.0 * 1024.0) << " GB\n";
 
         std::cout << "[bmo_main] Initializing compute arenas...\n";
-        const size_t work_mem_size = (size_t) 2048ULL * 1024 * 1024;
+        const size_t work_mem_size =
+#ifdef BMO_TARGET_JETSON
+            (size_t) 512ULL * 1024 * 1024;
+#else
+            (size_t) 2048ULL * 1024 * 1024;
+#endif
         ctx.work_mem.resize(work_mem_size);
         std::cout << "[bmo_main] Allocated work_mem: "
                   << (double) work_mem_size / (1024.0 * 1024.0 * 1024.0) << " GB\n";
@@ -332,10 +337,12 @@ int main(int argc, char ** argv) {
                         fclose(f);
                     }
 
-                    size_t scratch_mb = ctx.shared_scratch_w.size() * sizeof(float) / (1024 * 1024);
+                    const size_t work_mem_mb = ctx.work_mem.size() / (1024 * 1024);
+                    const size_t scratch_mb = ctx.shared_scratch_w.size() * sizeof(float) / (1024 * 1024);
                     std::cout << "[stress] iter=" << (iter + 1)
                               << " iter_ms=" << iter_ms
                               << " rss_mb=" << (rss_kb / 1024)
+                              << " work_mem_mb=" << work_mem_mb
                               << " scratch_mb=" << scratch_mb
                               << std::endl;
                 }
