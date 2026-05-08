@@ -16,10 +16,7 @@ struct device_packed_t {
     void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
     void * fp16_indices = nullptr;        // legacy v1 fp16 index array
     void * fp16_values = nullptr;         // device ptr to fp16 block values / legacy overrides
-    void * idx2_start = nullptr;          // v2: per-block 2-bit element offsets
-    void * idx4_start = nullptr;          // v2: per-block 4-bit element offsets
-    void * idx8_start = nullptr;          // v2: per-block 8-bit element offsets
-    void * idxf16_start = nullptr;        // v2: per-block fp16 element offsets
+    void * block_offset = nullptr;        // v3: per-block element offset into that block's tier stream
     int32_t rows = 0;
     int32_t cols = 0;
     int32_t block_size = 0;

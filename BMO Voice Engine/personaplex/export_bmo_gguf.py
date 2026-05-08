@@ -121,7 +121,7 @@ def create_packed_layer(
     ratio_int8: float = DEFAULT_RATIO_INT8,
     ratio_int4: float = DEFAULT_RATIO_INT4,
 ) -> Dict[str, Any]:
-    """Return block-wise SEPTQ v2 packed artifacts for this layer.
+    """Return block-wise SEPTQ v3 packed artifacts for this layer.
 
     The returned dict contains at minimum:
       - packed_mask: uint8 bytes (4 uint2 block tags per byte)
@@ -129,11 +129,10 @@ def create_packed_layer(
       - n_2bit_bytes, n_4bit_bytes, n_8bit_bytes: int sizes
       - scale_low, scale_int4, scale_int8 (float32)
       - fp16_values (float16), with full tier-0 blocks stored sequentially
-      - idx2_start, idx4_start, idx8_start, idxf16_start: per-block element offsets
       - bias (float32) if provided
     """
     if block_size != 32:
-        raise RuntimeError("SEPTQ v2 CUDA path currently expects block_size=32")
+        raise RuntimeError("SEPTQ v3 CUDA path currently expects block_size=32")
 
     w = dense_weight.detach().cpu().float()
     rows, cols = int(w.shape[0]), int(w.shape[1])
@@ -232,25 +231,6 @@ def create_packed_layer(
     packed_8 = q1_vals.view(np.uint8) if q1_vals.size else np.zeros(0, dtype=np.uint8)
     packed_weights = np.concatenate([packed_2, packed_4, packed_8])
 
-    idx2_start = np.zeros(n_blocks, dtype=np.int32)
-    idx4_start = np.zeros(n_blocks, dtype=np.int32)
-    idx8_start = np.zeros(n_blocks, dtype=np.int32)
-    idxf16_start = np.zeros(n_blocks, dtype=np.int32)
-    c2 = c4 = c8 = cf16 = 0
-    for i, tier in enumerate(block_tiers):
-        idx2_start[i] = c2
-        idx4_start[i] = c4
-        idx8_start[i] = c8
-        idxf16_start[i] = cf16
-        if tier == 0:
-            cf16 += block_size
-        elif tier == 1:
-            c8 += block_size
-        elif tier == 2:
-            c4 += block_size
-        else:
-            c2 += block_size
-
     out: Dict[str, Any] = {}
     out["packed_mask"] = pack_uint2_mask_le(block_tiers)
     out["packed_weights"] = packed_weights
@@ -259,10 +239,6 @@ def create_packed_layer(
     out["n_8bit_bytes"] = np.int32(packed_8.size)
     out["block_size"] = np.int32(block_size)
     out["n_blocks"] = np.int32(n_blocks)
-    out["idx2_start"] = idx2_start
-    out["idx4_start"] = idx4_start
-    out["idx8_start"] = idx8_start
-    out["idxf16_start"] = idxf16_start
     out["scale_low"] = np.float32(scale_low)
     out["scale_int4"] = np.float32(scale_int4)
     out["scale_int8"] = np.float32(scale_int8)
@@ -273,7 +249,7 @@ def create_packed_layer(
     out["threshold_4bit"] = np.float32(threshold_4bit)
     out["threshold_2bit"] = np.float32(threshold_2bit)
     out["fp16_values"] = fp16_values
-    out["packing_version"] = np.int32(2)
+    out["packing_version"] = np.int32(3)
     if bias is not None:
         out["bias"] = bias.detach().cpu().numpy().astype(np.float32)
 
@@ -433,10 +409,6 @@ def main() -> None:
             "n_8bit_bytes",
             "block_size",
             "n_blocks",
-            "idx2_start",
-            "idx4_start",
-            "idx8_start",
-            "idxf16_start",
             "scale_low",
             "scale_int4",
             "scale_int8",
@@ -462,10 +434,6 @@ def main() -> None:
             + int(blobs_for_layer["n_8bit_bytes"])
             + blobs_for_layer["packed_mask"].nbytes
             + blobs_for_layer["fp16_values"].nbytes
-            + blobs_for_layer["idx2_start"].nbytes
-            + blobs_for_layer["idx4_start"].nbytes
-            + blobs_for_layer["idx8_start"].nbytes
-            + blobs_for_layer["idxf16_start"].nbytes
         )
         total_packed_bytes += packed_bytes
         return packed_bytes
@@ -639,7 +607,7 @@ def main() -> None:
         dense_export_count += 1
 
     # Temporal attention output projection.
-    # SEPTQ v2 block-packs out_proj as well; v1 skipped it for quality.
+    # SEPTQ v3 block-packs out_proj as well; v1 skipped it for quality.
     for i in range(32):
         weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
         bias_key = f"transformer.layers.{i}.self_attn.out_proj.bias"

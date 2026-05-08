@@ -27,10 +27,7 @@ __global__ void unpack_kernel(
     float zp_low,
     float zp_int4,
     float zp_int8,
-    const int32_t * idx2_start,
-    const int32_t * idx4_start,
-    const int32_t * idx8_start,
-    const int32_t * idxf16_start,
+    const int32_t * block_offset,
     const ggml_fp16_t * fp16_values,
     int block_size,
     float * out_w) {
@@ -48,20 +45,21 @@ __global__ void unpack_kernel(
     const int in_block = pos - block_idx * block_size;
     const uint8_t mbyte = packed_mask[block_idx / 4];
     const uint8_t tier = (mbyte >> ((block_idx % 4) * 2)) & 0x3;
+    const int off = block_offset[block_idx];
 
     float v = 0.0f;
     if (tier == 0) {
-        v = fp16_to_fp32_device(fp16_values[idxf16_start[block_idx] + in_block]);
+        v = fp16_to_fp32_device(fp16_values[off + in_block]);
     } else if (tier == 1) {
-        const uint8_t q = stream8[idx8_start[block_idx] + in_block];
+        const uint8_t q = stream8[off + in_block];
         v = ((float) q - zp_int8) * scale_int8;
     } else if (tier == 2) {
-        const int idx4 = idx4_start[block_idx] + in_block;
+        const int idx4 = off + in_block;
         const uint8_t b = stream4[idx4 / 2];
         const uint8_t q = (idx4 % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
         v = ((float) q - zp_int4) * scale_int4;
     } else {
-        const int idx2 = idx2_start[block_idx] + in_block;
+        const int idx2 = off + in_block;
         const uint8_t b = stream2[idx2 / 4];
         const uint8_t q = (b >> ((idx2 % 4) * 2)) & 0x3;
         v = ((float) q - zp_low) * scale_low;
@@ -107,10 +105,7 @@ void launch_unpack_kernel(
         zp_low,
         zp_int4,
         zp_int8,
-        reinterpret_cast<const int32_t *>(dp->idx2_start),
-        reinterpret_cast<const int32_t *>(dp->idx4_start),
-        reinterpret_cast<const int32_t *>(dp->idx8_start),
-        reinterpret_cast<const int32_t *>(dp->idxf16_start),
+        reinterpret_cast<const int32_t *>(dp->block_offset),
         reinterpret_cast<const ggml_fp16_t *>(dp->fp16_values),
         dp->block_size > 0 ? dp->block_size : 32,
         out_w);

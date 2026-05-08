@@ -50,41 +50,57 @@ static void unpack_blockwise_cpu(
     float zp_low,
     float zp_int4,
     float zp_int8,
-    const int32_t * idx2_start,
-    const int32_t * idx4_start,
-    const int32_t * idx8_start,
-    const int32_t * idxf16_start,
     const ggml_fp16_t * fp16_values,
     float * out_w) {
     const int64_t total = (int64_t) rows * (int64_t) cols;
+    const int64_t n_blocks = (total + block_size - 1) / block_size;
     const uint8_t * stream2 = packed_weights;
     const uint8_t * stream4 = packed_weights + n_2bit_bytes;
     const uint8_t * stream8 = packed_weights + n_2bit_bytes + n_4bit_bytes;
 
-    for (int64_t pos = 0; pos < total; ++pos) {
-        const int32_t block_idx = (int32_t) (pos / block_size);
-        const int32_t in_block = (int32_t) (pos % block_size);
+    int32_t c2 = 0;
+    int32_t c4 = 0;
+    int32_t c8 = 0;
+    int32_t c16 = 0;
+    for (int64_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
         const uint8_t mbyte = packed_mask[(size_t) (block_idx / 4)];
         const uint8_t tier = unpack_u2_le(mbyte, (int) (block_idx % 4));
-
-        float v = 0.0f;
         if (tier == 0) {
-            v = ggml_fp16_to_fp32(fp16_values[(size_t) idxf16_start[block_idx] + (size_t) in_block]);
+            for (int32_t in_block = 0; in_block < block_size; ++in_block) {
+                const int64_t pos = block_idx * block_size + in_block;
+                if (pos >= total) break;
+                out_w[(size_t) pos] = ggml_fp16_to_fp32(fp16_values[(size_t) c16 + (size_t) in_block]);
+            }
+            c16 += block_size;
         } else if (tier == 1) {
-            const uint8_t q = stream8[idx8_start[block_idx] + in_block];
-            v = ((float) q - zp_int8) * scale_int8;
+            for (int32_t in_block = 0; in_block < block_size; ++in_block) {
+                const int64_t pos = block_idx * block_size + in_block;
+                if (pos >= total) break;
+                const uint8_t q = stream8[c8 + in_block];
+                out_w[(size_t) pos] = ((float) q - zp_int8) * scale_int8;
+            }
+            c8 += block_size;
         } else if (tier == 2) {
-            const int32_t idx4 = idx4_start[block_idx] + in_block;
-            const uint8_t b = stream4[idx4 / 2];
-            const uint8_t q = (idx4 % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
-            v = ((float) q - zp_int4) * scale_int4;
+            for (int32_t in_block = 0; in_block < block_size; ++in_block) {
+                const int64_t pos = block_idx * block_size + in_block;
+                if (pos >= total) break;
+                const int32_t idx4 = c4 + in_block;
+                const uint8_t b = stream4[idx4 / 2];
+                const uint8_t q = (idx4 % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+                out_w[(size_t) pos] = ((float) q - zp_int4) * scale_int4;
+            }
+            c4 += block_size;
         } else {
-            const int32_t idx2 = idx2_start[block_idx] + in_block;
-            const uint8_t b = stream2[idx2 / 4];
-            const uint8_t q = unpack_u2_le(b, (int) (idx2 % 4));
-            v = ((float) q - zp_low) * scale_low;
+            for (int32_t in_block = 0; in_block < block_size; ++in_block) {
+                const int64_t pos = block_idx * block_size + in_block;
+                if (pos >= total) break;
+                const int32_t idx2 = c2 + in_block;
+                const uint8_t b = stream2[idx2 / 4];
+                const uint8_t q = unpack_u2_le(b, (int) (idx2 % 4));
+                out_w[(size_t) pos] = ((float) q - zp_low) * scale_low;
+            }
+            c2 += block_size;
         }
-        out_w[(size_t) pos] = v;
     }
 }
 
@@ -110,10 +126,7 @@ __global__ void unpack_blockwise_kernel(
     float zp_low,
     float zp_int4,
     float zp_int8,
-    const int32_t * idx2_start,
-    const int32_t * idx4_start,
-    const int32_t * idx8_start,
-    const int32_t * idxf16_start,
+    const int32_t * block_offset,
     const ggml_fp16_t * fp16_values,
     float * out_w) {
     const int pos = blockIdx.x * blockDim.x + threadIdx.x;
@@ -128,20 +141,21 @@ __global__ void unpack_blockwise_kernel(
     const int in_block = pos - block_idx * block_size;
     const uint8_t mbyte = packed_mask[block_idx / 4];
     const uint8_t tier = (mbyte >> ((block_idx % 4) * 2)) & 0x3;
+    const int off = block_offset[block_idx];
 
     float v = 0.0f;
     if (tier == 0) {
-        v = fp16_to_fp32_device(fp16_values[idxf16_start[block_idx] + in_block]);
+        v = fp16_to_fp32_device(fp16_values[off + in_block]);
     } else if (tier == 1) {
-        const uint8_t q = stream8[idx8_start[block_idx] + in_block];
+        const uint8_t q = stream8[off + in_block];
         v = ((float) q - zp_int8) * scale_int8;
     } else if (tier == 2) {
-        const int idx4 = idx4_start[block_idx] + in_block;
+        const int idx4 = off + in_block;
         const uint8_t b = stream4[idx4 / 2];
         const uint8_t q = (idx4 % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
         v = ((float) q - zp_int4) * scale_int4;
     } else {
-        const int idx2 = idx2_start[block_idx] + in_block;
+        const int idx2 = off + in_block;
         const uint8_t b = stream2[idx2 / 4];
         const uint8_t q = (b >> ((idx2 % 4) * 2)) & 0x3;
         v = ((float) q - zp_low) * scale_low;
@@ -183,12 +197,8 @@ int main(int argc, char ** argv) {
     ggml_tensor * pw_t = ggml_get_tensor(model.wctx, (base + ".packed_weights").c_str());
     ggml_tensor * pm_t = ggml_get_tensor(model.wctx, (base + ".packed_mask").c_str());
     ggml_tensor * fv_t = ggml_get_tensor(model.wctx, (base + ".fp16_values").c_str());
-    ggml_tensor * idx2_t = ggml_get_tensor(model.wctx, (base + ".idx2_start").c_str());
-    ggml_tensor * idx4_t = ggml_get_tensor(model.wctx, (base + ".idx4_start").c_str());
-    ggml_tensor * idx8_t = ggml_get_tensor(model.wctx, (base + ".idx8_start").c_str());
-    ggml_tensor * idxf16_t = ggml_get_tensor(model.wctx, (base + ".idxf16_start").c_str());
-    if (!pw_t || !pm_t || !fv_t || !idx2_t || !idx4_t || !idx8_t || !idxf16_t) {
-        std::cerr << "Missing SEPTQ v2 block-wise tensors for base: " << base << "\n";
+    if (!pw_t || !pm_t || !fv_t) {
+        std::cerr << "Missing SEPTQ v3 block-wise tensors for base: " << base << "\n";
         return 3;
     }
 
@@ -211,41 +221,55 @@ int main(int argc, char ** argv) {
     const float zp_int8 = read_scalar_f32(model.wctx, base + ".zp_int8", 127.5f);
 
     if (fv_t->type != GGML_TYPE_F16) {
-        std::cerr << "Expected fp16_values to be GGML_TYPE_F16 for SEPTQ v2 test\n";
+        std::cerr << "Expected fp16_values to be GGML_TYPE_F16 for SEPTQ v3 test\n";
         return 5;
     }
 
     const auto * pw = reinterpret_cast<const uint8_t *>(pw_t->data);
     const auto * pm = reinterpret_cast<const uint8_t *>(pm_t->data);
-    const auto * idx2 = reinterpret_cast<const int32_t *>(idx2_t->data);
-    const auto * idx4 = reinterpret_cast<const int32_t *>(idx4_t->data);
-    const auto * idx8 = reinterpret_cast<const int32_t *>(idx8_t->data);
-    const auto * idxf16 = reinterpret_cast<const int32_t *>(idxf16_t->data);
     const auto * fv = reinterpret_cast<const ggml_fp16_t *>(fv_t->data);
 
     const int64_t total = (int64_t) rows * (int64_t) cols;
+    const int64_t n_blocks = (total + block_size - 1) / block_size;
+    std::vector<int32_t> block_offset((size_t) n_blocks, 0);
+    int32_t c2 = 0;
+    int32_t c4 = 0;
+    int32_t c8 = 0;
+    int32_t c16 = 0;
+    for (int64_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
+        const uint8_t mbyte = pm[(size_t) block_idx / 4];
+        const uint8_t tier = unpack_u2_le(mbyte, (int) (block_idx % 4));
+        if (tier == 0) {
+            block_offset[(size_t) block_idx] = c16;
+            c16 += block_size;
+        } else if (tier == 1) {
+            block_offset[(size_t) block_idx] = c8;
+            c8 += block_size;
+        } else if (tier == 2) {
+            block_offset[(size_t) block_idx] = c4;
+            c4 += block_size;
+        } else {
+            block_offset[(size_t) block_idx] = c2;
+            c2 += block_size;
+        }
+    }
+
     std::vector<float> cpu_out((size_t) total);
     unpack_blockwise_cpu(
         pw, pm, rows, cols, block_size, n_2bit_bytes, n_4bit_bytes, n_8bit_bytes,
         scale_low, scale_int4, scale_int8, zp_low, zp_int4, zp_int8,
-        idx2, idx4, idx8, idxf16, fv, cpu_out.data());
+        fv, cpu_out.data());
 
     uint8_t * d_pw = nullptr;
     uint8_t * d_pm = nullptr;
-    int32_t * d_idx2 = nullptr;
-    int32_t * d_idx4 = nullptr;
-    int32_t * d_idx8 = nullptr;
-    int32_t * d_idxf16 = nullptr;
+    int32_t * d_block_offset = nullptr;
     ggml_fp16_t * d_fv = nullptr;
     float * d_out = nullptr;
 
     try {
         cuda_copy_to_device(&d_pw, pw, (size_t) ggml_nbytes(pw_t), "packed_weights");
         cuda_copy_to_device(&d_pm, pm, (size_t) ggml_nbytes(pm_t), "packed_mask");
-        cuda_copy_to_device(&d_idx2, idx2, (size_t) ggml_nbytes(idx2_t), "idx2_start");
-        cuda_copy_to_device(&d_idx4, idx4, (size_t) ggml_nbytes(idx4_t), "idx4_start");
-        cuda_copy_to_device(&d_idx8, idx8, (size_t) ggml_nbytes(idx8_t), "idx8_start");
-        cuda_copy_to_device(&d_idxf16, idxf16, (size_t) ggml_nbytes(idxf16_t), "idxf16_start");
+        cuda_copy_to_device(&d_block_offset, block_offset.data(), block_offset.size() * sizeof(int32_t), "block_offset");
         cuda_copy_to_device(&d_fv, fv, (size_t) ggml_nbytes(fv_t), "fp16_values");
         cudaError_t err = cudaMalloc(reinterpret_cast<void **>(&d_out), (size_t) total * sizeof(float));
         if (err != cudaSuccess) throw std::runtime_error(std::string("cudaMalloc failed for output: ") + cudaGetErrorString(err));
@@ -263,7 +287,7 @@ int main(int argc, char ** argv) {
     unpack_blockwise_kernel<<<blocks, threads>>>(
         d_pw, d_pm, rows, cols, block_size, n_2bit_bytes, n_4bit_bytes, n_8bit_bytes,
         scale_low, scale_int4, scale_int8, zp_low, zp_int4, zp_int8,
-        d_idx2, d_idx4, d_idx8, d_idxf16, d_fv, d_out);
+        d_block_offset, d_fv, d_out);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
 
@@ -299,10 +323,7 @@ int main(int argc, char ** argv) {
 
     cudaFree(d_pw);
     cudaFree(d_pm);
-    cudaFree(d_idx2);
-    cudaFree(d_idx4);
-    cudaFree(d_idx8);
-    cudaFree(d_idxf16);
+    cudaFree(d_block_offset);
     cudaFree(d_fv);
     cudaFree(d_out);
     cudaEventDestroy(start);

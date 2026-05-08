@@ -236,41 +236,60 @@ static void unpack_layer_to_f32_blockwise(
     float zp_low,
     float zp_int4,
     float zp_int8,
-    const int32_t * idx2_start,
-    const int32_t * idx4_start,
-    const int32_t * idx8_start,
-    const int32_t * idxf16_start,
     const ggml_fp16_t * fp16_values,
     float * out_w) {
     const int64_t total = (int64_t) rows * (int64_t) cols;
+    const int64_t n_blocks = (total + block_size - 1) / block_size;
     const uint8_t * stream2 = packed_weights;
     const uint8_t * stream4 = packed_weights + n_2bit_bytes;
     const uint8_t * stream8 = packed_weights + n_2bit_bytes + n_4bit_bytes;
 
-    for (int64_t pos = 0; pos < total; ++pos) {
-        const int32_t block_idx = (int32_t) (pos / block_size);
-        const int32_t in_block = (int32_t) (pos % block_size);
+    int32_t c2 = 0;
+    int32_t c4 = 0;
+    int32_t c8 = 0;
+    int32_t c16 = 0;
+    for (int64_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
         const uint8_t mbyte = packed_mask[(size_t) (block_idx / 4)];
         const uint8_t tier = unpack_u2_le(mbyte, (int) (block_idx % 4));
-        float v = 0.0f;
+        int32_t off = 0;
         if (tier == 0) {
-            v = ggml_fp16_to_fp32(fp16_values[(size_t) idxf16_start[block_idx] + (size_t) in_block]);
+            off = c16;
+            c16 += block_size;
         } else if (tier == 1) {
-            const int32_t idx = idx8_start[block_idx] + in_block;
-            const uint8_t q = stream8[idx];
-            v = ((float) q - zp_int8) * scale_int8;
+            off = c8;
+            c8 += block_size;
         } else if (tier == 2) {
-            const int32_t idx = idx4_start[block_idx] + in_block;
-            const uint8_t b = stream4[idx / 2];
-            const uint8_t q = (idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
-            v = ((float) q - zp_int4) * scale_int4;
+            off = c4;
+            c4 += block_size;
         } else {
-            const int32_t idx = idx2_start[block_idx] + in_block;
-            const uint8_t b = stream2[idx / 4];
-            const uint8_t q = unpack_u2_le(b, (int) (idx % 4));
-            v = ((float) q - zp_low) * scale_low;
+            off = c2;
+            c2 += block_size;
         }
-        out_w[(size_t) pos] = v;
+
+        for (int32_t in_block = 0; in_block < block_size; ++in_block) {
+            const int64_t pos = block_idx * block_size + in_block;
+            if (pos >= total) {
+                break;
+            }
+            float v = 0.0f;
+            if (tier == 0) {
+                v = ggml_fp16_to_fp32(fp16_values[(size_t) off + (size_t) in_block]);
+            } else if (tier == 1) {
+                const uint8_t q = stream8[off + in_block];
+                v = ((float) q - zp_int8) * scale_int8;
+            } else if (tier == 2) {
+                const int32_t idx = off + in_block;
+                const uint8_t b = stream4[idx / 2];
+                const uint8_t q = (idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+                v = ((float) q - zp_int4) * scale_int4;
+            } else {
+                const int32_t idx = off + in_block;
+                const uint8_t b = stream2[idx / 4];
+                const uint8_t q = unpack_u2_le(b, (int) (idx % 4));
+                v = ((float) q - zp_low) * scale_low;
+            }
+            out_w[(size_t) pos] = v;
+        }
     }
 }
 
@@ -393,10 +412,6 @@ static ggml_tensor * apply_linear_with_transient_unpack(
             const uint8_t * pw = reinterpret_cast<const uint8_t *>(linear.packed_weights->data);
             const uint8_t * pm = reinterpret_cast<const uint8_t *>(linear.packed_mask->data);
             const int32_t block_size = read_scalar_i32(model.wctx, linear.base + ".block_size", 0);
-            ggml_tensor * idx2_t = get_tensor(model.wctx, linear.base + ".idx2_start");
-            ggml_tensor * idx4_t = get_tensor(model.wctx, linear.base + ".idx4_start");
-            ggml_tensor * idx8_t = get_tensor(model.wctx, linear.base + ".idx8_start");
-            ggml_tensor * idxf16_t = get_tensor(model.wctx, linear.base + ".idxf16_start");
 
             const ggml_fp16_t * fv16 = nullptr;
             std::vector<ggml_fp16_t> tmp_f16;
@@ -414,7 +429,7 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 throw std::runtime_error("unsupported fp16_values type in " + linear.base);
             }
 
-            if (block_size > 0 && idx2_t && idx4_t && idx8_t && idxf16_t) {
+            if (block_size > 0) {
                 unpack_layer_to_f32_blockwise(
                     pw,
                     pm,
@@ -430,10 +445,6 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     zp_low,
                     zp_int4,
                     zp_int8,
-                    reinterpret_cast<const int32_t *>(idx2_t->data),
-                    reinterpret_cast<const int32_t *>(idx4_t->data),
-                    reinterpret_cast<const int32_t *>(idx8_t->data),
-                    reinterpret_cast<const int32_t *>(idxf16_t->data),
                     fv16,
                     ctx.shared_scratch_w.data());
             } else {
