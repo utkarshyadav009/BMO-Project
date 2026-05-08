@@ -35,6 +35,11 @@ try:
 except Exception:
     gguf = None
 
+BLOCK_SIZE = 32
+DEFAULT_RATIO_FP16 = 0.02
+DEFAULT_RATIO_INT8 = 0.12
+DEFAULT_RATIO_INT4 = 0.36
+
 
 def unpack_tier_mask_uint2(packed: torch.Tensor, target_shape: Tuple[int, int]) -> torch.Tensor:
     total = int(target_shape[0]) * int(target_shape[1])
@@ -82,153 +87,193 @@ def pack_4bit_values_le(values: np.ndarray) -> np.ndarray:
     return packed
 
 
+def _affine_params_for_values(values: np.ndarray, qmax: int, fallback_zp: float) -> tuple[float, float]:
+    if values.size == 0:
+        return 1.0, fallback_zp
+    vmin = float(np.min(values))
+    vmax = float(np.max(values))
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or abs(vmax - vmin) < 1e-12:
+        return 1.0, fallback_zp
+    scale = max((vmax - vmin) / float(qmax), 1e-12)
+    zp = float(np.clip(np.round(-vmin / scale), 0, qmax))
+    return float(scale), zp
+
+
+def _ratio_counts(n_blocks: int, ratio_fp16: float, ratio_int8: float, ratio_int4: float) -> tuple[int, int, int]:
+    n_fp16 = int(round(float(ratio_fp16) * n_blocks))
+    n_int8 = int(round(float(ratio_int8) * n_blocks))
+    n_int4 = int(round(float(ratio_int4) * n_blocks))
+    n_fp16 = max(0, min(n_blocks, n_fp16))
+    n_int8 = max(0, min(n_blocks - n_fp16, n_int8))
+    n_int4 = max(0, min(n_blocks - n_fp16 - n_int8, n_int4))
+    return n_fp16, n_int8, n_int4
+
+
 def create_packed_layer(
     layer_name: str,
     dense_weight: torch.Tensor,
-    packed_mask_tensor: torch.Tensor,
+    packed_mask_tensor: torch.Tensor | None,
     module_meta: Dict[str, Any],
     bias: torch.Tensor | None = None,
+    *,
+    block_size: int = BLOCK_SIZE,
+    ratio_fp16: float = DEFAULT_RATIO_FP16,
+    ratio_int8: float = DEFAULT_RATIO_INT8,
+    ratio_int4: float = DEFAULT_RATIO_INT4,
 ) -> Dict[str, Any]:
-    """Return a dict of numpy arrays representing packed artifacts for this layer.
+    """Return block-wise SEPTQ v2 packed artifacts for this layer.
 
     The returned dict contains at minimum:
-      - packed_mask: uint8 bytes (4 uint2 per byte)
+      - packed_mask: uint8 bytes (4 uint2 block tags per byte)
       - packed_weights: concatenated [2bit_bytes | 4bit_bytes | 8bit_bytes]
       - n_2bit_bytes, n_4bit_bytes, n_8bit_bytes: int sizes
       - scale_low, scale_int4, scale_int8 (float32)
-      - fp16_indices (int32) and fp16_values (float16)
+      - fp16_values (float16), with full tier-0 blocks stored sequentially
+      - idx2_start, idx4_start, idx8_start, idxf16_start: per-block element offsets
       - bias (float32) if provided
     """
+    if block_size != 32:
+        raise RuntimeError("SEPTQ v2 CUDA path currently expects block_size=32")
+
     w = dense_weight.detach().cpu().float()
     rows, cols = int(w.shape[0]), int(w.shape[1])
     flat_w = w.reshape(-1)
+    total = int(flat_w.numel())
+    n_blocks = (total + block_size - 1) // block_size
+    padded_total = n_blocks * block_size
+    fw = flat_w.numpy().astype(np.float32, copy=False)
+    if padded_total != total:
+        fw_padded = np.zeros(padded_total, dtype=np.float32)
+        fw_padded[:total] = fw
+    else:
+        fw_padded = fw
+    blocks = fw_padded.reshape(n_blocks, block_size)
 
     # Extract scales and zero points (similar to profile_jetson._module_meta_float)
-    def _get_meta(key: str, fallback: str | None = None) -> float:
+    def _get_meta(key: str, fallback: str | None = None, default: float | None = None) -> float:
         v = module_meta.get(key, None)
         if v is None and fallback is not None:
             v = module_meta.get(fallback, None)
         if v is None:
+            if default is not None:
+                return float(default)
             raise RuntimeError(f"Missing quant metadata '{key}' for {layer_name}")
         if torch.is_tensor(v):
             return float(v.detach().item())
         return float(v)
 
-    scale_low = _get_meta("quant_scale_low", "quant_scale")
-    zp_low = _get_meta("quant_zero_point_low", "quant_zero_point")
-    scale_int4 = _get_meta("quant_scale_int4")
-    zp_int4 = _get_meta("quant_zero_point_int4")
-    scale_int8 = _get_meta("quant_scale_int8")
-    zp_int8 = _get_meta("quant_zero_point_int8")
+    block_max = np.max(np.abs(blocks), axis=1)
 
-    # Unpack mask to per-weight values on CPU
-    unpacked_mask = unpack_tier_mask_uint2(packed_mask_tensor.cpu(), (rows, cols)).reshape(-1).to(torch.uint8)
-    unpack_np = unpacked_mask.numpy().astype(np.uint8)
+    def _maybe_meta_float(*keys: str) -> float | None:
+        for key in keys:
+            v = module_meta.get(key, None)
+            if v is None:
+                continue
+            if torch.is_tensor(v):
+                return float(v.detach().item())
+            return float(v)
+        return None
 
-    # Compute per-position quantized integers into flat_q (uint32 to hold up to 255)
-    flat_q = np.zeros(flat_w.numel(), dtype=np.uint32)
-    fw = flat_w.numpy()
+    threshold_8bit = _maybe_meta_float("threshold_8bit", "septq_threshold_8bit")
+    threshold_4bit = _maybe_meta_float("threshold_4bit", "septq_threshold_4bit")
+    threshold_2bit = _maybe_meta_float("threshold_2bit", "septq_threshold_2bit")
+    block_tiers = np.full(n_blocks, 3, dtype=np.uint8)
+    if threshold_8bit is not None and threshold_4bit is not None and threshold_2bit is not None:
+        block_tiers[block_max > threshold_2bit] = 2
+        block_tiers[block_max > threshold_4bit] = 1
+        block_tiers[block_max > threshold_8bit] = 0
+    else:
+        # The existing SEPTQ v1 checkpoint stores ratios rather than explicit
+        # thresholds. Derive block thresholds by ranking max-abs block scores.
+        order = np.argsort(-block_max, kind="stable")
+        n_fp16_blocks, n_int8_blocks, n_int4_blocks = _ratio_counts(
+            n_blocks,
+            float(module_meta.get("fp16_ratio_real", ratio_fp16)),
+            float(module_meta.get("int8_ratio_real", ratio_int8)),
+            float(module_meta.get("int4_ratio_real", ratio_int4)),
+        )
+        block_tiers[order[:n_fp16_blocks]] = 0
+        block_tiers[order[n_fp16_blocks:n_fp16_blocks + n_int8_blocks]] = 1
+        block_tiers[order[n_fp16_blocks + n_int8_blocks:n_fp16_blocks + n_int8_blocks + n_int4_blocks]] = 2
 
-    # Tier 3 -> use 2-bit (0..3)
-    t3 = unpack_np >= 3
-    if t3.any():
-        q3 = np.round(fw[t3] / scale_low + zp_low).astype(np.int64)
-        q3 = np.clip(q3, 0, 3).astype(np.uint8)
-        flat_q[t3] = q3
+        def _boundary(count: int) -> float:
+            if count <= 0:
+                return float("inf")
+            if count >= n_blocks:
+                return float("-inf")
+            return float(np.nextafter(block_max[order[count - 1]], -np.inf))
 
-    # Tier 2 -> 4-bit (0..15)
-    t2 = unpack_np == 2
-    if t2.any():
-        q2 = np.round(fw[t2] / scale_int4 + zp_int4).astype(np.int64)
-        q2 = np.clip(q2, 0, 15).astype(np.uint8)
-        flat_q[t2] = q2
+        threshold_8bit = _boundary(n_fp16_blocks)
+        threshold_4bit = _boundary(n_fp16_blocks + n_int8_blocks)
+        threshold_2bit = _boundary(n_fp16_blocks + n_int8_blocks + n_int4_blocks)
 
-    # Tier 1 -> 8-bit (0..255)
-    t1 = unpack_np == 1
-    if t1.any():
-        q1 = np.round(fw[t1] / scale_int8 + zp_int8).astype(np.int64)
-        q1 = np.clip(q1, 0, 255).astype(np.uint8)
-        flat_q[t1] = q1
+    values_int2 = blocks[block_tiers == 3].reshape(-1)
+    values_int4 = blocks[block_tiers == 2].reshape(-1)
+    values_int8 = blocks[block_tiers == 1].reshape(-1)
 
-    # Tier 0 -> fp16 passthrough; record indices and values
-    t0 = unpack_np == 0
-    fp16_indices = np.nonzero(t0)[0].astype(np.int32)
-    fp16_values = fw[t0].astype(np.float16)
+    fallback_low = _affine_params_for_values(values_int2, 3, 1.5)
+    fallback_int4 = _affine_params_for_values(values_int4, 15, 7.5)
+    fallback_int8 = _affine_params_for_values(values_int8, 255, 127.5)
 
-    # Build packed arrays for each bucket in index order (dense compact arrays)
-    q3_vals = flat_q[t3].astype(np.uint8)
-    q2_vals = flat_q[t2].astype(np.uint8)
-    q1_vals = flat_q[t1].astype(np.uint8)
+    scale_low = _get_meta("quant_scale_low", "quant_scale", fallback_low[0])
+    zp_low = _get_meta("quant_zero_point_low", "quant_zero_point", fallback_low[1])
+    scale_int4 = _get_meta("quant_scale_int4", default=fallback_int4[0])
+    zp_int4 = _get_meta("quant_zero_point_int4", default=fallback_int4[1])
+    scale_int8 = _get_meta("quant_scale_int8", default=fallback_int8[0])
+    zp_int8 = _get_meta("quant_zero_point_int8", default=fallback_int8[1])
+
+    q3_vals = np.clip(np.round(values_int2 / scale_low + zp_low), 0, 3).astype(np.uint8)
+    q2_vals = np.clip(np.round(values_int4 / scale_int4 + zp_int4), 0, 15).astype(np.uint8)
+    q1_vals = np.clip(np.round(values_int8 / scale_int8 + zp_int8), 0, 255).astype(np.uint8)
+    fp16_values = blocks[block_tiers == 0].reshape(-1).astype(np.float16)
 
     packed_2 = pack_2bit_values_le(q3_vals) if q3_vals.size else np.zeros(0, dtype=np.uint8)
     packed_4 = pack_4bit_values_le(q2_vals) if q2_vals.size else np.zeros(0, dtype=np.uint8)
     packed_8 = q1_vals.view(np.uint8) if q1_vals.size else np.zeros(0, dtype=np.uint8)
-
-    # Concatenate into a single packed_weights blob (order: 2bit | 4bit | 8bit)
     packed_weights = np.concatenate([packed_2, packed_4, packed_8])
 
-    # For correctness: reconstruct flat_q from packed representation and assert equality
-    # Reconstruct step-by-step
-    recon_flat_q = np.zeros_like(flat_q, dtype=np.uint8)
-
-    # Recreate sequential consumers
-    p = 0
-    # 2-bit
-    n2_bytes = packed_2.size
-    if n2_bytes:
-        raw2 = packed_weights[p : p + n2_bytes]
-        p += n2_bytes
-        raw2 = raw2.astype(np.uint8)
-        # expand 4 values per byte
-        vals2 = np.empty(raw2.size * 4, dtype=np.uint8)
-        vals2[0::4] = raw2 & 0b11
-        vals2[1::4] = (raw2 >> 2) & 0b11
-        vals2[2::4] = (raw2 >> 4) & 0b11
-        vals2[3::4] = (raw2 >> 6) & 0b11
-        vals2 = vals2[: q3_vals.size]
-        recon_flat_q[np.nonzero(t3)[0]] = vals2
-
-    # 4-bit
-    n4_bytes = packed_4.size
-    if n4_bytes:
-        raw4 = packed_weights[p : p + n4_bytes]
-        p += n4_bytes
-        raw4 = raw4.astype(np.uint8)
-        vals4 = np.empty(raw4.size * 2, dtype=np.uint8)
-        vals4[0::2] = raw4 & 0x0F
-        vals4[1::2] = (raw4 >> 4) & 0x0F
-        vals4 = vals4[: q2_vals.size]
-        recon_flat_q[np.nonzero(t2)[0]] = vals4
-
-    # 8-bit
-    n8_bytes = packed_8.size
-    if n8_bytes:
-        raw8 = packed_weights[p : p + n8_bytes]
-        p += n8_bytes
-        recon_flat_q[np.nonzero(t1)[0]] = raw8
-
-    # fp16 indices/values are not part of packed_weights; they are stored separately
-
-    # Compare reconstructed quantized flat array (for quant tiers) against original
-    expected_flat_q = flat_q.astype(np.uint8)
-    # For fp16 positions, expected_flat_q entries were zero; ensure recon has zeros
-    if not np.array_equal(recon_flat_q, expected_flat_q & 0xFF):
-        raise AssertionError(f"Packing round-trip failed for layer {layer_name}")
+    idx2_start = np.zeros(n_blocks, dtype=np.int32)
+    idx4_start = np.zeros(n_blocks, dtype=np.int32)
+    idx8_start = np.zeros(n_blocks, dtype=np.int32)
+    idxf16_start = np.zeros(n_blocks, dtype=np.int32)
+    c2 = c4 = c8 = cf16 = 0
+    for i, tier in enumerate(block_tiers):
+        idx2_start[i] = c2
+        idx4_start[i] = c4
+        idx8_start[i] = c8
+        idxf16_start[i] = cf16
+        if tier == 0:
+            cf16 += block_size
+        elif tier == 1:
+            c8 += block_size
+        elif tier == 2:
+            c4 += block_size
+        else:
+            c2 += block_size
 
     out: Dict[str, Any] = {}
-    out["packed_mask"] = pack_uint2_mask_le(unpack_np := unpacked_mask.cpu().numpy().astype(np.uint8))
+    out["packed_mask"] = pack_uint2_mask_le(block_tiers)
     out["packed_weights"] = packed_weights
     out["n_2bit_bytes"] = np.int32(packed_2.size)
     out["n_4bit_bytes"] = np.int32(packed_4.size)
     out["n_8bit_bytes"] = np.int32(packed_8.size)
+    out["block_size"] = np.int32(block_size)
+    out["n_blocks"] = np.int32(n_blocks)
+    out["idx2_start"] = idx2_start
+    out["idx4_start"] = idx4_start
+    out["idx8_start"] = idx8_start
+    out["idxf16_start"] = idxf16_start
     out["scale_low"] = np.float32(scale_low)
     out["scale_int4"] = np.float32(scale_int4)
     out["scale_int8"] = np.float32(scale_int8)
     out["zp_low"] = np.float32(zp_low)
     out["zp_int4"] = np.float32(zp_int4)
     out["zp_int8"] = np.float32(zp_int8)
-    out["fp16_indices"] = fp16_indices
+    out["threshold_8bit"] = np.float32(threshold_8bit)
+    out["threshold_4bit"] = np.float32(threshold_4bit)
+    out["threshold_2bit"] = np.float32(threshold_2bit)
     out["fp16_values"] = fp16_values
+    out["packing_version"] = np.int32(2)
     if bias is not None:
         out["bias"] = bias.detach().cpu().numpy().astype(np.float32)
 
@@ -374,6 +419,81 @@ def main() -> None:
 
     total_orig_bytes = 0
     total_packed_bytes = 0
+    ratio_fp16 = float(septq_meta.get("ratio_fp16", DEFAULT_RATIO_FP16)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_FP16
+    ratio_int8 = float(septq_meta.get("ratio_int8", DEFAULT_RATIO_INT8)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_INT8
+    ratio_int4 = float(septq_meta.get("ratio_int4", DEFAULT_RATIO_INT4)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_INT4
+
+    def add_packed_blobs(base: str, blobs_for_layer: Dict[str, Any]) -> int:
+        nonlocal total_packed_bytes
+        for suffix in (
+            "packed_mask",
+            "packed_weights",
+            "n_2bit_bytes",
+            "n_4bit_bytes",
+            "n_8bit_bytes",
+            "block_size",
+            "n_blocks",
+            "idx2_start",
+            "idx4_start",
+            "idx8_start",
+            "idxf16_start",
+            "scale_low",
+            "scale_int4",
+            "scale_int8",
+            "zp_low",
+            "zp_int4",
+            "zp_int8",
+            "threshold_8bit",
+            "threshold_4bit",
+            "threshold_2bit",
+            "fp16_values",
+            "packing_version",
+            "rows",
+            "cols",
+        ):
+            if suffix in blobs_for_layer:
+                blobs[f"{base}.{suffix}"] = blobs_for_layer[suffix]
+        if "bias" in blobs_for_layer:
+            blobs[f"{base}.bias"] = blobs_for_layer["bias"]
+
+        packed_bytes = (
+            int(blobs_for_layer["n_2bit_bytes"])
+            + int(blobs_for_layer["n_4bit_bytes"])
+            + int(blobs_for_layer["n_8bit_bytes"])
+            + blobs_for_layer["packed_mask"].nbytes
+            + blobs_for_layer["fp16_values"].nbytes
+            + blobs_for_layer["idx2_start"].nbytes
+            + blobs_for_layer["idx4_start"].nbytes
+            + blobs_for_layer["idx8_start"].nbytes
+            + blobs_for_layer["idxf16_start"].nbytes
+        )
+        total_packed_bytes += packed_bytes
+        return packed_bytes
+
+    def pack_temporal_tensor(src_key: str, dst_key: str, bias_key: str | None = None) -> bool:
+        nonlocal total_orig_bytes
+        if src_key not in state_dict or f"{dst_key}.packed_weights" in blobs:
+            return False
+        dense_tensor = state_dict[src_key]
+        if not torch.is_tensor(dense_tensor) or dense_tensor.ndim != 2:
+            return False
+        module_meta = module_meta_lookup.get(src_key, {})
+        bias = state_dict.get(bias_key) if bias_key else None
+        blobs_for_layer = create_packed_layer(
+            src_key,
+            dense_tensor,
+            None,
+            module_meta,
+            bias=bias,
+            ratio_fp16=ratio_fp16,
+            ratio_int8=ratio_int8,
+            ratio_int4=ratio_int4,
+        )
+        orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
+        total_orig_bytes += orig_bytes
+        packed_bytes = add_packed_blobs(dst_key, blobs_for_layer)
+        print(f"[EXPORT]   block-pack {src_key} -> {dst_key} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
+        return True
 
     # Iterate through state_dict and find layers that match MultiTier naming
     # Use the module_meta_lookup keys as canonical layer names when present.
@@ -426,34 +546,22 @@ def main() -> None:
         module_meta = module_meta_lookup.get(layer_name, {})
         bias = state_dict.get(f"{layer_name}.bias", None)
 
-        blobs_for_layer = create_packed_layer(layer_name, dense_tensor, packed_mask, module_meta, bias=bias)
+        blobs_for_layer = create_packed_layer(
+            layer_name,
+            dense_tensor,
+            packed_mask,
+            module_meta,
+            bias=bias,
+            ratio_fp16=ratio_fp16,
+            ratio_int8=ratio_int8,
+            ratio_int4=ratio_int4,
+        )
 
         # Store into blobs under user-specified naming
         base = layer_name.replace('.', '_')
-        blobs[f"{base}.packed_mask"] = blobs_for_layer["packed_mask"]
-        blobs[f"{base}.packed_weights"] = blobs_for_layer["packed_weights"]
-        blobs[f"{base}.n_2bit_bytes"] = np.int32(int(blobs_for_layer["n_2bit_bytes"]))
-        blobs[f"{base}.n_4bit_bytes"] = np.int32(int(blobs_for_layer["n_4bit_bytes"]))
-        blobs[f"{base}.n_8bit_bytes"] = np.int32(int(blobs_for_layer["n_8bit_bytes"]))
-        blobs[f"{base}.scale_low"] = np.float32(blobs_for_layer["scale_low"])
-        blobs[f"{base}.scale_int4"] = np.float32(blobs_for_layer["scale_int4"])
-        blobs[f"{base}.scale_int8"] = np.float32(blobs_for_layer["scale_int8"])
-        blobs[f"{base}.fp16_indices"] = blobs_for_layer["fp16_indices"]
-        blobs[f"{base}.fp16_values"] = blobs_for_layer["fp16_values"]
-        if "bias" in blobs_for_layer:
-            blobs[f"{base}.bias"] = blobs_for_layer["bias"]
-        blobs[f"{base}.rows"] = blobs_for_layer["rows"]
-        blobs[f"{base}.cols"] = blobs_for_layer["cols"]
-
-        # sizes
         orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
-        packed_bytes = (
-            int(blobs_for_layer["n_2bit_bytes"]) + int(blobs_for_layer["n_4bit_bytes"]) + int(blobs_for_layer["n_8bit_bytes"])
-            + blobs_for_layer["fp16_indices"].nbytes
-            + blobs_for_layer["fp16_values"].nbytes
-        )
+        packed_bytes = add_packed_blobs(base, blobs_for_layer)
         total_orig_bytes += orig_bytes
-        total_packed_bytes += packed_bytes
 
         print(f"[EXPORT]   layer orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
 
@@ -531,18 +639,17 @@ def main() -> None:
         dense_export_count += 1
 
     # Temporal attention output projection.
-    # If out_proj was included in SEPTQ (no --skip-modules), it will already be
-    # in the packed blobs. Only export as dense if not already packed.
+    # SEPTQ v2 block-packs out_proj as well; v1 skipped it for quality.
     for i in range(32):
         weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
         bias_key = f"transformer.layers.{i}.self_attn.out_proj.bias"
         dst_key = f"transformer_layers_{i}_self_attn_out_proj_weight"
-        packed_marker = f"{dst_key}.packed_weights"
-        if dst_key not in blobs and packed_marker not in blobs:
+        if not pack_temporal_tensor(weight_key, dst_key, bias_key=bias_key):
             export_dense_tensor(weight_key, dst_key, preserve_half=True)
-        export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
+            export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
 
-    # Generalized fallback for quantizable temporal tensors (ensures L31 and any missed layers are covered).
+    # Generalized fallback for quantizable temporal tensors; this intentionally
+    # includes layer 31 even when the source SEPTQ v1 run skipped it.
     for i in range(32):
         in_proj_key = f"transformer.layers.{i}.self_attn.in_proj_weight"
         gating_in_key = f"transformer.layers.{i}.gating.linear_in.weight"
@@ -550,21 +657,18 @@ def main() -> None:
         
         if in_proj_key in state_dict:
             dst_key = f"transformer_layers_{i}_self_attn_in_proj_weight"
-            packed_marker = f"{dst_key}.packed_weights"
-            if dst_key not in blobs and packed_marker not in blobs:
-                export_dense_tensor(in_proj_key, dst_key, preserve_half=True)
+            if f"{dst_key}.packed_weights" not in blobs:
+                pack_temporal_tensor(in_proj_key, dst_key)
         
         if gating_in_key in state_dict:
             dst_key = f"transformer_layers_{i}_gating_linear_in_weight"
-            packed_marker = f"{dst_key}.packed_weights"
-            if dst_key not in blobs and packed_marker not in blobs:
-                export_dense_tensor(gating_in_key, dst_key, preserve_half=True)
+            if f"{dst_key}.packed_weights" not in blobs:
+                pack_temporal_tensor(gating_in_key, dst_key)
         
         if gating_out_key in state_dict:
             dst_key = f"transformer_layers_{i}_gating_linear_out_weight"
-            packed_marker = f"{dst_key}.packed_weights"
-            if dst_key not in blobs and packed_marker not in blobs:
-                export_dense_tensor(gating_out_key, dst_key, preserve_half=True)
+            if f"{dst_key}.packed_weights" not in blobs:
+                pack_temporal_tensor(gating_out_key, dst_key)
 
     # Depth stack: explicit probe-based exports.
     # Depth norms are (1,1,1024) and must be flattened to (1024,) for C++ RMSNorm.

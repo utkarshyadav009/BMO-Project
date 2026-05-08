@@ -30,56 +30,43 @@ __global__ void unpack_kernel(
     const int32_t * idx2_start,
     const int32_t * idx4_start,
     const int32_t * idx8_start,
+    const int32_t * idxf16_start,
+    const ggml_fp16_t * fp16_values,
+    int block_size,
     float * out_w) {
-    const int r = blockIdx.x * blockDim.x + threadIdx.x;
-    if (r >= rows) {
+    const int pos = blockIdx.x * blockDim.x + threadIdx.x;
+    const int total = rows * cols;
+    if (pos >= total) {
         return;
     }
-
-    int idx2 = idx2_start[r];
-    int idx4 = idx4_start[r];
-    int idx8 = idx8_start[r];
 
     const uint8_t * stream2 = packed_weights;
     const uint8_t * stream4 = packed_weights + n_2bit_bytes;
     const uint8_t * stream8 = packed_weights + n_2bit_bytes + n_4bit_bytes;
 
-    const int base_pos = r * cols;
-    for (int c = 0; c < cols; ++c) {
-        const int pos = base_pos + c;
-        const uint8_t mbyte = packed_mask[pos / 4];
-        const uint8_t tier = (mbyte >> ((pos % 4) * 2)) & 0x3;
-        float v = 0.0f;
-        if (tier >= 3) {
-            const uint8_t b = stream2[idx2 / 4];
-            const uint8_t q = (b >> ((idx2 % 4) * 2)) & 0x3;
-            ++idx2;
-            v = ((float) q - zp_low) * scale_low;
-        } else if (tier == 2) {
-            const uint8_t b = stream4[idx4 / 2];
-            const uint8_t q = (idx4 % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
-            ++idx4;
-            v = ((float) q - zp_int4) * scale_int4;
-        } else if (tier == 1) {
-            const uint8_t q = stream8[idx8];
-            ++idx8;
-            v = ((float) q - zp_int8) * scale_int8;
-        }
-        out_w[pos] = v;
-    }
-}
+    const int block_idx = pos / block_size;
+    const int in_block = pos - block_idx * block_size;
+    const uint8_t mbyte = packed_mask[block_idx / 4];
+    const uint8_t tier = (mbyte >> ((block_idx % 4) * 2)) & 0x3;
 
-__global__ void apply_fp16_overrides(
-    const int32_t * fp16_idx,
-    const ggml_fp16_t * fp16_vals,
-    int64_t n_fp16,
-    float * out_w) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if ((int64_t) i >= n_fp16) {
-        return;
+    float v = 0.0f;
+    if (tier == 0) {
+        v = fp16_to_fp32_device(fp16_values[idxf16_start[block_idx] + in_block]);
+    } else if (tier == 1) {
+        const uint8_t q = stream8[idx8_start[block_idx] + in_block];
+        v = ((float) q - zp_int8) * scale_int8;
+    } else if (tier == 2) {
+        const int idx4 = idx4_start[block_idx] + in_block;
+        const uint8_t b = stream4[idx4 / 2];
+        const uint8_t q = (idx4 % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+        v = ((float) q - zp_int4) * scale_int4;
+    } else {
+        const int idx2 = idx2_start[block_idx] + in_block;
+        const uint8_t b = stream2[idx2 / 4];
+        const uint8_t q = (b >> ((idx2 % 4) * 2)) & 0x3;
+        v = ((float) q - zp_low) * scale_low;
     }
-    const int32_t pos = fp16_idx[i];
-    out_w[pos] = fp16_to_fp32_device(fp16_vals[i]);
+    out_w[pos] = v;
 }
 
 } // namespace
@@ -102,8 +89,9 @@ void launch_unpack_kernel(
         throw std::runtime_error("launch_unpack_kernel: invalid device_packed_t");
     }
 
-    const int threads = 128;
-    const int blocks = (rows + threads - 1) / threads;
+    const int threads = 256;
+    const int total = rows * cols;
+    const int blocks = (total + threads - 1) / threads;
 
     unpack_kernel<<<blocks, threads>>>(
         reinterpret_cast<const uint8_t *>(dp->packed_weights),
@@ -122,15 +110,8 @@ void launch_unpack_kernel(
         reinterpret_cast<const int32_t *>(dp->idx2_start),
         reinterpret_cast<const int32_t *>(dp->idx4_start),
         reinterpret_cast<const int32_t *>(dp->idx8_start),
+        reinterpret_cast<const int32_t *>(dp->idxf16_start),
+        reinterpret_cast<const ggml_fp16_t *>(dp->fp16_values),
+        dp->block_size > 0 ? dp->block_size : 32,
         out_w);
-
-    if (dp->n_fp16 > 0 && dp->fp16_indices && dp->fp16_values) {
-        const int fp16_threads = 128;
-        const int fp16_blocks = (int) ((dp->n_fp16 + fp16_threads - 1) / fp16_threads);
-        apply_fp16_overrides<<<fp16_blocks, fp16_threads>>>(
-            reinterpret_cast<const int32_t *>(dp->fp16_indices),
-            reinterpret_cast<const ggml_fp16_t *>(dp->fp16_values),
-            dp->n_fp16,
-            out_w);
-    }
 }

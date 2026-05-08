@@ -13,15 +13,19 @@
 // Device-side packed tensor metadata (for CUDA unpacking)
 struct device_packed_t {
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
-    void * packed_mask = nullptr;         // device ptr to tier mask
-    void * fp16_indices = nullptr;        // device ptr to fp16 index array
-    void * fp16_values = nullptr;         // device ptr to fp16 value array
-    void * idx2_start = nullptr;          // device ptr to tier2 per-row start offsets
-    void * idx4_start = nullptr;          // device ptr to tier4 per-row start offsets
-    void * idx8_start = nullptr;          // device ptr to tier8 per-row start offsets
+    void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
+    void * fp16_indices = nullptr;        // legacy v1 fp16 index array
+    void * fp16_values = nullptr;         // device ptr to fp16 block values / legacy overrides
+    void * idx2_start = nullptr;          // v2: per-block 2-bit element offsets
+    void * idx4_start = nullptr;          // v2: per-block 4-bit element offsets
+    void * idx8_start = nullptr;          // v2: per-block 8-bit element offsets
+    void * idxf16_start = nullptr;        // v2: per-block fp16 element offsets
     int32_t rows = 0;
     int32_t cols = 0;
-    int64_t n_fp16 = 0;                   // number of fp16 overrides
+    int32_t block_size = 0;
+    int32_t n_blocks = 0;
+    int64_t n_fp16 = 0;                   // v2: fp16 values count; legacy: override count
+    bool is_blockwise = false;
     bool is_valid = false;                // flag indicating successful allocation
 };
 

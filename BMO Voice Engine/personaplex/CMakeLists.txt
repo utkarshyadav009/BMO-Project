@@ -113,8 +113,10 @@ message(STATUS "Linking bmo_minimal and bmo_main with targets: ${_link_targets}"
 target_link_libraries(bmo_minimal PRIVATE ${_link_targets} bmo)
 target_link_libraries(bmo_main PRIVATE ${_link_targets} bmo)
 
-# Standalone CUDA unpack kernel validation
-add_executable(bmo_unpack_kernel_test bmo_unpack_kernel_test.cu)
-target_include_directories(bmo_unpack_kernel_test PRIVATE "${CMAKE_SOURCE_DIR}")
-target_link_libraries(bmo_unpack_kernel_test PRIVATE ${_link_targets} bmo)
-set_target_properties(bmo_unpack_kernel_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+if(BMO_ENABLE_CUDA)
+    # Standalone CUDA unpack kernel validation
+    add_executable(bmo_unpack_kernel_test bmo_unpack_kernel_test.cu)
+    target_include_directories(bmo_unpack_kernel_test PRIVATE "${CMAKE_SOURCE_DIR}")
+    target_link_libraries(bmo_unpack_kernel_test PRIVATE ${_link_targets} bmo)
+    set_target_properties(bmo_unpack_kernel_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+endif()

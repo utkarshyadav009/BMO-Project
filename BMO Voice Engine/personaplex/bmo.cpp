@@ -207,6 +207,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         std::string prefix = "transformer_layers_" + std::to_string(i);
         std::vector<std::string> matrices = {
             prefix + "_self_attn_in_proj_weight",
+            prefix + "_self_attn_out_proj_weight",
             prefix + "_gating_linear_in_weight",
             prefix + "_gating_linear_out_weight"
         };
@@ -216,8 +217,11 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             if (!pw) continue; // Not packed for this matrix
 
             ggml_tensor * pm = ggml_get_tensor(model.wctx, (base + ".packed_mask").c_str());
-            ggml_tensor * fi = ggml_get_tensor(model.wctx, (base + ".fp16_indices").c_str());
             ggml_tensor * fv = ggml_get_tensor(model.wctx, (base + ".fp16_values").c_str());
+            ggml_tensor * idx2_t = ggml_get_tensor(model.wctx, (base + ".idx2_start").c_str());
+            ggml_tensor * idx4_t = ggml_get_tensor(model.wctx, (base + ".idx4_start").c_str());
+            ggml_tensor * idx8_t = ggml_get_tensor(model.wctx, (base + ".idx8_start").c_str());
+            ggml_tensor * idxf16_t = ggml_get_tensor(model.wctx, (base + ".idxf16_start").c_str());
 
             // 1. Read exact dimensions from GGUF scalars
             int32_t rows = read_scalar_i32(model.wctx, (base + ".rows").c_str(), 0);
@@ -229,39 +233,37 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                 continue;
             }
 
-            if (!pm || !fi || !fv) {
-                std::cerr << "[bmo_prepare_device_packed_tensors] Missing associated packed tensors for " << base << "; skipping\n";
+            int32_t block_size = read_scalar_i32(model.wctx, (base + ".block_size").c_str(), 0);
+            int32_t n_blocks = read_scalar_i32(model.wctx, (base + ".n_blocks").c_str(), 0);
+            if (block_size <= 0) block_size = 32;
+            if (n_blocks <= 0) n_blocks = (rows * cols + block_size - 1) / block_size;
+
+            if (!pm || !fv || !idx2_t || !idx4_t || !idx8_t || !idxf16_t) {
+                std::cerr << "[bmo_prepare_device_packed_tensors] Missing block-wise packed tensors for " << base << "; skipping\n";
                 continue;
             }
 
-            int64_t n_fp16 = ggml_nbytes(fi) / sizeof(int32_t);
-
-            // 2. Precompute prefix sums on host
-            std::vector<int32_t> h_idx2(rows, 0), h_idx4(rows, 0), h_idx8(rows, 0);
-            const uint8_t * pm_ptr = reinterpret_cast<const uint8_t *>(pm->data);
-            int32_t c2 = 0, c4 = 0, c8 = 0;
-
-            for (int r = 0; r < rows; ++r) {
-                h_idx2[r] = c2; h_idx4[r] = c4; h_idx8[r] = c8;
-                for (int c = 0; c < cols; ++c) {
-                    int pos = r * cols + c;
-                    uint8_t mbyte = pm_ptr[pos / 4];
-                    uint8_t tier = (mbyte >> ((pos % 4) * 2)) & 0x3;
-                    if (tier >= 3) c2++;
-                    else if (tier == 2) c4++;
-                    else if (tier == 1) c8++;
-                }
+            int64_t n_fp16 = 0;
+            if (fv->type == GGML_TYPE_F16) {
+                n_fp16 = ggml_nbytes(fv) / sizeof(ggml_fp16_t);
+            } else if (fv->type == GGML_TYPE_F32) {
+                n_fp16 = ggml_nbytes(fv) / sizeof(float);
+            } else {
+                std::cerr << "[bmo_prepare_device_packed_tensors] Unsupported fp16_values type for " << base << "; skipping\n";
+                continue;
             }
 
             // 3. Allocate and Copy to CUDA
             device_packed_t dp;
             dp.rows = rows;
             dp.cols = cols;
+            dp.block_size = block_size;
+            dp.n_blocks = n_blocks;
             dp.n_fp16 = n_fp16;
+            dp.is_blockwise = true;
 
             size_t pw_bytes = (size_t) ggml_nbytes(pw);
             size_t pm_bytes = (size_t) ggml_nbytes(pm);
-            size_t fi_bytes = (size_t) ggml_nbytes(fi);
 
             cudaError_t err = cudaMalloc(&dp.packed_weights, pw_bytes);
             if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
@@ -273,26 +275,26 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             err = cudaMemcpy(dp.packed_mask, pm->data, pm_bytes, cudaMemcpyHostToDevice);
             if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); continue; }
 
-            err = cudaMalloc(&dp.fp16_indices, fi_bytes);
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_indices failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); continue; }
-            err = cudaMemcpy(dp.fp16_indices, fi->data, fi_bytes, cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_indices failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); continue; }
-
             // idx start arrays
-            err = cudaMalloc(&dp.idx2_start, (size_t) rows * sizeof(int32_t));
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx2_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); continue; }
-            err = cudaMemcpy(dp.idx2_start, h_idx2.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx2_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); continue; }
+            err = cudaMalloc(&dp.idx2_start, (size_t) ggml_nbytes(idx2_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx2_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); continue; }
+            err = cudaMemcpy(dp.idx2_start, idx2_t->data, (size_t) ggml_nbytes(idx2_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx2_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); continue; }
 
-            err = cudaMalloc(&dp.idx4_start, (size_t) rows * sizeof(int32_t));
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx4_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); continue; }
-            err = cudaMemcpy(dp.idx4_start, h_idx4.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx4_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); continue; }
+            err = cudaMalloc(&dp.idx4_start, (size_t) ggml_nbytes(idx4_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx4_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); continue; }
+            err = cudaMemcpy(dp.idx4_start, idx4_t->data, (size_t) ggml_nbytes(idx4_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx4_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); continue; }
 
-            err = cudaMalloc(&dp.idx8_start, (size_t) rows * sizeof(int32_t));
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx8_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); continue; }
-            err = cudaMemcpy(dp.idx8_start, h_idx8.data(), (size_t) rows * sizeof(int32_t), cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx8_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.fp16_indices); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); cudaFree(dp.idx8_start); continue; }
+            err = cudaMalloc(&dp.idx8_start, (size_t) ggml_nbytes(idx8_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idx8_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); continue; }
+            err = cudaMemcpy(dp.idx8_start, idx8_t->data, (size_t) ggml_nbytes(idx8_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idx8_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); cudaFree(dp.idx8_start); continue; }
+
+            err = cudaMalloc(&dp.idxf16_start, (size_t) ggml_nbytes(idxf16_t));
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc idxf16_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); cudaFree(dp.idx8_start); continue; }
+            err = cudaMemcpy(dp.idxf16_start, idxf16_t->data, (size_t) ggml_nbytes(idxf16_t), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy idxf16_start failed: " << cudaGetErrorString(err) << "\n"; cudaFree(dp.packed_weights); cudaFree(dp.packed_mask); cudaFree(dp.idx2_start); cudaFree(dp.idx4_start); cudaFree(dp.idx8_start); cudaFree(dp.idxf16_start); continue; }
 
             // fp16 values: may be stored as f32 in gguf; convert if needed
             if (fv->type == GGML_TYPE_F32) {
@@ -326,6 +328,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                 cudaFree(dp.idx2_start);
                 cudaFree(dp.idx4_start);
                 cudaFree(dp.idx8_start);
+                cudaFree(dp.idxf16_start);
                 cudaFree(dp.fp16_values);
                 continue;
         }
@@ -359,6 +362,7 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
         if (dp.idx2_start) cudaFree(dp.idx2_start);
         if (dp.idx4_start) cudaFree(dp.idx4_start);
         if (dp.idx8_start) cudaFree(dp.idx8_start);
+        if (dp.idxf16_start) cudaFree(dp.idxf16_start);
         dp = device_packed_t{};
     }
     ctx.packed_registry.clear();
