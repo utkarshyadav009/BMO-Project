@@ -80,12 +80,6 @@ static inline uint8_t unpack_u2_le(uint8_t byte, int lane) {
     return (byte >> (lane * 2)) & 0x3;
 }
 
-#ifdef BMO_JETSON
-static size_t align_up_size(size_t value, size_t alignment) {
-    return (value + alignment - 1) & ~(alignment - 1);
-}
-#endif
-
 static ggml_tensor * get_tensor(ggml_context * data_ctx, const std::string & name) {
     return ggml_get_tensor(data_ctx, name.c_str());
 }
@@ -390,44 +384,30 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     throw std::runtime_error("Jetson packed stream buffer is not allocated");
                 }
                 const size_t bo_size = dp_ref.host_block_offset.size() * sizeof(int32_t);
-                size_t required_stream_bytes = 0;
-                required_stream_bytes += dp_ref.pw_size;
-                required_stream_bytes = align_up_size(required_stream_bytes, 16);
-                required_stream_bytes += dp_ref.pm_size;
-                required_stream_bytes = align_up_size(required_stream_bytes, 16);
-                required_stream_bytes += dp_ref.fv_size;
-                required_stream_bytes = align_up_size(required_stream_bytes, 16);
-                required_stream_bytes += bo_size;
-                required_stream_bytes = align_up_size(required_stream_bytes, 16);
-                if (required_stream_bytes > ctx.cuda_packed_stream_buffer_bytes) {
-                    throw std::runtime_error("Jetson packed stream buffer overflow for " + linear.base);
-                }
-
-                uint8_t * stream_base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
+                uint8_t * base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
                 size_t offset = 0;
 
-                void * d_weights = stream_base + offset;
+                void * d_weights = base + offset;
                 std::memcpy(d_weights, dp_ref.host_packed_weights, dp_ref.pw_size);
                 offset += dp_ref.pw_size;
-                offset = align_up_size(offset, 16);
 
-                void * d_mask = stream_base + offset;
+                void * d_mask = base + offset;
                 std::memcpy(d_mask, dp_ref.host_packed_mask, dp_ref.pm_size);
                 offset += dp_ref.pm_size;
-                offset = align_up_size(offset, 16);
 
                 void * d_fv = nullptr;
                 if (dp_ref.host_fp16_values && dp_ref.fv_size > 0) {
-                    d_fv = stream_base + offset;
+                    d_fv = base + offset;
                     std::memcpy(d_fv, dp_ref.host_fp16_values, dp_ref.fv_size);
                     offset += dp_ref.fv_size;
-                    offset = align_up_size(offset, 16);
                 }
 
-                void * d_offsets = stream_base + offset;
+                void * d_offsets = base + offset;
                 std::memcpy(d_offsets, dp_ref.host_block_offset.data(), bo_size);
                 offset += bo_size;
-                offset = align_up_size(offset, 16);
+                if (offset > 128ULL * 1024ULL * 1024ULL || offset > ctx.cuda_packed_stream_buffer_bytes) {
+                    throw std::runtime_error("Stream buffer overflow!");
+                }
 
                 launch_unpack_kernel_streamed(
                     d_weights,

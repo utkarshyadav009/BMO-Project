@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cassert>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -304,6 +305,12 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             size_t pw_bytes = (size_t) ggml_nbytes(pw);
             size_t pm_bytes = (size_t) ggml_nbytes(pm);
 
+#ifdef BMO_JETSON
+            const int32_t n_blocks_from_mask = static_cast<int32_t>(pm_bytes * 4);
+            n_blocks = n_blocks_from_mask;
+            dp.n_blocks = n_blocks_from_mask;
+#endif
+
             cudaError_t err = cudaSuccess;
 
 #ifdef BMO_JETSON
@@ -317,7 +324,30 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             dp.pm_size = pm_bytes;
             dp.host_fp16_values = fv->data;
             dp.fv_size = (size_t) ggml_nbytes(fv);
-            dp.host_block_offset = std::move(block_offset);
+            dp.host_block_offset.clear();
+            dp.host_block_offset.resize((size_t) n_blocks, 0);
+            c2 = 0;
+            c4 = 0;
+            c8 = 0;
+            c16 = 0;
+            for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
+                const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
+                const uint8_t tier = unpack_u2_le(mbyte, block_idx % 4);
+                if (tier == 0) {
+                    dp.host_block_offset[(size_t) block_idx] = c16;
+                    c16 += block_size;
+                } else if (tier == 1) {
+                    dp.host_block_offset[(size_t) block_idx] = c8;
+                    c8 += block_size;
+                } else if (tier == 2) {
+                    dp.host_block_offset[(size_t) block_idx] = c4;
+                    c4 += block_size;
+                } else {
+                    dp.host_block_offset[(size_t) block_idx] = c2;
+                    c2 += block_size;
+                }
+            }
+            assert(dp.host_block_offset.size() == (size_t) n_blocks);
 #else
             err = cudaMalloc(&dp.packed_weights, pw_bytes);
             if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
@@ -371,12 +401,12 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     const size_t scratch_bytes = max_unpack_elems * sizeof(float);
 #ifdef BMO_JETSON
     if (max_unpack_elems > 0) {
-        constexpr size_t stream_bytes = 128ULL * 1024 * 1024;
-        cudaError_t stream_err = cudaMallocManaged(&ctx.cuda_packed_stream_buffer, stream_bytes);
+        size_t stream_size = 128ULL * 1024 * 1024; // 128 MB is enough for our largest matrix
+        cudaError_t stream_err = cudaMallocManaged(&ctx.cuda_packed_stream_buffer, stream_size);
         if (stream_err == cudaSuccess) {
-            ctx.cuda_packed_stream_buffer_bytes = stream_bytes;
+            ctx.cuda_packed_stream_buffer_bytes = stream_size;
             std::cout << "[bmo_prepare_device_packed_tensors] cuda_packed_stream_buffer="
-                      << (double) stream_bytes / (1024.0 * 1024.0) << " MB managed\n";
+                      << (double) stream_size / (1024.0 * 1024.0) << " MB managed\n";
         } else {
             ctx.cuda_packed_stream_buffer = nullptr;
             ctx.cuda_packed_stream_buffer_bytes = 0;
