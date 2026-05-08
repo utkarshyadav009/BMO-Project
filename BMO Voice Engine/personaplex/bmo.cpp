@@ -8,6 +8,7 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #ifdef BMO_ENABLE_CUDA
@@ -68,13 +69,13 @@ static void add_layer_bytes_unique(const bmo_layer & L, std::unordered_set<const
 
 #ifdef BMO_ENABLE_CUDA
 static void free_device_packed_owned_buffers(device_packed_t & dp) {
-    if (!dp.weights_zero_copy) {
-        if (dp.packed_weights) cudaFree(dp.packed_weights);
-        if (dp.packed_mask) cudaFree(dp.packed_mask);
-        if (dp.fp16_values) cudaFree(dp.fp16_values);
-    }
+#ifndef BMO_JETSON
+    if (dp.packed_weights) cudaFree(dp.packed_weights);
+    if (dp.packed_mask) cudaFree(dp.packed_mask);
+    if (dp.fp16_values) cudaFree(dp.fp16_values);
     if (dp.fp16_indices) cudaFree(dp.fp16_indices);
     if (dp.block_offset) cudaFree(dp.block_offset);
+#endif
     dp = device_packed_t{};
 }
 #endif
@@ -211,16 +212,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     // Rebuild from scratch if called repeatedly.
     bmo_free_cuda_resources(ctx);
 
-#ifdef BMO_JETSON
-    {
-        cudaError_t flag_err = cudaSetDeviceFlags(cudaDeviceMapHost);
-        if (flag_err != cudaSuccess && flag_err != cudaErrorSetOnActiveProcess) {
-            std::cerr << "[bmo_jetson] cudaSetDeviceFlags(cudaDeviceMapHost) failed: "
-                      << cudaGetErrorString(flag_err) << "\n";
-        }
-    }
-#endif
-
     if (!ctx.cuda_backend) {
         ggml_backend_t backend = ggml_backend_cuda_init(0);
         if (!backend) {
@@ -229,31 +220,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         }
         ctx.cuda_backend = backend;
     }
-
-#ifdef BMO_JETSON
-    {
-        void * data_base = ggml_get_mem_buffer(model.wctx);
-        const size_t data_size = ggml_get_mem_size(model.wctx);
-        if (data_base && data_size > 0) {
-            uintptr_t base_addr = reinterpret_cast<uintptr_t>(data_base);
-            uintptr_t aligned_base = base_addr & ~(uintptr_t) 4095;
-            const size_t front_pad = (size_t) (base_addr - aligned_base);
-            const size_t aligned_size = (data_size + front_pad + 4095ULL) & ~(size_t) 4095ULL;
-
-            cudaError_t err = cudaHostRegister(reinterpret_cast<void *>(aligned_base), aligned_size, cudaHostRegisterMapped);
-            if (err != cudaSuccess) {
-                std::cerr << "[bmo_jetson] cudaHostRegister failed: " << cudaGetErrorString(err) << "\n";
-                ctx.jetson_mmap_registered = false;
-            } else {
-                ctx.jetson_mmap_registered = true;
-                ctx.jetson_registered_base = reinterpret_cast<void *>(aligned_base);
-                ctx.jetson_registered_size = aligned_size;
-                std::cout << "[bmo_jetson] registered GGML data buffer for zero-copy weights: "
-                          << (double) aligned_size / (1024.0 * 1024.0) << " MB\n";
-            }
-        }
-    }
-#endif
 
     // Process all packed temporal matrices for each temporal layer.
     for (int i = 0; i < ctx.n_layers; ++i) {
@@ -341,59 +307,54 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             cudaError_t err = cudaSuccess;
 
 #ifdef BMO_JETSON
-            if (ctx.jetson_mmap_registered && fv->type == GGML_TYPE_F16) {
-                cudaError_t zc_err = cudaHostGetDevicePointer(&dp.packed_weights, pw->data, 0);
-                if (zc_err == cudaSuccess) zc_err = cudaHostGetDevicePointer(&dp.packed_mask, pm->data, 0);
-                if (zc_err == cudaSuccess) zc_err = cudaHostGetDevicePointer(&dp.fp16_values, fv->data, 0);
-                if (zc_err == cudaSuccess) {
-                    dp.weights_zero_copy = true;
-                } else {
-                    std::cerr << "[bmo_jetson] cudaHostGetDevicePointer failed for " << base
-                              << ": " << cudaGetErrorString(zc_err) << "; falling back to device copies\n";
-                    dp.packed_weights = nullptr;
-                    dp.packed_mask = nullptr;
-                    dp.fp16_values = nullptr;
-                }
+            if (fv->type == GGML_TYPE_F32) {
+                std::cerr << "[bmo_prepare_device_packed_tensors] Jetson streaming path requires fp16_values to be F16 for " << base << "\n";
+                continue;
             }
+            dp.host_packed_weights = pw->data;
+            dp.pw_size = pw_bytes;
+            dp.host_packed_mask = pm->data;
+            dp.pm_size = pm_bytes;
+            dp.host_fp16_values = fv->data;
+            dp.fv_size = (size_t) ggml_nbytes(fv);
+            dp.host_block_offset = std::move(block_offset);
+#else
+            err = cudaMalloc(&dp.packed_weights, pw_bytes);
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
+            err = cudaMemcpy(dp.packed_weights, pw->data, pw_bytes, cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
+
+            err = cudaMalloc(&dp.packed_mask, pm_bytes);
+            if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
+            err = cudaMemcpy(dp.packed_mask, pm->data, pm_bytes, cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
 #endif
 
-            if (!dp.weights_zero_copy) {
-                err = cudaMalloc(&dp.packed_weights, pw_bytes);
-                if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
-                err = cudaMemcpy(dp.packed_weights, pw->data, pw_bytes, cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-
-                err = cudaMalloc(&dp.packed_mask, pm_bytes);
-                if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-                err = cudaMemcpy(dp.packed_mask, pm->data, pm_bytes, cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-            }
-
+#ifndef BMO_JETSON
             err = cudaMalloc(&dp.block_offset, block_offset.size() * sizeof(int32_t));
             if (err != cudaSuccess) { std::cerr << "cudaMalloc block_offset failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
             err = cudaMemcpy(dp.block_offset, block_offset.data(), block_offset.size() * sizeof(int32_t), cudaMemcpyHostToDevice);
             if (err != cudaSuccess) { std::cerr << "cudaMemcpy block_offset failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
 
             // fp16 values: may be stored as f32 in gguf; convert if needed
-            if (!dp.weights_zero_copy) {
-                if (fv->type == GGML_TYPE_F32) {
-                    int64_t nf = n_fp16;
-                    std::vector<ggml_fp16_t> tmp_f16((size_t) nf);
-                    const float * src = reinterpret_cast<const float *>(fv->data);
-                    for (int64_t j = 0; j < nf; ++j) tmp_f16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
-                    size_t fv_bytes = (size_t) nf * sizeof(ggml_fp16_t);
-                    err = cudaMalloc(&dp.fp16_values, fv_bytes);
-                    if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
-                    err = cudaMemcpy(dp.fp16_values, tmp_f16.data(), fv_bytes, cudaMemcpyHostToDevice);
-                    if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
-                } else {
-                    size_t fv_bytes = (size_t) ggml_nbytes(fv);
-                    err = cudaMalloc(&dp.fp16_values, fv_bytes);
-                    if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
-                    err = cudaMemcpy(dp.fp16_values, fv->data, fv_bytes, cudaMemcpyHostToDevice);
-                    if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
-                }
+            if (fv->type == GGML_TYPE_F32) {
+                int64_t nf = n_fp16;
+                std::vector<ggml_fp16_t> tmp_f16((size_t) nf);
+                const float * src = reinterpret_cast<const float *>(fv->data);
+                for (int64_t j = 0; j < nf; ++j) tmp_f16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
+                size_t fv_bytes = (size_t) nf * sizeof(ggml_fp16_t);
+                err = cudaMalloc(&dp.fp16_values, fv_bytes);
+                if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+                err = cudaMemcpy(dp.fp16_values, tmp_f16.data(), fv_bytes, cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+            } else {
+                size_t fv_bytes = (size_t) ggml_nbytes(fv);
+                err = cudaMalloc(&dp.fp16_values, fv_bytes);
+                if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+                err = cudaMemcpy(dp.fp16_values, fv->data, fv_bytes, cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
             }
+#endif
 
             dp.is_valid = true;
             ctx.packed_registry[base] = dp;
@@ -408,6 +369,22 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     }
 
     const size_t scratch_bytes = max_unpack_elems * sizeof(float);
+#ifdef BMO_JETSON
+    if (max_unpack_elems > 0) {
+        constexpr size_t stream_bytes = 128ULL * 1024 * 1024;
+        cudaError_t stream_err = cudaMallocManaged(&ctx.cuda_packed_stream_buffer, stream_bytes);
+        if (stream_err == cudaSuccess) {
+            ctx.cuda_packed_stream_buffer_bytes = stream_bytes;
+            std::cout << "[bmo_prepare_device_packed_tensors] cuda_packed_stream_buffer="
+                      << (double) stream_bytes / (1024.0 * 1024.0) << " MB managed\n";
+        } else {
+            ctx.cuda_packed_stream_buffer = nullptr;
+            ctx.cuda_packed_stream_buffer_bytes = 0;
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMallocManaged stream buffer failed: "
+                      << cudaGetErrorString(stream_err) << "\n";
+        }
+    }
+#endif
     if (scratch_bytes > 0) {
 #ifdef BMO_JETSON
         cudaError_t err = cudaMallocManaged(&ctx.cuda_unpack_scratch, scratch_bytes);
@@ -450,15 +427,11 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
     }
     ctx.cuda_unpack_scratch_bytes = 0;
     ctx.cuda_unpack_scratch_managed = false;
-
-#ifdef BMO_JETSON
-    if (ctx.jetson_mmap_registered && ctx.jetson_registered_base) {
-        cudaHostUnregister(ctx.jetson_registered_base);
+    if (ctx.cuda_packed_stream_buffer) {
+        cudaFree(ctx.cuda_packed_stream_buffer);
+        ctx.cuda_packed_stream_buffer = nullptr;
     }
-    ctx.jetson_mmap_registered = false;
-    ctx.jetson_registered_base = nullptr;
-    ctx.jetson_registered_size = 0;
-#endif
+    ctx.cuda_packed_stream_buffer_bytes = 0;
 #else
     (void) ctx;
 #endif

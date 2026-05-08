@@ -69,6 +69,49 @@ __global__ void unpack_kernel(
 
 } // namespace
 
+void launch_unpack_kernel_streamed(
+    const void * packed_weights,
+    const void * packed_mask,
+    const void * fp16_values,
+    const int32_t * block_offset,
+    int32_t rows,
+    int32_t cols,
+    int32_t block_size,
+    int32_t n_2bit_bytes,
+    int32_t n_4bit_bytes,
+    int32_t n_8bit_bytes,
+    float scale_low,
+    float scale_int4,
+    float scale_int8,
+    float zp_low,
+    float zp_int4,
+    float zp_int8,
+    float * out_w) {
+    const int threads = 256;
+    const int total = rows * cols;
+    const int blocks = (total + threads - 1) / threads;
+
+    unpack_kernel<<<blocks, threads>>>(
+        reinterpret_cast<const uint8_t *>(packed_weights),
+        reinterpret_cast<const uint8_t *>(packed_mask),
+        rows,
+        cols,
+        n_2bit_bytes,
+        n_4bit_bytes,
+        n_8bit_bytes,
+        scale_low,
+        scale_int4,
+        scale_int8,
+        zp_low,
+        zp_int4,
+        zp_int8,
+        block_offset,
+        reinterpret_cast<const ggml_fp16_t *>(fp16_values),
+        block_size > 0 ? block_size : 32,
+        out_w);
+}
+
+#ifndef BMO_JETSON
 void launch_unpack_kernel(
     const device_packed_t * dp,
     int32_t rows,
@@ -110,3 +153,4 @@ void launch_unpack_kernel(
         dp->block_size > 0 ? dp->block_size : 32,
         out_w);
 }
+#endif

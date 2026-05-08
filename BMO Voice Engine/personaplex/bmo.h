@@ -12,18 +12,27 @@
 
 // Device-side packed tensor metadata (for CUDA unpacking)
 struct device_packed_t {
+#ifdef BMO_JETSON
+    void * host_packed_weights = nullptr;
+    size_t pw_size = 0;
+    void * host_packed_mask = nullptr;
+    size_t pm_size = 0;
+    void * host_fp16_values = nullptr;
+    size_t fv_size = 0;
+    std::vector<int32_t> host_block_offset;
+#else
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
     void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
     void * fp16_indices = nullptr;        // legacy v1 fp16 index array
     void * fp16_values = nullptr;         // device ptr to fp16 block values / legacy overrides
     void * block_offset = nullptr;        // v3: per-block element offset into that block's tier stream
+#endif
     int32_t rows = 0;
     int32_t cols = 0;
     int32_t block_size = 0;
     int32_t n_blocks = 0;
     int64_t n_fp16 = 0;                   // v2: fp16 values count; legacy: override count
     bool is_blockwise = false;
-    bool weights_zero_copy = false;        // Jetson: packed tensors are host-mapped, not cudaMalloc-owned
     bool is_valid = false;                // flag indicating successful allocation
 };
 
@@ -106,9 +115,8 @@ struct bmo_context {
     void * cuda_unpack_scratch = nullptr; // float* device scratch for unpacked matrix
     size_t cuda_unpack_scratch_bytes = 0;
     bool cuda_unpack_scratch_managed = false;
-    bool jetson_mmap_registered = false;
-    void * jetson_registered_base = nullptr;
-    size_t jetson_registered_size = 0;
+    void * cuda_packed_stream_buffer = nullptr;
+    size_t cuda_packed_stream_buffer_bytes = 0;
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
     // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.

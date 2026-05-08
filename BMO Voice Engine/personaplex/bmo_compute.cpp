@@ -25,6 +25,7 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 #endif
 
 #ifdef BMO_ENABLE_CUDA
+#ifndef BMO_JETSON
 void launch_unpack_kernel(
     const device_packed_t * dp,
     int32_t rows,
@@ -39,6 +40,27 @@ void launch_unpack_kernel(
     float zp_int4,
     float zp_int8,
     float * out_w);
+#endif
+#ifdef BMO_JETSON
+void launch_unpack_kernel_streamed(
+    const void * packed_weights,
+    const void * packed_mask,
+    const void * fp16_values,
+    const int32_t * block_offset,
+    int32_t rows,
+    int32_t cols,
+    int32_t block_size,
+    int32_t n_2bit_bytes,
+    int32_t n_4bit_bytes,
+    int32_t n_8bit_bytes,
+    float scale_low,
+    float scale_int4,
+    float scale_int8,
+    float zp_low,
+    float zp_int4,
+    float zp_int8,
+    float * out_w);
+#endif
 #endif
 
 namespace {
@@ -57,6 +79,12 @@ static void stage_tensor_upload(bmo_context & ctx, ggml_tensor * tensor, const v
 static inline uint8_t unpack_u2_le(uint8_t byte, int lane) {
     return (byte >> (lane * 2)) & 0x3;
 }
+
+#ifdef BMO_JETSON
+static size_t align_up_size(size_t value, size_t alignment) {
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+#endif
 
 static ggml_tensor * get_tensor(ggml_context * data_ctx, const std::string & name) {
     return ggml_get_tensor(data_ctx, name.c_str());
@@ -357,6 +385,69 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 }
 #endif
 
+#ifdef BMO_JETSON
+                if (!ctx.cuda_packed_stream_buffer || ctx.cuda_packed_stream_buffer_bytes == 0) {
+                    throw std::runtime_error("Jetson packed stream buffer is not allocated");
+                }
+                const size_t bo_size = dp_ref.host_block_offset.size() * sizeof(int32_t);
+                size_t required_stream_bytes = 0;
+                required_stream_bytes += dp_ref.pw_size;
+                required_stream_bytes = align_up_size(required_stream_bytes, 16);
+                required_stream_bytes += dp_ref.pm_size;
+                required_stream_bytes = align_up_size(required_stream_bytes, 16);
+                required_stream_bytes += dp_ref.fv_size;
+                required_stream_bytes = align_up_size(required_stream_bytes, 16);
+                required_stream_bytes += bo_size;
+                required_stream_bytes = align_up_size(required_stream_bytes, 16);
+                if (required_stream_bytes > ctx.cuda_packed_stream_buffer_bytes) {
+                    throw std::runtime_error("Jetson packed stream buffer overflow for " + linear.base);
+                }
+
+                uint8_t * stream_base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
+                size_t offset = 0;
+
+                void * d_weights = stream_base + offset;
+                std::memcpy(d_weights, dp_ref.host_packed_weights, dp_ref.pw_size);
+                offset += dp_ref.pw_size;
+                offset = align_up_size(offset, 16);
+
+                void * d_mask = stream_base + offset;
+                std::memcpy(d_mask, dp_ref.host_packed_mask, dp_ref.pm_size);
+                offset += dp_ref.pm_size;
+                offset = align_up_size(offset, 16);
+
+                void * d_fv = nullptr;
+                if (dp_ref.host_fp16_values && dp_ref.fv_size > 0) {
+                    d_fv = stream_base + offset;
+                    std::memcpy(d_fv, dp_ref.host_fp16_values, dp_ref.fv_size);
+                    offset += dp_ref.fv_size;
+                    offset = align_up_size(offset, 16);
+                }
+
+                void * d_offsets = stream_base + offset;
+                std::memcpy(d_offsets, dp_ref.host_block_offset.data(), bo_size);
+                offset += bo_size;
+                offset = align_up_size(offset, 16);
+
+                launch_unpack_kernel_streamed(
+                    d_weights,
+                    d_mask,
+                    d_fv,
+                    reinterpret_cast<const int32_t *>(d_offsets),
+                    rows,
+                    cols,
+                    dp_ref.block_size > 0 ? dp_ref.block_size : 32,
+                    n_2bit_bytes,
+                    n_4bit_bytes,
+                    n_8bit_bytes,
+                    scale_low,
+                    scale_int4,
+                    scale_int8,
+                    zp_low,
+                    zp_int4,
+                    zp_int8,
+                    reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
+#else
                 launch_unpack_kernel(
                     &dp_ref,
                     rows,
@@ -371,6 +462,7 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     zp_int4,
                     zp_int8,
                     reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
+#endif
 
 #ifdef BMO_JETSON
                 cudaError_t sync_err = cudaStreamSynchronize(0);
