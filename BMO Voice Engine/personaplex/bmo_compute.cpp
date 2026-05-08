@@ -351,9 +351,11 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 if (!ctx.cuda_unpack_scratch || ctx.cuda_unpack_scratch_bytes < total_bytes) {
                     throw std::runtime_error("CUDA unpack scratch is too small for " + linear.base);
                 }
+#ifndef BMO_JETSON
                 if ((int64_t) ctx.shared_scratch_w.size() < total) {
                     ctx.shared_scratch_w.resize((size_t) total);
                 }
+#endif
 
                 launch_unpack_kernel(
                     &dp_ref,
@@ -370,11 +372,18 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     zp_int8,
                     reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
 
+#ifdef BMO_JETSON
+                cudaError_t sync_err = cudaStreamSynchronize(0);
+#else
                 cudaError_t sync_err = cudaDeviceSynchronize();
+#endif
                 if (sync_err != cudaSuccess) {
-                    throw std::runtime_error(std::string("cudaDeviceSynchronize failed after unpack for ") + linear.base + ": " + cudaGetErrorString(sync_err));
+                    throw std::runtime_error(std::string("CUDA sync failed after unpack for ") + linear.base + ": " + cudaGetErrorString(sync_err));
                 }
 
+#ifdef BMO_JETSON
+                W->data = ctx.cuda_unpack_scratch;
+#else
                 cudaError_t copy_err = cudaMemcpy(
                     ctx.shared_scratch_w.data(),
                     ctx.cuda_unpack_scratch,
@@ -385,6 +394,7 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 }
 
                 std::memcpy(W->data, ctx.shared_scratch_w.data(), total_bytes);
+#endif
 
                 auto unpack_t1 = std::chrono::steady_clock::now();
                 long unpack_us = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
