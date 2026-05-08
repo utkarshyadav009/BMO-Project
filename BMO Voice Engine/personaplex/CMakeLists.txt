@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 option(BMO_ENABLE_CUDA "Enable ggml CUDA backend when available" OFF)
+option(BMO_TARGET_JETSON "Optimize build specifically for Jetson Orin Nano" OFF)
 
 if(BMO_ENABLE_CUDA)
     project(bmo_minimal LANGUAGES C CXX CUDA)
@@ -18,8 +19,17 @@ set(LLAMA_CPP_TAG "master" CACHE STRING "llama.cpp git tag/branch for FetchConte
 if(BMO_ENABLE_CUDA)
     set(GGML_CUDA ON CACHE BOOL "Enable ggml CUDA backend" FORCE)
     add_compile_definitions(BMO_ENABLE_CUDA)
-    # Find CUDA toolkit for runtime linking
     find_package(CUDAToolkit REQUIRED)
+
+    if(BMO_TARGET_JETSON)
+        set(CMAKE_CUDA_ARCHITECTURES "87" CACHE STRING "CUDA Architecture for Jetson Orin Nano" FORCE)
+        add_compile_options(
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-O3>"
+            "$<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8.2-a>"
+        )
+    else()
+        set(CMAKE_CUDA_ARCHITECTURES "90;87" CACHE STRING "CUDA Architectures" FORCE)
+    endif()
 endif()
 
 if(EXISTS "${LLAMA_CPP_DIR}/ggml/CMakeLists.txt")
@@ -102,11 +112,6 @@ target_link_libraries(bmo PRIVATE ${_link_targets})
 message(STATUS "Linking bmo_minimal and bmo_main with targets: ${_link_targets}")
 target_link_libraries(bmo_minimal PRIVATE ${_link_targets} bmo)
 target_link_libraries(bmo_main PRIVATE ${_link_targets} bmo)
-
-# Minimal CUDA/ggml sanity test for backend verification
-add_executable(bmo_cuda_test bmo_cuda_test.cpp)
-target_include_directories(bmo_cuda_test PRIVATE "${CMAKE_SOURCE_DIR}")
-target_link_libraries(bmo_cuda_test PRIVATE ${_link_targets} bmo)
 
 # Standalone CUDA unpack kernel validation
 add_executable(bmo_unpack_kernel_test bmo_unpack_kernel_test.cu)

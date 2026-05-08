@@ -368,15 +368,6 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
         ctx.cuda_unpack_scratch = nullptr;
     }
     ctx.cuda_unpack_scratch_bytes = 0;
-
-    if (ctx.kv_backend_buffer) {
-        ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.kv_backend_buffer);
-        ctx.kv_backend_buffer = nullptr;
-    }
-    if (ctx.current_execution_buffer) {
-        ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.current_execution_buffer);
-        ctx.current_execution_buffer = nullptr;
-    }
 #else
     (void) ctx;
 #endif
@@ -399,18 +390,15 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
         ggml_free(ctx.kv_ctx);
         ctx.kv_ctx = nullptr;
     }
-#ifdef BMO_ENABLE_CUDA
-    if (ctx.kv_backend_buffer) {
-        ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.kv_backend_buffer);
-        ctx.kv_backend_buffer = nullptr;
-    }
-#endif
+    ctx.kv_mem.reset();
 
-    // Create a no-alloc KV context to hold tensor metadata only.
+    // Keep KV cache in host memory. The CUDA backend is used only for SEPTQ unpacking.
+    const size_t alloc_size = total_bytes + (1 << 20);
+    ctx.kv_mem.reset(new uint8_t[alloc_size]);
     ggml_init_params iparams = {
-        /*.mem_size   =*/ (size_t) ggml_tensor_overhead() * 8,
-        /*.mem_buffer =*/ nullptr,
-        /*.no_alloc   =*/ true
+        /*.mem_size   =*/ alloc_size,
+        /*.mem_buffer =*/ ctx.kv_mem.get(),
+        /*.no_alloc   =*/ false
     };
     ggml_context * kv_ctx = ggml_init(iparams);
     if (!kv_ctx) throw std::runtime_error("Failed to initialize KV ggml_context");
@@ -421,55 +409,6 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
     if (!ctx.k_cache || !ctx.v_cache) {
         throw std::runtime_error("Failed to create KV tensors");
     }
-
-#ifdef BMO_ENABLE_CUDA
-    if (!ctx.cuda_backend) {
-        ggml_backend_t backend = ggml_backend_cuda_init(0);
-        if (!backend) {
-            throw std::runtime_error("Failed to initialize CUDA backend for KV cache");
-        }
-        ctx.cuda_backend = backend;
-    }
-
-    ggml_backend_buffer_t kv_buf = ggml_backend_alloc_buffer((ggml_backend_t) ctx.cuda_backend, total_bytes);
-    if (!kv_buf) {
-        throw std::runtime_error("Failed to allocate CUDA KV backend buffer");
-    }
-
-    char * base = (char *) ggml_backend_buffer_get_base(kv_buf);
-    if (!base) {
-        ggml_backend_buffer_free(kv_buf);
-        throw std::runtime_error("CUDA KV buffer base pointer is null");
-    }
-
-    size_t k_size = ggml_backend_buffer_get_alloc_size(kv_buf, ctx.k_cache);
-    size_t v_size = ggml_backend_buffer_get_alloc_size(kv_buf, ctx.v_cache);
-    if (k_size + v_size > total_bytes) {
-        ggml_backend_buffer_free(kv_buf);
-        throw std::runtime_error("KV tensor sizes exceed allocated backend buffer");
-    }
-
-    if (ggml_backend_tensor_alloc(kv_buf, ctx.k_cache, base) != GGML_STATUS_SUCCESS) {
-        ggml_backend_buffer_free(kv_buf);
-        throw std::runtime_error("Failed to bind k_cache to CUDA buffer");
-    }
-    if (ggml_backend_tensor_alloc(kv_buf, ctx.v_cache, base + k_size) != GGML_STATUS_SUCCESS) {
-        ggml_backend_buffer_free(kv_buf);
-        throw std::runtime_error("Failed to bind v_cache to CUDA buffer");
-    }
-    ctx.kv_backend_buffer = kv_buf;
-#else
-    // CPU fallback when CUDA is not enabled.
-    const size_t alloc_size = total_bytes + (1 << 20);
-    std::unique_ptr<uint8_t[]> mem(new uint8_t[alloc_size]);
-    ggml_init_params cpu_params = { (size_t) alloc_size, mem.get(), /*no_alloc*/ false };
-    ggml_free(ctx.kv_ctx);
-    ctx.kv_ctx = ggml_init(cpu_params);
-    if (!ctx.kv_ctx) throw std::runtime_error("Failed to initialize CPU KV ggml_context");
-    ctx.k_cache = ggml_new_tensor_4d(ctx.kv_ctx, GGML_TYPE_F16, ctx.head_dim, n_ctx, ctx.n_heads, ctx.n_layers);
-    ctx.v_cache = ggml_new_tensor_4d(ctx.kv_ctx, GGML_TYPE_F16, ctx.head_dim, n_ctx, ctx.n_heads, ctx.n_layers);
-    (void) mem.release();
-#endif
 
     ctx.kv_bytes = (size_t) ggml_nbytes(ctx.k_cache) + (size_t) ggml_nbytes(ctx.v_cache);
 

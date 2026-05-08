@@ -22,7 +22,6 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 
 #ifdef BMO_ENABLE_CUDA
 #include <cuda_runtime.h>
-#include "ggml-backend.h"
 #endif
 
 #ifdef BMO_ENABLE_CUDA
@@ -45,6 +44,9 @@ void launch_unpack_kernel(
 namespace {
 
 static void stage_tensor_upload(bmo_context & ctx, ggml_tensor * tensor, const void * data, size_t size) {
+    if (tensor && tensor->data && data) {
+        std::memcpy(tensor->data, data, size);
+    }
     bmo_context::owned_tensor_upload up;
     up.tensor = tensor;
     up.bytes.resize(size);
@@ -272,21 +274,49 @@ static ggml_tensor * apply_linear_with_transient_unpack(
         if (ctx.cuda_backend && ctx.packed_registry.find(linear.base) != ctx.packed_registry.end()) {
             device_packed_t & dp_ref = ctx.packed_registry[linear.base];
             if (dp_ref.is_valid) {
-                bmo_context::kernel_launch_info info;
-                info.W = W;
-                info.dp = &dp_ref;
-                info.rows = rows;
-                info.cols = cols;
-                info.n_2bit_bytes = n_2bit_bytes;
-                info.n_4bit_bytes = n_4bit_bytes;
-                info.n_8bit_bytes = n_8bit_bytes;
-                info.scale_low = scale_low;
-                info.scale_int4 = scale_int4;
-                info.scale_int8 = scale_int8;
-                info.zp_low = zp_low;
-                info.zp_int4 = zp_int4;
-                info.zp_int8 = zp_int8;
-                ctx.pending_kernel_launches.push_back(info);
+                const int64_t total = (int64_t) rows * (int64_t) cols;
+                const size_t total_bytes = (size_t) total * sizeof(float);
+                if (!ctx.cuda_unpack_scratch || ctx.cuda_unpack_scratch_bytes < total_bytes) {
+                    throw std::runtime_error("CUDA unpack scratch is too small for " + linear.base);
+                }
+                if ((int64_t) ctx.shared_scratch_w.size() < total) {
+                    ctx.shared_scratch_w.resize((size_t) total);
+                }
+
+                launch_unpack_kernel(
+                    &dp_ref,
+                    rows,
+                    cols,
+                    n_2bit_bytes,
+                    n_4bit_bytes,
+                    n_8bit_bytes,
+                    scale_low,
+                    scale_int4,
+                    scale_int8,
+                    zp_low,
+                    zp_int4,
+                    zp_int8,
+                    reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
+
+                cudaError_t sync_err = cudaDeviceSynchronize();
+                if (sync_err != cudaSuccess) {
+                    throw std::runtime_error(std::string("cudaDeviceSynchronize failed after unpack for ") + linear.base + ": " + cudaGetErrorString(sync_err));
+                }
+
+                cudaError_t copy_err = cudaMemcpy(
+                    ctx.shared_scratch_w.data(),
+                    ctx.cuda_unpack_scratch,
+                    total_bytes,
+                    cudaMemcpyDeviceToHost);
+                if (copy_err != cudaSuccess) {
+                    throw std::runtime_error(std::string("cudaMemcpy D2H failed after unpack for ") + linear.base + ": " + cudaGetErrorString(copy_err));
+                }
+
+                std::memcpy(W->data, ctx.shared_scratch_w.data(), total_bytes);
+
+                auto unpack_t1 = std::chrono::steady_clock::now();
+                long unpack_us = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+                std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d cuda_d2h_unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_us);
 
                 y = ggml_mul_mat(wctx, S(W), S(x));
                 if (linear.dense_bias) {
@@ -374,80 +404,16 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 } // namespace
 
 void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<tensor_upload> & inputs) {
-#ifdef BMO_ENABLE_CUDA
-    if (ctx.cuda_backend && ggml_get_no_alloc(ctx.work_ctx)) {
-        if (ctx.current_execution_buffer) {
-            ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.current_execution_buffer);
-            ctx.current_execution_buffer = nullptr;
-        }
-        ggml_backend_t backend = (ggml_backend_t) ctx.cuda_backend;
-        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(ctx.work_ctx, backend);
-        if (!buf) {
-            ctx.graph_uploads.clear();
-            ctx.pending_kernel_launches.clear();
-            throw std::runtime_error("bmo_execute_graph: failed to allocate backend tensors");
-        }
-
-        try {
-            for (const auto & in : inputs) {
-                if (in.tensor && in.host_data) {
-                    ggml_backend_tensor_set(in.tensor, in.host_data, 0, ggml_nbytes(in.tensor));
-                }
-            }
-            for (const auto & in : ctx.graph_uploads) {
-                if (in.tensor && !in.bytes.empty()) {
-                    ggml_backend_tensor_set(in.tensor, in.bytes.data(), 0, in.bytes.size());
-                }
-            }
-
-            for (const auto & launch : ctx.pending_kernel_launches) {
-                if (!launch.W || !launch.dp || !launch.dp->is_valid) {
-                    throw std::runtime_error("bmo_execute_graph: invalid queued kernel launch");
-                }
-                launch_unpack_kernel(
-                    launch.dp,
-                    launch.rows,
-                    launch.cols,
-                    launch.n_2bit_bytes,
-                    launch.n_4bit_bytes,
-                    launch.n_8bit_bytes,
-                    launch.scale_low,
-                    launch.scale_int4,
-                    launch.scale_int8,
-                    launch.zp_low,
-                    launch.zp_int4,
-                    launch.zp_int8,
-                    reinterpret_cast<float *>(launch.W->data));
-            }
-
-            cudaError_t sync_err = cudaDeviceSynchronize();
-            if (sync_err != cudaSuccess) {
-                throw std::runtime_error(std::string("bmo_execute_graph: cudaDeviceSynchronize failed: ") + cudaGetErrorString(sync_err));
-            }
-
-            if (ggml_backend_graph_compute(backend, gf) != GGML_STATUS_SUCCESS) {
-                throw std::runtime_error("bmo_execute_graph: ggml_backend_graph_compute failed");
-            }
-
-            ctx.current_execution_buffer = buf;
-            ctx.graph_uploads.clear();
-            ctx.pending_kernel_launches.clear();
-            return;
-        } catch (...) {
-            ggml_backend_buffer_free(buf);
-            ctx.graph_uploads.clear();
-            ctx.pending_kernel_launches.clear();
-            throw;
+    for (const auto & up : inputs) {
+        if (up.tensor && up.tensor->data && up.host_data) {
+            std::memcpy(up.tensor->data, up.host_data, ggml_nbytes(up.tensor));
         }
     }
-#endif
-
+    ctx.graph_uploads.clear();
     const ggml_status status = ggml_graph_compute_with_ctx(ctx.work_ctx, gf, /*n_threads=*/32);
     if (status != GGML_STATUS_SUCCESS) {
         throw std::runtime_error("ggml_graph_compute_with_ctx failed");
     }
-    ctx.graph_uploads.clear();
-    ctx.pending_kernel_launches.clear();
 }
 
 ggml_cgraph * bmo_build_temporal_graph(

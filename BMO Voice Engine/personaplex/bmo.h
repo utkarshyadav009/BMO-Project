@@ -1,6 +1,7 @@
 // bmo.h - core data structures for BMO model runtime
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -98,23 +99,10 @@ struct bmo_context {
     // GGML contexts
     ggml_context * kv_ctx = nullptr;   // dedicated KV cache context
 
-    // Per-matrix kernel launch info: collected during graph building, executed post-graph
-    struct kernel_launch_info {
-        ggml_tensor * W = nullptr;                   // graph tensor whose storage is materialized at execution time
-        device_packed_t * dp = nullptr;              // persistent device-side packed metadata
-        int32_t rows = 0, cols = 0;
-        int32_t n_2bit_bytes = 0, n_4bit_bytes = 0, n_8bit_bytes = 0;
-        float scale_low = 1.0f, scale_int4 = 1.0f, scale_int8 = 1.0f;
-        float zp_low = 1.5f, zp_int4 = 7.5f, zp_int8 = 127.5f;
-    };
-    std::vector<kernel_launch_info> pending_kernel_launches;
-
     // CUDA backend (if available)
     void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
-    void * kv_backend_buffer = nullptr; // ggml_backend_buffer_t for KV tensors
     void * cuda_unpack_scratch = nullptr; // float* device scratch for unpacked matrix
     size_t cuda_unpack_scratch_bytes = 0;
-    void * current_execution_buffer = nullptr; // ggml_backend_buffer_t for active graph
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
     // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.
@@ -130,6 +118,7 @@ struct bmo_context {
     // Physical KV cache tensors allocated in kv_ctx
     ggml_tensor * k_cache = nullptr;
     ggml_tensor * v_cache = nullptr;
+    std::unique_ptr<uint8_t[]> kv_mem;
 
     // Track memory usage
     size_t weights_bytes = 0;

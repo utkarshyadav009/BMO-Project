@@ -8,9 +8,6 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#ifdef BMO_ENABLE_CUDA
-#include "ggml-backend.h"
-#endif
 
 static void reset_work_ctx(bmo_context & ctx, size_t work_mem_size) {
     if (ctx.work_ctx) {
@@ -21,7 +18,7 @@ static void reset_work_ctx(bmo_context & ctx, size_t work_mem_size) {
     ggml_init_params wp = {
         work_mem_size,
         ctx.work_mem.data(),
-        true,
+        false,
     };
     ctx.work_ctx = ggml_init(wp);
     if (!ctx.work_ctx) {
@@ -29,30 +26,9 @@ static void reset_work_ctx(bmo_context & ctx, size_t work_mem_size) {
     }
 }
 
-static void release_execution_buffer(bmo_context & ctx) {
-#ifdef BMO_ENABLE_CUDA
-    if (ctx.current_execution_buffer) {
-        ggml_backend_buffer_free((ggml_backend_buffer_t) ctx.current_execution_buffer);
-        ctx.current_execution_buffer = nullptr;
-    }
-#else
-    (void) ctx;
-#endif
-}
-
 static void copy_tensor_to_host(bmo_context & ctx, ggml_tensor * t, void * dst, size_t nbytes) {
-    if (!t) {
-        throw std::runtime_error("Missing graph tensor");
-    }
-#ifdef BMO_ENABLE_CUDA
-    if (ctx.current_execution_buffer) {
-        ggml_backend_tensor_get(t, dst, 0, nbytes);
-        return;
-    }
-#endif
-    if (!t->data) {
-        throw std::runtime_error("Tensor has no host data");
-    }
+    (void) ctx;
+    if (!t || !t->data) throw std::runtime_error("Missing graph tensor or null data");
     std::memcpy(dst, t->data, nbytes);
 }
 
@@ -152,7 +128,6 @@ int main(int argc, char ** argv) {
                     dump_tensor(ctx, dump_path.c_str(), layer_out);
                     std::cout << "[bmo_main] Dumped " << dump_path << "\n";
                 }
-                release_execution_buffer(ctx);
             }
             std::cout << "[SUCCESS] Temporal validation cascade completed!\n";
 
@@ -260,10 +235,8 @@ int main(int argc, char ** argv) {
                     if (out_x_init) dump_tensor(ctx, "cpp_debug_x_init.bin", out_x_init);
 
                     std::cout << "[bmo_main] Dumped debug tensors (z_s, text_emb, x_init)\n";
-                    release_execution_buffer(ctx);
                 }
             }
-            release_execution_buffer(ctx);
 
             std::cout << "[SUCCESS] Depth-step 0 validation completed!\n";
         } else if (mode == "stress_test") {
@@ -298,7 +271,6 @@ int main(int argc, char ** argv) {
                         throw std::runtime_error("Stress test: missing temporal output at iteration " + std::to_string(iter) + " layer " + std::to_string(layer));
                     }
                     copy_tensor_to_host(ctx, temporal_out, temporal_state.data(), (size_t) ctx.n_embd * sizeof(float));
-                    release_execution_buffer(ctx);
 
                     ggml_graph_clear(temporal_gf);
                     ggml_free(ctx.work_ctx);
@@ -332,7 +304,6 @@ int main(int argc, char ** argv) {
 
                     auto t0_depth = std::chrono::steady_clock::now();
                     bmo_execute_graph(ctx, depth_gf, depth_inputs);
-                    release_execution_buffer(ctx);
                     auto t1_depth = std::chrono::steady_clock::now();
 
                     long compute_ms_depth = std::chrono::duration_cast<std::chrono::milliseconds>(t1_depth - t0_depth).count();
@@ -361,9 +332,11 @@ int main(int argc, char ** argv) {
                         fclose(f);
                     }
 
+                    size_t scratch_mb = ctx.shared_scratch_w.size() * sizeof(float) / (1024 * 1024);
                     std::cout << "[stress] iter=" << (iter + 1)
                               << " iter_ms=" << iter_ms
                               << " rss_mb=" << (rss_kb / 1024)
+                              << " scratch_mb=" << scratch_mb
                               << std::endl;
                 }
             }
@@ -377,7 +350,6 @@ int main(int argc, char ** argv) {
             ggml_free(ctx.work_ctx);
             ctx.work_ctx = nullptr;
         }
-        release_execution_buffer(ctx);
         bmo_free_cuda_resources(ctx);
         std::cout << "[bmo_main] Test completed successfully!\n";
 
@@ -388,7 +360,6 @@ int main(int argc, char ** argv) {
             ggml_free(ctx.work_ctx);
             ctx.work_ctx = nullptr;
         }
-        release_execution_buffer(ctx);
         bmo_free_cuda_resources(ctx);
         return 1;
     }
