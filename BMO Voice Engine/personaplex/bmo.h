@@ -111,12 +111,15 @@ struct bmo_context {
 
     // CUDA backend (if available)
     void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
-    void * cuda_unpack_scratch = nullptr; // float* scratch for unpacked matrix (host ptr if pinned mapped)
-    void * cuda_unpack_scratch_dev = nullptr; // Jetson: device alias from cudaHostGetDevicePointer
+    void * cuda_unpack_scratch = nullptr; // Host pointer (pageable OS mem + cudaHostRegister on Jetson)
+    void * cuda_unpack_scratch_dev = nullptr; // Device-mapped alias (cudaHostGetDevicePointer / device buffer)
     size_t cuda_unpack_scratch_bytes = 0;
     bool cuda_unpack_scratch_managed = false;
+    bool cuda_unpack_scratch_owns_raw_malloc = false;
     void * cuda_packed_stream_buffer = nullptr;
+    void * cuda_packed_stream_buffer_dev = nullptr;
     size_t cuda_packed_stream_buffer_bytes = 0;
+    bool cuda_packed_stream_buffer_owns_raw_malloc = false;
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
     // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.

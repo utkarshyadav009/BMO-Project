@@ -92,7 +92,7 @@ int main(int argc, char ** argv) {
         std::cout << "[bmo_main] Initializing compute arenas...\n";
         const size_t work_mem_size =
 #ifdef BMO_TARGET_JETSON
-            (size_t) 512ULL * 1024 * 1024;
+            (size_t) 1024ULL * 1024 * 1024;
 #else
             (size_t) 2048ULL * 1024 * 1024;
 #endif

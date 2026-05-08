@@ -383,28 +383,45 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 #endif
 
 #ifdef BMO_JETSON
-                if (!ctx.cuda_packed_stream_buffer || ctx.cuda_packed_stream_buffer_bytes == 0) {
+                if (!ctx.cuda_packed_stream_buffer || !ctx.cuda_packed_stream_buffer_dev
+                    || ctx.cuda_packed_stream_buffer_bytes == 0) {
                     throw std::runtime_error("Jetson packed stream buffer is not allocated");
                 }
                 uint8_t * base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
+                uint8_t * dev_base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
                 size_t offset = 0;
 
+                // 1. Copy weights
                 void * d_weights = base + offset;
                 std::memcpy(d_weights, dp_ref.host_packed_weights, dp_ref.pw_size);
                 offset += dp_ref.pw_size;
 
+                // 2. Copy mask
                 void * d_mask = base + offset;
                 std::memcpy(d_mask, dp_ref.host_packed_mask, dp_ref.pm_size);
                 offset += dp_ref.pm_size;
 
+                // 3. Copy FP16 values
                 void * d_fv = nullptr;
-                if (dp_ref.host_fp16_values && dp_ref.fv_size > 0) {
+                const bool has_fv =
+                    dp_ref.host_fp16_values != nullptr && dp_ref.fv_size > 0;
+                if (has_fv) {
                     d_fv = base + offset;
                     std::memcpy(d_fv, dp_ref.host_fp16_values, dp_ref.fv_size);
                     offset += dp_ref.fv_size;
                 }
 
-                // Build block offsets JIT into the stream buffer.
+                // 4. Pad offset to a 4-byte boundary (ARM-aligned int32_t block_offset table).
+                offset = (offset + 3) & ~static_cast<size_t>(3);
+
+                // 5. Pre-check overflow before writing JIT offsets
+                const size_t bo_size = static_cast<size_t>(dp_ref.n_blocks) * sizeof(int32_t);
+                if (offset + bo_size > ctx.cuda_packed_stream_buffer_bytes) {
+                    throw std::runtime_error(
+                        "Stream buffer overflow! Matrix payload exceeds buffer size.");
+                }
+
+                // 6. JIT offset table writes
                 void * d_offsets = base + offset;
                 int32_t * bo_ptr = reinterpret_cast<int32_t *>(d_offsets);
                 const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(dp_ref.host_packed_mask);
@@ -427,20 +444,24 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         c2 += bs;
                     }
                 }
-                const size_t bo_size = (size_t) dp_ref.n_blocks * sizeof(int32_t);
                 offset += bo_size;
-                if (offset > ctx.cuda_packed_stream_buffer_bytes) {
-                    throw std::runtime_error("Stream buffer overflow!");
-                }
+
+                // GPU reads via device VA; layout matches host memcpy + padding bytes.
+                void * dev_weights = dev_base;
+                void * dev_mask = dev_base + dp_ref.pw_size;
+                void * dev_fv = has_fv ? (dev_base + dp_ref.pw_size + dp_ref.pm_size) : nullptr;
+                size_t dev_offset_pos = dp_ref.pw_size + dp_ref.pm_size + (has_fv ? dp_ref.fv_size : 0);
+                dev_offset_pos = (dev_offset_pos + 3) & ~static_cast<size_t>(3);
+                void * dev_offsets = dev_base + dev_offset_pos;
 
                 if (!ctx.cuda_unpack_scratch_dev) {
                     throw std::runtime_error("Jetson unpack scratch has no device pointer (cudaHostGetDevicePointer failed)");
                 }
                 launch_unpack_kernel_streamed(
-                    d_weights,
-                    d_mask,
-                    d_fv,
-                    bo_ptr,
+                    dev_weights,
+                    dev_mask,
+                    dev_fv,
+                    reinterpret_cast<int32_t *>(dev_offsets),
                     rows,
                     cols,
                     dp_ref.block_size > 0 ? dp_ref.block_size : 32,

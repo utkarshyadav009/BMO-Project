@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -376,58 +377,96 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     const size_t scratch_bytes = max_unpack_elems * sizeof(float);
 #ifdef BMO_JETSON
     if (max_unpack_elems > 0) {
-        size_t stream_size = 45ULL * 1024 * 1024; // 45 MB is enough for our largest matrix
-        cudaError_t stream_err = cudaMallocManaged(&ctx.cuda_packed_stream_buffer, stream_size);
-        if (stream_err == cudaSuccess) {
-            ctx.cuda_packed_stream_buffer_bytes = stream_size;
-            std::cout << "[bmo_prepare_device_packed_tensors] cuda_packed_stream_buffer="
-                      << (double) stream_size / (1024.0 * 1024.0) << " MB managed\n";
+        ctx.cuda_packed_stream_buffer = nullptr;
+        ctx.cuda_packed_stream_buffer_dev = nullptr;
+        ctx.cuda_packed_stream_buffer_bytes = 0;
+        ctx.cuda_packed_stream_buffer_owns_raw_malloc = false;
+
+        const size_t stream_size = 128ULL * 1024 * 1024; // 128 MB is safe for the max ~56MB payload
+        void * stream_raw = nullptr;
+        if (posix_memalign(&stream_raw, 64, stream_size) != 0 || !stream_raw) {
+            std::cerr << "[bmo_jetson] posix_memalign failed for stream buffer\n";
         } else {
-            ctx.cuda_packed_stream_buffer = nullptr;
-            ctx.cuda_packed_stream_buffer_bytes = 0;
-            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMallocManaged stream buffer failed: "
-                      << cudaGetErrorString(stream_err) << "\n";
+            cudaError_t reg_err =
+                cudaHostRegister(stream_raw, stream_size, cudaHostRegisterMapped | cudaHostRegisterPortable);
+            if (reg_err != cudaSuccess) {
+                std::cerr << "[bmo_jetson] cudaHostRegister stream buffer failed: " << cudaGetErrorString(reg_err)
+                          << "\n";
+                std::free(stream_raw);
+            } else {
+                void * dev_ptr = nullptr;
+                cudaError_t map_err = cudaHostGetDevicePointer(&dev_ptr, stream_raw, 0);
+                if (map_err != cudaSuccess) {
+                    std::cerr << "[bmo_jetson] cudaHostGetDevicePointer stream buffer failed: "
+                              << cudaGetErrorString(map_err) << "\n";
+                    cudaHostUnregister(stream_raw);
+                    std::free(stream_raw);
+                } else {
+                    ctx.cuda_packed_stream_buffer = stream_raw;
+                    ctx.cuda_packed_stream_buffer_dev = dev_ptr;
+                    ctx.cuda_packed_stream_buffer_bytes = stream_size;
+                    ctx.cuda_packed_stream_buffer_owns_raw_malloc = true;
+                    std::cout << "[bmo_jetson] stream_buffer=" << (double) stream_size / (1024 * 1024)
+                              << " MB pinned mapped\n";
+                }
+            }
         }
     }
 #endif
     if (scratch_bytes > 0) {
 #ifdef BMO_JETSON
-        // Page-locked mapped host memory: avoids NvMap fragmentation from cudaMallocManaged on Jetson.
-        cudaError_t err = cudaHostAlloc(&ctx.cuda_unpack_scratch, scratch_bytes, cudaHostAllocMapped);
+        ctx.cuda_unpack_scratch = nullptr;
         ctx.cuda_unpack_scratch_dev = nullptr;
-        if (err == cudaSuccess) {
-            ctx.cuda_unpack_scratch_managed = true;
-            void * dev_ptr = nullptr;
-            cudaError_t map_err = cudaHostGetDevicePointer(&dev_ptr, ctx.cuda_unpack_scratch, 0);
-            if (map_err == cudaSuccess) {
-                ctx.cuda_unpack_scratch_dev = dev_ptr;
+        ctx.cuda_unpack_scratch_bytes = 0;
+        ctx.cuda_unpack_scratch_managed = false;
+        ctx.cuda_unpack_scratch_owns_raw_malloc = false;
+
+        void * raw = nullptr;
+        if (posix_memalign(&raw, 64, scratch_bytes) != 0 || !raw) {
+            std::cerr << "[bmo_jetson] posix_memalign failed for scratch\n";
+        } else {
+            cudaError_t reg_err = cudaHostRegister(
+                raw,
+                scratch_bytes,
+                cudaHostRegisterMapped | cudaHostRegisterPortable);
+            if (reg_err != cudaSuccess) {
+                std::cerr << "[bmo_jetson] cudaHostRegister scratch failed: " << cudaGetErrorString(reg_err) << "\n";
+                std::free(raw);
             } else {
-                std::cerr << "[bmo_prepare_device_packed_tensors] cudaHostGetDevicePointer failed: "
-                          << cudaGetErrorString(map_err) << "\n";
-                cudaFreeHost(ctx.cuda_unpack_scratch);
-                ctx.cuda_unpack_scratch = nullptr;
-                err = map_err;
+                void * dev_ptr = nullptr;
+                cudaError_t map_err = cudaHostGetDevicePointer(&dev_ptr, raw, 0);
+                if (map_err != cudaSuccess) {
+                    std::cerr << "[bmo_jetson] cudaHostGetDevicePointer scratch failed: "
+                              << cudaGetErrorString(map_err) << "\n";
+                    cudaHostUnregister(raw);
+                    std::free(raw);
+                } else {
+                    ctx.cuda_unpack_scratch = raw;
+                    ctx.cuda_unpack_scratch_dev = dev_ptr;
+                    ctx.cuda_unpack_scratch_bytes = scratch_bytes;
+                    ctx.cuda_unpack_scratch_managed = true;
+                    ctx.cuda_unpack_scratch_owns_raw_malloc = true;
+                    std::cout << "[bmo_jetson] scratch=" << (double) scratch_bytes / (1024 * 1024)
+                              << " MB pinned mapped\n";
+                }
             }
         }
 #else
         cudaError_t err = cudaMalloc(&ctx.cuda_unpack_scratch, scratch_bytes);
-#endif
+        ctx.cuda_unpack_scratch_dev = nullptr;
         if (err == cudaSuccess) {
+            ctx.cuda_unpack_scratch_dev = ctx.cuda_unpack_scratch;
             ctx.cuda_unpack_scratch_bytes = scratch_bytes;
             std::cout << "[bmo_prepare_device_packed_tensors] cuda_unpack_scratch="
-                      << (double) scratch_bytes / (1024.0 * 1024.0) << " MB"
-#ifdef BMO_JETSON
-                      << " pinned mapped (host)"
-#endif
-                      << "\n";
+                      << (double) scratch_bytes / (1024.0 * 1024.0) << " MB\n";
         } else {
             ctx.cuda_unpack_scratch = nullptr;
             ctx.cuda_unpack_scratch_dev = nullptr;
             ctx.cuda_unpack_scratch_bytes = 0;
-            ctx.cuda_unpack_scratch_managed = false;
-            std::cerr << "[bmo_prepare_device_packed_tensors] scratch allocation failed: "
+            std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc scratch failed: "
                       << cudaGetErrorString(err) << "\n";
         }
+#endif
     }
 #endif
 }
@@ -442,7 +481,10 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
 
     if (ctx.cuda_unpack_scratch) {
 #ifdef BMO_JETSON
-        cudaFreeHost(ctx.cuda_unpack_scratch);
+        if (ctx.cuda_unpack_scratch_owns_raw_malloc) {
+            cudaHostUnregister(ctx.cuda_unpack_scratch);
+            std::free(ctx.cuda_unpack_scratch);
+        }
 #else
         cudaFree(ctx.cuda_unpack_scratch);
 #endif
@@ -451,11 +493,21 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
     ctx.cuda_unpack_scratch_dev = nullptr;
     ctx.cuda_unpack_scratch_bytes = 0;
     ctx.cuda_unpack_scratch_managed = false;
+    ctx.cuda_unpack_scratch_owns_raw_malloc = false;
     if (ctx.cuda_packed_stream_buffer) {
+#ifdef BMO_JETSON
+        if (ctx.cuda_packed_stream_buffer_owns_raw_malloc) {
+            cudaHostUnregister(ctx.cuda_packed_stream_buffer);
+            std::free(ctx.cuda_packed_stream_buffer);
+        }
+#else
         cudaFree(ctx.cuda_packed_stream_buffer);
+#endif
         ctx.cuda_packed_stream_buffer = nullptr;
     }
+    ctx.cuda_packed_stream_buffer_dev = nullptr;
     ctx.cuda_packed_stream_buffer_bytes = 0;
+    ctx.cuda_packed_stream_buffer_owns_raw_malloc = false;
 #else
     (void) ctx;
 #endif
