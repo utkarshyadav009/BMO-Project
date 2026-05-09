@@ -32,6 +32,17 @@ struct device_packed_t {
     float zp_low = 1.5f;
     float zp_int4 = 7.5f;
     float zp_int8 = 127.5f;
+    void * canonical_base = nullptr;
+    void * canonical_base_host = nullptr;
+    // Host pointers (for memcpy into GGML tensors / debug)
+    void * canonical_pw = nullptr;
+    void * canonical_pm = nullptr;
+    ggml_fp16_t * canonical_fv = nullptr;
+    // Device pointers (for fused kernel reads)
+    void * canonical_pw_dev = nullptr;
+    void * canonical_pm_dev = nullptr;
+    void * canonical_fv_dev = nullptr;
+    bool preloaded = false;
 #else
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
     void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
@@ -143,6 +154,7 @@ struct bmo_context {
     void * cuda_fused_input_buffer = nullptr;
     void * cuda_fused_input_buffer_dev = nullptr;
     bool cuda_fused_input_owns_raw_malloc = false;
+    // Hybrid preload uses per-matrix pinned allocations (no global canonical slab).
 #endif
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")

@@ -12,6 +12,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(BMO_ENABLE_CUDA) && defined(BMO_JETSON)
+#include <sys/mman.h>
+#endif
+
 #ifdef BMO_ENABLE_CUDA
 #include <cuda_runtime.h>
 #include "ggml-backend.h"
@@ -81,6 +85,7 @@ static float read_scalar_f32_gguf(ggml_context * ctx, const std::string & name, 
 
 static void free_device_packed_owned_buffers(device_packed_t & dp) {
 #ifdef BMO_JETSON
+    // canonical_base_host is freed in bmo_free_cuda_resources (needs access to ctx).
     if (dp.block_offset_owns_raw_malloc && dp.block_offset_host) {
         cudaHostUnregister(dp.block_offset_host);
         std::free(dp.block_offset_host);
@@ -237,6 +242,33 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         }
         ctx.cuda_backend = backend;
     }
+
+#ifdef BMO_JETSON
+    // Hybrid preload: always keep a stream buffer for fallback,
+    // but cap canonical pinned preload to avoid OOM.
+    ctx.cuda_packed_stream_buffer = nullptr;
+    ctx.cuda_packed_stream_buffer_dev = nullptr;
+    ctx.cuda_packed_stream_buffer_bytes = 0;
+    ctx.cuda_packed_stream_buffer_owns_raw_malloc = false;
+
+    size_t stream_size = 128ULL * 1024 * 1024;
+    void * stream_raw = nullptr;
+    if (posix_memalign(&stream_raw, 64, stream_size) == 0 && stream_raw) {
+        if (cudaHostRegister(stream_raw,
+                             stream_size,
+                             cudaHostRegisterMapped | cudaHostRegisterPortable) == cudaSuccess) {
+            cudaHostGetDevicePointer(&ctx.cuda_packed_stream_buffer_dev, stream_raw, 0);
+            ctx.cuda_packed_stream_buffer = stream_raw;
+            ctx.cuda_packed_stream_buffer_bytes = stream_size;
+            ctx.cuda_packed_stream_buffer_owns_raw_malloc = true;
+        } else {
+            std::free(stream_raw);
+        }
+    }
+
+    size_t total_pinned_so_far = 0;
+    const size_t PIN_LIMIT = 0; // 1.0 GB hard cap to ensure compute arena has room
+#endif
 
     // Process all packed temporal matrices for each temporal layer.
     for (int i = 0; i < ctx.n_layers; ++i) {
@@ -399,6 +431,69 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                     c2 += bs;
                 }
             }
+
+            const size_t pw_aligned = (dp.pw_size + 15) & ~size_t(15);
+            const size_t pm_aligned = (dp.pm_size + 15) & ~size_t(15);
+            const size_t fv_aligned = dp.host_fp16_values ? ((dp.fv_size + 15) & ~size_t(15)) : 0;
+            const size_t total_size = pw_aligned + pm_aligned + fv_aligned;
+
+            if (total_pinned_so_far + total_size < PIN_LIMIT) {
+                void * raw_preload = nullptr;
+                if (posix_memalign(&raw_preload, 64, total_size) == 0 && raw_preload) {
+                    cudaError_t reg_err =
+                        cudaHostRegister(raw_preload,
+                                         total_size,
+                                         cudaHostRegisterMapped | cudaHostRegisterPortable);
+                    if (reg_err == cudaSuccess) {
+                        void * dev_preload = nullptr;
+                        if (cudaHostGetDevicePointer(&dev_preload, raw_preload, 0) == cudaSuccess) {
+                            uint8_t * cb_host = reinterpret_cast<uint8_t *>(raw_preload);
+                            uint8_t * cb_dev = reinterpret_cast<uint8_t *>(dev_preload);
+
+                            std::memcpy(cb_host, dp.host_packed_weights, dp.pw_size);
+                            std::memcpy(cb_host + pw_aligned, dp.host_packed_mask, dp.pm_size);
+                            if (dp.host_fp16_values) {
+                                std::memcpy(cb_host + pw_aligned + pm_aligned, dp.host_fp16_values, dp.fv_size);
+                            }
+
+                            posix_madvise((void *) dp.host_packed_weights, dp.pw_size, POSIX_MADV_DONTNEED);
+                            posix_madvise((void *) dp.host_packed_mask, dp.pm_size, POSIX_MADV_DONTNEED);
+                            if (dp.host_fp16_values) {
+                                posix_madvise((void *) dp.host_fp16_values, dp.fv_size, POSIX_MADV_DONTNEED);
+                            }
+
+                            dp.canonical_base_host = raw_preload;
+                            dp.canonical_base = cb_host;
+                            dp.canonical_pw = cb_host;
+                            dp.canonical_pm = cb_host + pw_aligned;
+                            dp.canonical_fv =
+                                dp.host_fp16_values
+                                    ? reinterpret_cast<ggml_fp16_t *>(cb_host + pw_aligned + pm_aligned)
+                                    : nullptr;
+                            dp.canonical_pw_dev = cb_dev;
+                            dp.canonical_pm_dev = cb_dev + pw_aligned;
+                            dp.canonical_fv_dev =
+                                dp.host_fp16_values
+                                    ? reinterpret_cast<void *>(cb_dev + pw_aligned + pm_aligned)
+                                    : nullptr;
+                            dp.preloaded = true;
+                            total_pinned_so_far += total_size;
+                            std::cout << "[bmo_jetson] Hybrid Preload OK: " << base << "\n";
+                        } else {
+                            cudaHostUnregister(raw_preload);
+                            std::free(raw_preload);
+                            dp.preloaded = false;
+                        }
+                    } else {
+                        std::free(raw_preload);
+                        dp.preloaded = false;
+                    }
+                } else {
+                    dp.preloaded = false;
+                }
+            } else {
+                dp.preloaded = false;
+            }
 #else
             err = cudaMalloc(&dp.packed_weights, pw_bytes);
             if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
@@ -453,11 +548,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 
 #ifdef BMO_JETSON
     if (!ctx.packed_registry.empty()) {
-        ctx.cuda_packed_stream_buffer = nullptr;
-        ctx.cuda_packed_stream_buffer_dev = nullptr;
-        ctx.cuda_packed_stream_buffer_bytes = 0;
-        ctx.cuda_packed_stream_buffer_owns_raw_malloc = false;
-
         ctx.cuda_fused_output_buffer = nullptr;
         ctx.cuda_fused_output_buffer_dev = nullptr;
         ctx.cuda_fused_output_buffer_bytes = 0;
@@ -466,36 +556,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         ctx.cuda_fused_input_buffer = nullptr;
         ctx.cuda_fused_input_buffer_dev = nullptr;
         ctx.cuda_fused_input_owns_raw_malloc = false;
-
-        const size_t stream_size = 128ULL * 1024 * 1024;
-        void * stream_raw = nullptr;
-        if (posix_memalign(&stream_raw, 64, stream_size) != 0 || !stream_raw) {
-            std::cerr << "[bmo_jetson] posix_memalign failed for stream buffer\n";
-        } else {
-            cudaError_t reg_err =
-                cudaHostRegister(stream_raw, stream_size, cudaHostRegisterMapped | cudaHostRegisterPortable);
-            if (reg_err != cudaSuccess) {
-                std::cerr << "[bmo_jetson] cudaHostRegister stream buffer failed: " << cudaGetErrorString(reg_err)
-                          << "\n";
-                std::free(stream_raw);
-            } else {
-                void * dev_ptr = nullptr;
-                cudaError_t map_err = cudaHostGetDevicePointer(&dev_ptr, stream_raw, 0);
-                if (map_err != cudaSuccess) {
-                    std::cerr << "[bmo_jetson] cudaHostGetDevicePointer stream buffer failed: "
-                              << cudaGetErrorString(map_err) << "\n";
-                    cudaHostUnregister(stream_raw);
-                    std::free(stream_raw);
-                } else {
-                    ctx.cuda_packed_stream_buffer = stream_raw;
-                    ctx.cuda_packed_stream_buffer_dev = dev_ptr;
-                    ctx.cuda_packed_stream_buffer_bytes = stream_size;
-                    ctx.cuda_packed_stream_buffer_owns_raw_malloc = true;
-                    std::cout << "[bmo_jetson] stream_buffer=" << (double) stream_size / (1024 * 1024)
-                              << " MB pinned mapped\n";
-                }
-            }
-        }
 
         size_t out_bytes = 22528ULL * sizeof(float);
         out_bytes = (out_bytes + 63) & ~size_t(63);
@@ -577,6 +637,13 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
 #ifdef BMO_ENABLE_CUDA
     for (auto & kv : ctx.packed_registry) {
         device_packed_t & dp = kv.second;
+#ifdef BMO_JETSON
+        if (dp.canonical_base_host) {
+            cudaHostUnregister(dp.canonical_base_host);
+            std::free(dp.canonical_base_host);
+            dp.canonical_base_host = nullptr;
+        }
+#endif
         free_device_packed_owned_buffers(dp);
     }
     ctx.packed_registry.clear();

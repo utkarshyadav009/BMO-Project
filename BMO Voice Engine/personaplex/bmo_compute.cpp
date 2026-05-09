@@ -357,9 +357,11 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 if (!dp_ref.block_offset_dev) {
                     throw std::runtime_error("Jetson fused: missing block_offset_dev for " + linear.base);
                 }
-                if (!ctx.cuda_packed_stream_buffer || !ctx.cuda_packed_stream_buffer_dev
-                    || ctx.cuda_packed_stream_buffer_bytes == 0) {
-                    throw std::runtime_error("Jetson packed stream buffer is not allocated");
+                if (!dp_ref.preloaded) {
+                    if (!ctx.cuda_packed_stream_buffer || !ctx.cuda_packed_stream_buffer_dev
+                        || ctx.cuda_packed_stream_buffer_bytes == 0) {
+                        throw std::runtime_error("Jetson packed stream buffer is not allocated");
+                    }
                 }
                 if (!ctx.cuda_fused_output_buffer || !ctx.cuda_fused_output_buffer_dev) {
                     throw std::runtime_error("Jetson fused output buffer is not allocated");
@@ -376,13 +378,22 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 }
 
                 const bool has_fv = dp_ref.host_fp16_values && dp_ref.fv_size > 0;
-                size_t payload = dp_ref.pw_size + dp_ref.pm_size;
-                if (has_fv) {
-                    payload += dp_ref.fv_size;
+                if (!dp_ref.preloaded) {
+                    size_t payload = dp_ref.pw_size + dp_ref.pm_size;
+                    if (has_fv) {
+                        payload += dp_ref.fv_size;
+                    }
+                    if (payload > ctx.cuda_packed_stream_buffer_bytes) {
+                        throw std::runtime_error("Stream buffer overflow (payload) for " + linear.base);
+                    }
+                } else if (!dp_ref.canonical_pw || !dp_ref.canonical_pm) {
+                    throw std::runtime_error("Jetson fused: preloaded canonical pointers missing for "
+                                             + linear.base);
+                } else if (has_fv && !dp_ref.canonical_fv) {
+                    throw std::runtime_error("Jetson fused: preloaded canonical fv missing for "
+                                             + linear.base);
                 }
-                if (payload > ctx.cuda_packed_stream_buffer_bytes) {
-                    throw std::runtime_error("Stream buffer overflow (payload) for " + linear.base);
-                }
+
                 const size_t row_out_bytes = (size_t) rows * sizeof(float);
                 if (row_out_bytes > ctx.cuda_fused_output_buffer_bytes) {
                     throw std::runtime_error("Fused output buffer too small for rows in " + linear.base);
@@ -393,35 +404,72 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 }
                 const int64_t n_tok = n_el / (int64_t) cols;
 
-                uint8_t * base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
-                uint8_t * dev_base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
-                size_t off = 0;
-                std::memcpy(base + off, dp_ref.host_packed_weights, dp_ref.pw_size);
-                off += dp_ref.pw_size;
-                std::memcpy(base + off, dp_ref.host_packed_mask, dp_ref.pm_size);
-                off += dp_ref.pm_size;
-                if (has_fv) {
-                    std::memcpy(base + off, dp_ref.host_fp16_values, dp_ref.fv_size);
+                cudaEvent_t start_kern = {};
+                cudaEvent_t stop_kern = {};
+                if (cudaEventCreate(&start_kern) != cudaSuccess) {
+                    throw std::runtime_error("cudaEventCreate(start_kern) failed for fused profiling (" + linear.base
+                                               + ")");
                 }
+                if (cudaEventCreate(&stop_kern) != cudaSuccess) {
+                    cudaEventDestroy(start_kern);
+                    throw std::runtime_error("cudaEventCreate(stop_kern) failed for fused profiling (" + linear.base
+                                               + ")");
+                }
+                struct CUDAEventsGuard {
+                    cudaEvent_t a;
+                    cudaEvent_t b;
+                    ~CUDAEventsGuard() {
+                        cudaEventDestroy(a);
+                        cudaEventDestroy(b);
+                    }
+                } kern_ev_guard { start_kern, stop_kern };
 
-                void * dev_weights = dev_base;
-                void * dev_mask = dev_base + dp_ref.pw_size;
-                void * dev_fv = has_fv ? (dev_base + dp_ref.pw_size + dp_ref.pm_size) : nullptr;
+                auto e2e_t0 = std::chrono::steady_clock::now();
 
                 ggml_tensor * out_lm = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, rows, n_tok);
                 float * fused_out_host = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer);
                 float * fused_out_dev = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer_dev);
 
+                const void * kern_pw = nullptr;
+                const void * kern_pm = nullptr;
+                const void * kern_fv = nullptr;
+
+                if (dp_ref.preloaded) {
+                    kern_pw = dp_ref.canonical_pw_dev;
+                    kern_pm = dp_ref.canonical_pm_dev;
+                    kern_fv = has_fv ? static_cast<const void *>(dp_ref.canonical_fv_dev) : nullptr;
+                } else {
+                    uint8_t * base_h = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
+                    uint8_t * base_d = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
+                    size_t off = 0;
+                    std::memcpy(base_h + off, dp_ref.host_packed_weights, dp_ref.pw_size);
+                    off += dp_ref.pw_size;
+                    std::memcpy(base_h + off, dp_ref.host_packed_mask, dp_ref.pm_size);
+                    off += dp_ref.pm_size;
+                    if (has_fv) {
+                        std::memcpy(base_h + off, dp_ref.host_fp16_values, dp_ref.fv_size);
+                    }
+                    kern_pw = base_d;
+                    kern_pm = base_d + dp_ref.pw_size;
+                    kern_fv = has_fv ? static_cast<const void *>(base_d + dp_ref.pw_size + dp_ref.pm_size)
+                                     : nullptr;
+                }
+
                 const size_t x_vec_bytes = (size_t) cols * sizeof(float);
+                float kern_ms_sum = 0.0f;
                 for (int64_t t = 0; t < n_tok; ++t) {
                     const float * x_col = reinterpret_cast<const float *>(
                         (const uint8_t *) x->data + (size_t) t * x->nb[1]);
                     std::memcpy(ctx.cuda_fused_input_buffer, x_col, x_vec_bytes);
+
+                    if (cudaEventRecord(start_kern) != cudaSuccess) {
+                        throw std::runtime_error("cudaEventRecord(start_kern) failed for " + linear.base);
+                    }
                     launch_fused_dequant_matvec(
-                        dev_weights,
-                        dev_mask,
+                        kern_pw,
+                        kern_pm,
                         reinterpret_cast<const int32_t *>(dp_ref.block_offset_dev),
-                        dev_fv,
+                        kern_fv,
                         rows,
                         cols,
                         dp_ref.block_size > 0 ? dp_ref.block_size : 32,
@@ -435,36 +483,51 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         dp_ref.zp_int8,
                         reinterpret_cast<const float *>(ctx.cuda_fused_input_buffer_dev),
                         fused_out_dev);
+                    if (cudaEventRecord(stop_kern) != cudaSuccess) {
+                        throw std::runtime_error("cudaEventRecord(stop_kern) failed for " + linear.base);
+                    }
+
                     cudaError_t sync_err = cudaStreamSynchronize(0);
                     if (sync_err != cudaSuccess) {
                         throw std::runtime_error(std::string("CUDA sync failed after fused matvec for ")
                                                  + linear.base + ": "
                                                  + cudaGetErrorString(sync_err));
                     }
+                    float k_seg_ms = 0.0f;
+                    if (cudaEventElapsedTime(&k_seg_ms, start_kern, stop_kern) != cudaSuccess) {
+                        throw std::runtime_error("cudaEventElapsedTime failed for " + linear.base);
+                    }
+                    kern_ms_sum += k_seg_ms;
+
                     if (cudaGetLastError() != cudaSuccess) {
                         throw std::runtime_error("fused_matvec CUDA error for " + linear.base);
                     }
+
                     std::memcpy((uint8_t *) out_lm->data + (size_t) t * out_lm->nb[1],
                                 fused_out_host,
                                 row_out_bytes);
                 }
 
-                (void) posix_madvise(dp_ref.host_packed_weights, dp_ref.pw_size, POSIX_MADV_DONTNEED);
-                (void) posix_madvise(dp_ref.host_packed_mask, dp_ref.pm_size, POSIX_MADV_DONTNEED);
-                if (dp_ref.host_fp16_values) {
-                    (void) posix_madvise(dp_ref.host_fp16_values, dp_ref.fv_size, POSIX_MADV_DONTNEED);
+                if (!dp_ref.preloaded && dp_ref.host_packed_weights) {
+                    (void) posix_madvise(dp_ref.host_packed_weights, dp_ref.pw_size, POSIX_MADV_DONTNEED);
+                    (void) posix_madvise(dp_ref.host_packed_mask, dp_ref.pm_size, POSIX_MADV_DONTNEED);
+                    if (dp_ref.host_fp16_values) {
+                        (void) posix_madvise(dp_ref.host_fp16_values, dp_ref.fv_size, POSIX_MADV_DONTNEED);
+                    }
                 }
-
-                auto unpack_t1 = std::chrono::steady_clock::now();
-                long fused_us =
-                    std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
-                std::fprintf(stderr, "[prof_fused] base=%s rows=%d cols=%d tok=%ld fused_us=%ld\n",
-                             linear.base.c_str(), rows, cols, (long) n_tok, fused_us);
 
                 y = out_lm;
                 if (linear.dense_bias) {
                     y = ggml_add(wctx, y, linear.dense_bias);
                 }
+
+                auto e2e_t1 = std::chrono::steady_clock::now();
+                const double e2e_ms =
+                    std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
+                std::fprintf(stderr,
+                             "[prof_prod] base=%s preloaded=%d kernel=%.2fms e2e_with_graph=%.2fms\n",
+                             linear.base.c_str(), (int) dp_ref.preloaded, (double) kern_ms_sum, e2e_ms);
+
                 return y;
 #endif
 #ifndef BMO_JETSON
