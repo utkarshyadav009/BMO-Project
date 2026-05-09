@@ -277,6 +277,50 @@ static ggml_tensor * apply_rope_gpu_interleaved(
     out.pool = nullptr; // detach: ownership transfers to release_all_staging at layer end
     return y;
 }
+
+// Eagerly executes the SwiGLU split-and-fuse on the GPU:
+//   y[i] = silu(h[i]) * h[i + d_ff], for i in [0, d_ff)
+// where h_full is the concatenated [gate | up] vector (length 2 * d_ff).
+// If h_full->data is already a registered host pointer (i.e. lives in a slot
+// from a previous GPU op), we map it directly; otherwise we stage a copy.
+static ggml_tensor * apply_swiglu_gpu(
+    bmo_context & ctx,
+    ggml_context * wctx,
+    ggml_tensor * h_full) {
+    const int total = (int) ggml_nelements(h_full);
+    if (total <= 0 || (total % 2) != 0) {
+        throw std::runtime_error("apply_swiglu_gpu: invalid h_full size " + std::to_string(total));
+    }
+    const int d_ff = total / 2;
+
+    const size_t total_bytes = (size_t) total * sizeof(float);
+    const size_t d_ff_bytes  = (size_t) d_ff  * sizeof(float);
+    if (total_bytes > gpu_staging_pool::SLOT_BYTES ||
+        d_ff_bytes  > gpu_staging_pool::SLOT_BYTES) {
+        throw std::runtime_error("apply_swiglu_gpu: tensor exceeds staging slot capacity");
+    }
+
+    float * h_dev = nullptr;
+    if (cudaHostGetDevicePointer((void **) &h_dev, h_full->data, 0) != cudaSuccess) {
+        cudaGetLastError(); // flush stale error from the failed lookup
+        staging_slot in_slot = borrow_staging(ctx.staging);
+        std::memcpy(in_slot.host, h_full->data, total_bytes);
+        h_dev = (float *) in_slot.dev;
+    }
+
+    staging_slot out_slot = borrow_staging(ctx.staging);
+    launch_swiglu_split(h_dev, d_ff, (float *) out_slot.dev, nullptr);
+
+    // Deferred sync: see apply_rmsnorm_gpu for rationale.
+    if (cudaGetLastError() != cudaSuccess) {
+        throw std::runtime_error("apply_swiglu_gpu: kernel launch error");
+    }
+
+    ggml_tensor * y = ggml_new_tensor_1d(wctx, GGML_TYPE_F32, d_ff);
+    y->data = out_slot.host;
+    out_slot.pool = nullptr; // detach: ownership transfers to release_all_staging at layer end
+    return y;
+}
 #endif
 
 namespace {
@@ -620,57 +664,105 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 }
                 const int64_t n_tok = n_el / (int64_t) cols;
 
-                cudaEvent_t start_kern = {};
-                cudaEvent_t stop_kern = {};
-                if (cudaEventCreate(&start_kern) != cudaSuccess) {
-                    throw std::runtime_error("cudaEventCreate(start_kern) failed for fused profiling (" + linear.base
-                                               + ")");
-                }
-                if (cudaEventCreate(&stop_kern) != cudaSuccess) {
-                    cudaEventDestroy(start_kern);
-                    throw std::runtime_error("cudaEventCreate(stop_kern) failed for fused profiling (" + linear.base
-                                               + ")");
-                }
-                struct CUDAEventsGuard {
-                    cudaEvent_t a;
-                    cudaEvent_t b;
-                    ~CUDAEventsGuard() {
-                        cudaEventDestroy(a);
-                        cudaEventDestroy(b);
-                    }
-                } kern_ev_guard { start_kern, stop_kern };
-
                 auto e2e_t0 = std::chrono::steady_clock::now();
 
-                ggml_tensor * out_lm = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, rows, n_tok);
-                float * fused_out_host = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer);
-                float * fused_out_dev = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer_dev);
+                const void * kern_pw = dp_ref.canonical_pw_dev;
+                const void * kern_pm = dp_ref.canonical_pm_dev;
+                const void * kern_fv = has_fv ? static_cast<const void *>(dp_ref.canonical_fv_dev) : nullptr;
+                const int    block_size_eff = dp_ref.block_size > 0 ? dp_ref.block_size : 32;
+                const size_t x_vec_bytes    = (size_t) cols * sizeof(float);
 
-                const void * kern_pw = nullptr;
-                const void * kern_pm = nullptr;
-                const void * kern_fv = nullptr;
-
-                kern_pw = dp_ref.canonical_pw_dev;
-                kern_pm = dp_ref.canonical_pm_dev;
-                kern_fv = has_fv ? static_cast<const void *>(dp_ref.canonical_fv_dev) : nullptr;
-
-                const size_t x_vec_bytes = (size_t) cols * sizeof(float);
-                float kern_ms_sum = 0.0f;
-                for (int64_t t = 0; t < n_tok; ++t) {
-                    const float * x_col = reinterpret_cast<const float *>(
-                        (const uint8_t *) x->data + (size_t) t * x->nb[1]);
-                    std::memcpy(ctx.cuda_fused_input_buffer, x_col, x_vec_bytes);
-
-                    if (cudaEventRecord(start_kern) != cudaSuccess) {
-                        throw std::runtime_error("cudaEventRecord(start_kern) failed for " + linear.base);
+                if (n_tok == 1) {
+                    // -------- Fast path: alias kernel output into a staging slot --------
+                    //
+                    // The previous design memcpy'd fused_out_host -> wctx after a
+                    // per-call cudaStreamSynchronize. Under the deferred-sync
+                    // architecture, we cannot host-memcpy a buffer that the GPU is
+                    // still writing through cuda_fused_output_buffer_dev. Instead we
+                    // borrow a slot from the staging pool, point the kernel at it,
+                    // and alias out_lm->data to slot.host. The boundary sync before
+                    // the next CPU consumer (flash_attn / silu) ensures the slot is
+                    // populated before any host read.
+                    if (row_out_bytes > gpu_staging_pool::SLOT_BYTES) {
+                        throw std::runtime_error("matvec output exceeds staging slot capacity for "
+                                                 + linear.base);
                     }
+
+                    // Map x->data through CUDA when possible (e.g. previous eager op's
+                    // staging slot); only fall back to a host->host memcpy when the
+                    // input lives in unregistered wctx memory. This avoids racing
+                    // against an in-flight upstream kernel writing to x's slot.
+                    float * x_dev = nullptr;
+                    if (cudaHostGetDevicePointer((void **) &x_dev, x->data, 0) != cudaSuccess) {
+                        cudaGetLastError(); // flush stale error
+                        std::memcpy(ctx.cuda_fused_input_buffer, x->data, x_vec_bytes);
+                        x_dev = reinterpret_cast<float *>(ctx.cuda_fused_input_buffer_dev);
+                    }
+
+                    staging_slot out_slot = borrow_staging(ctx.staging);
                     launch_fused_dequant_matvec(
                         kern_pw,
                         kern_pm,
                         kern_fv,
                         rows,
                         cols,
-                        dp_ref.block_size > 0 ? dp_ref.block_size : 32,
+                        block_size_eff,
+                        dp_ref.n_2bit_bytes,
+                        dp_ref.n_4bit_bytes,
+                        dp_ref.scale_low,
+                        dp_ref.scale_int4,
+                        dp_ref.scale_int8,
+                        dp_ref.zp_low,
+                        dp_ref.zp_int4,
+                        dp_ref.zp_int8,
+                        x_dev,
+                        reinterpret_cast<float *>(out_slot.dev),
+                        nullptr);
+
+                    if (cudaGetLastError() != cudaSuccess) {
+                        throw std::runtime_error("fused_matvec CUDA error for " + linear.base);
+                    }
+
+                    ggml_tensor * out_lm = ggml_new_tensor_1d(wctx, GGML_TYPE_F32, rows);
+                    out_lm->data = out_slot.host;
+                    out_slot.pool = nullptr; // detach: released by release_all_staging at layer end
+
+                    y = out_lm;
+                    if (linear.dense_bias) {
+                        y = ggml_add(wctx, y, linear.dense_bias);
+                    }
+
+                    auto e2e_t1 = std::chrono::steady_clock::now();
+                    const double e2e_ms =
+                        std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
+                    std::fprintf(stderr,
+                                 "[prof_prod] base=%s kernel=async e2e_with_graph=%.2fms\n",
+                                 linear.base.c_str(), e2e_ms);
+
+                    return y;
+                }
+
+                // -------- Multi-token prefill path: keep per-iteration sync+memcpy --------
+                //
+                // A single staging slot cannot hold rows*n_tok floats and the
+                // shared cuda_fused_output_buffer is overwritten by every kernel,
+                // so we synchronize per token and memcpy the result into wctx.
+                ggml_tensor * out_lm = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, rows, n_tok);
+                float * fused_out_host = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer);
+                float * fused_out_dev  = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer_dev);
+
+                for (int64_t t = 0; t < n_tok; ++t) {
+                    const float * x_col = reinterpret_cast<const float *>(
+                        (const uint8_t *) x->data + (size_t) t * x->nb[1]);
+                    std::memcpy(ctx.cuda_fused_input_buffer, x_col, x_vec_bytes);
+
+                    launch_fused_dequant_matvec(
+                        kern_pw,
+                        kern_pm,
+                        kern_fv,
+                        rows,
+                        cols,
+                        block_size_eff,
                         dp_ref.n_2bit_bytes,
                         dp_ref.n_4bit_bytes,
                         dp_ref.scale_low,
@@ -680,23 +772,15 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         dp_ref.zp_int4,
                         dp_ref.zp_int8,
                         reinterpret_cast<const float *>(ctx.cuda_fused_input_buffer_dev),
-                        fused_out_dev);
-                    if (cudaEventRecord(stop_kern) != cudaSuccess) {
-                        throw std::runtime_error("cudaEventRecord(stop_kern) failed for " + linear.base);
-                    }
+                        fused_out_dev,
+                        nullptr);
 
-                    // Deferred sync: do not block here. A boundary
-                    // cudaStreamSynchronize before the next CPU consumer
-                    // (flash_attn / silu) will wait for the stream.
-                    float k_seg_ms = 0.0f;
-                    cudaError_t et = cudaEventElapsedTime(&k_seg_ms, start_kern, stop_kern);
-                    if (et != cudaSuccess && et != cudaErrorNotReady) {
-                        throw std::runtime_error("cudaEventElapsedTime failed for " + linear.base);
+                    cudaError_t sync_err = cudaStreamSynchronize(0);
+                    if (sync_err != cudaSuccess) {
+                        throw std::runtime_error(std::string("CUDA sync failed after fused matvec for ")
+                                                 + linear.base + ": "
+                                                 + cudaGetErrorString(sync_err));
                     }
-                    if (et == cudaSuccess) {
-                        kern_ms_sum += k_seg_ms;
-                    }
-
                     if (cudaGetLastError() != cudaSuccess) {
                         throw std::runtime_error("fused_matvec CUDA error for " + linear.base);
                     }
@@ -715,8 +799,8 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 const double e2e_ms =
                     std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
                 std::fprintf(stderr,
-                             "[prof_prod] base=%s kernel=%.2fms e2e_with_graph=%.2fms\n",
-                             linear.base.c_str(), (double) kern_ms_sum, e2e_ms);
+                             "[prof_prod] base=%s n_tok=%lld kernel=sync e2e_with_graph=%.2fms\n",
+                             linear.base.c_str(), (long long) n_tok, e2e_ms);
 
                 return y;
 #endif
@@ -1089,13 +1173,16 @@ ggml_cgraph * bmo_build_temporal_graph(
         } else {
             // SwiGLU fused projection: split ff_in into gate and up projections
             const int64_t hidden_dim = ff_in->ne[0] / 2;
+#ifdef BMO_JETSON
+            // SwiGLU is now fused on the GPU (apply_swiglu_gpu); the kernel chain
+            // stays on stream 0 so no boundary sync is needed before this point.
+            ggml_tensor * ff_act = apply_swiglu_gpu(ctx, wctx, ff_in);
+            (void) hidden_dim;
+#else
             ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, hidden_dim, ff_in->ne[1], ff_in->nb[1], 0);
             ggml_tensor * ff_up   = ggml_view_2d(wctx, ff_in, hidden_dim, ff_in->ne[1], ff_in->nb[1], hidden_dim * ggml_type_size(ff_in->type));
-
-#ifdef BMO_JETSON
-            cudaStreamSynchronize(0); // Sync before CPU SwiGLU
+            ggml_tensor * ff_act  = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 #endif
-            ggml_tensor * ff_act = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 
             ggml_tensor * ff_out = apply_linear_with_transient_unpack(
                 ctx,
@@ -1433,13 +1520,15 @@ ggml_cgraph * bmo_build_depth_graph(
         }
 
         const int64_t ff_hidden = ff_in->ne[0] / 2;
-        ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], 0);
-        ggml_tensor * ff_up = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], ff_hidden * ggml_type_size(ff_in->type));
-
 #ifdef BMO_JETSON
-        cudaStreamSynchronize(0); // Sync before CPU SwiGLU
+        // SwiGLU fused on the GPU; no host sync is needed here.
+        ggml_tensor * ff_act = apply_swiglu_gpu(ctx, wctx, ff_in);
+        (void) ff_hidden;
+#else
+        ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], 0);
+        ggml_tensor * ff_up   = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], ff_hidden * ggml_type_size(ff_in->type));
+        ggml_tensor * ff_act  = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 #endif
-        ggml_tensor * ff_act = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 
         ggml_tensor * ff_out = apply_linear_with_transient_unpack(
             ctx,

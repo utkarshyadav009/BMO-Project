@@ -130,7 +130,9 @@ struct bmo_model {
 // bulk-released at the end of each iteration via release_all_staging().
 struct gpu_staging_pool {
     static constexpr int    N_SLOTS    = 32;
-    static constexpr size_t SLOT_BYTES = 4096 * sizeof(float); // sized for n_embd <= 4096
+    // Sized for the largest matvec output we alias into a slot
+    // (FF gating-in produces 2 * d_ff = 22528 floats = 88 KB on this model).
+    static constexpr size_t SLOT_BYTES = 22528 * sizeof(float);
 
     void * host[N_SLOTS]   = {};
     void * dev[N_SLOTS]    = {};
@@ -274,6 +276,12 @@ void launch_rope_interleaved(
     int n_token,
     int pos_base,
     float theta_base,
+    float * y_dev,
+    void * stream = nullptr);
+
+void launch_swiglu_split(
+    const float * h_dev,
+    int d_ff,
     float * y_dev,
     void * stream = nullptr);
 #endif

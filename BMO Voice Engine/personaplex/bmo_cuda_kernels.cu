@@ -338,6 +338,25 @@ void launch_rope_interleaved(
         x_dev, n_heads, head_dim, n_token, pos_base, theta_base, y_dev);
 }
 
+// SwiGLU on a split [gate | up] vector: y[i] = silu(gate[i]) * up[i].
+// Input  layout: h[0..d_ff)     = gate, h[d_ff..2*d_ff) = up.
+// Output layout: y[0..d_ff)     = silu(gate) * up.
+__global__ void swiglu_split_kernel(const float * __restrict__ h, int d_ff, float * __restrict__ y) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= d_ff) return;
+
+    const float gate = h[idx];
+    const float up   = h[idx + d_ff];
+    const float silu = gate / (1.0f + __expf(-gate));
+    y[idx] = silu * up;
+}
+
+void launch_swiglu_split(const float * h_dev, int d_ff, float * y_dev, void * stream) {
+    const int threads = 256;
+    cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
+    swiglu_split_kernel<<<(d_ff + threads - 1) / threads, threads, 0, s>>>(h_dev, d_ff, y_dev);
+}
+
 void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
