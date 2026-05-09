@@ -19,10 +19,6 @@ struct device_packed_t {
     size_t pm_size = 0;
     void * host_fp16_values = nullptr;
     size_t fv_size = 0;
-    /// Host posix slab backing block_offset (unregister + std::free this pointer)
-    void * block_offset_host = nullptr;
-    void * block_offset_dev = nullptr;
-    bool block_offset_owns_raw_malloc = false;
     int32_t n_2bit_bytes = 0;
     int32_t n_4bit_bytes = 0;
     int32_t n_8bit_bytes = 0;
@@ -142,10 +138,6 @@ struct bmo_context {
     bool cuda_unpack_scratch_managed = false;
     bool cuda_unpack_scratch_owns_raw_malloc = false;
 #endif
-    void * cuda_packed_stream_buffer = nullptr;
-    void * cuda_packed_stream_buffer_dev = nullptr;
-    size_t cuda_packed_stream_buffer_bytes = 0;
-    bool cuda_packed_stream_buffer_owns_raw_malloc = false;
 #ifdef BMO_JETSON
     void * cuda_fused_output_buffer = nullptr;
     void * cuda_fused_output_buffer_dev = nullptr;
@@ -154,7 +146,11 @@ struct bmo_context {
     void * cuda_fused_input_buffer = nullptr;
     void * cuda_fused_input_buffer_dev = nullptr;
     bool cuda_fused_input_owns_raw_malloc = false;
-    // Hybrid preload uses per-matrix pinned allocations (no global canonical slab).
+    void * streaming_big_pool = nullptr;
+    size_t streaming_big_pool_size = 0;
+    bool streaming_big_pool_registered = false;
+    void * streaming_scalar_pool = nullptr;
+    size_t streaming_scalar_pool_size = 0;
 #endif
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
@@ -219,7 +215,6 @@ void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf, const std::ve
 void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
-    const int32_t * block_offset,
     const void * fp16_vals,
     int rows,
     int cols,

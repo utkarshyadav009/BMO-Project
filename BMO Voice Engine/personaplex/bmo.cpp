@@ -7,17 +7,15 @@
 #include <cstdlib>
 #include <cstdio>
 #include <fstream>
+#include <fcntl.h>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <unistd.h>
 #include <vector>
-
-#if defined(BMO_ENABLE_CUDA) && defined(BMO_JETSON)
-#include <sys/mman.h>
-#endif
 
 #ifdef BMO_ENABLE_CUDA
 #include <cuda_runtime.h>
@@ -117,10 +115,6 @@ static float read_scalar_f32_gguf(ggml_context * ctx, const std::string & name, 
 static void free_device_packed_owned_buffers(device_packed_t & dp) {
 #ifdef BMO_JETSON
     // canonical_base_host is freed in bmo_free_cuda_resources (needs access to ctx).
-    if (dp.block_offset_owns_raw_malloc && dp.block_offset_host) {
-        cudaHostUnregister(dp.block_offset_host);
-        std::free(dp.block_offset_host);
-    }
 #endif
 #ifndef BMO_JETSON
     if (dp.packed_weights) cudaFree(dp.packed_weights);
@@ -136,19 +130,120 @@ static void free_device_packed_owned_buffers(device_packed_t & dp) {
 } // namespace
 
 void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
+    ctx.streaming_big_pool = nullptr;
+    ctx.streaming_big_pool_size = 0;
+    ctx.streaming_big_pool_registered = false;
+    ctx.streaming_scalar_pool = nullptr;
+    ctx.streaming_scalar_pool_size = 0;
+
+    // 1. Init without mmap
     ggml_context * data_ctx = nullptr;
     gguf_init_params params = {
-        /*.no_alloc =*/ false,
+        /*.no_alloc =*/ true,
         /*.ctx =*/ &data_ctx,
     };
 
     gguf_context * gctx = gguf_init_from_file(fname, params);
     if (!gctx || !data_ctx) {
-        throw std::runtime_error(std::string("Failed to load GGUF file: ") + fname);
+        throw std::runtime_error("Failed to parse GGUF");
     }
-
     model.gctx = gctx;
     model.wctx = data_ctx;
+
+    // 2. Open file for reading
+    int fd = open(fname, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        throw std::runtime_error("Failed to open GGUF");
+    }
+    posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
+
+    // 3. Measure pools
+    const int64_t n_tensors = gguf_get_n_tensors(gctx);
+    const size_t SCALAR_MAX = 4096;
+    const size_t ALIGN = 64;
+    auto round_up = [](size_t x, size_t a) -> size_t { return (x + a - 1) & ~(a - 1); };
+
+    size_t scalar_total = 0;
+    size_t big_total = 0;
+    for (int64_t i = 0; i < n_tensors; ++i) {
+        ggml_tensor * t = ggml_get_tensor(data_ctx, gguf_get_tensor_name(gctx, i));
+        if (!t) continue;
+        size_t nb = (size_t) ggml_nbytes(t);
+        if (nb <= SCALAR_MAX) scalar_total += round_up(nb, ALIGN);
+        else                  big_total += round_up(nb, ALIGN);
+    }
+
+    // 4. Allocate pools
+    void * scalar_base = nullptr;
+    if (scalar_total > 0) {
+        if (posix_memalign(&scalar_base, ALIGN, scalar_total) != 0) {
+            close(fd);
+            throw std::runtime_error("Failed to allocate scalar pool");
+        }
+    }
+
+    void * big_base = nullptr;
+    if (big_total > 0) {
+        const size_t PAGE = 4096;
+        size_t big_aligned = round_up(big_total, PAGE);
+        if (posix_memalign(&big_base, PAGE, big_aligned) != 0) {
+            close(fd);
+            if (scalar_base) std::free(scalar_base);
+            throw std::runtime_error("Failed to allocate big pool");
+        }
+#ifdef BMO_JETSON
+        if (cudaHostRegister(big_base, big_aligned, cudaHostRegisterMapped | cudaHostRegisterPortable) == cudaSuccess) {
+            ctx.streaming_big_pool_registered = true;
+        } else {
+            close(fd);
+            if (scalar_base) std::free(scalar_base);
+            std::free(big_base);
+            throw std::runtime_error("cudaHostRegister failed for big pool");
+        }
+#endif
+        ctx.streaming_big_pool = big_base;
+        ctx.streaming_big_pool_size = big_aligned;
+    }
+    ctx.streaming_scalar_pool = scalar_base;
+    ctx.streaming_scalar_pool_size = scalar_total;
+
+    // 5. Read data from disk
+    const size_t data_offset = gguf_get_data_offset(gctx);
+    size_t scalar_used = 0;
+    size_t big_used = 0;
+    for (int64_t i = 0; i < n_tensors; ++i) {
+        ggml_tensor * t = ggml_get_tensor(data_ctx, gguf_get_tensor_name(gctx, i));
+        if (!t) continue;
+
+        size_t nb = (size_t) ggml_nbytes(t);
+        size_t aligned_nb = round_up(nb, ALIGN);
+        off_t file_off = (off_t) (data_offset + gguf_get_tensor_offset(gctx, i));
+
+        void * dst = nullptr;
+        if (nb <= SCALAR_MAX) {
+            dst = (uint8_t *) scalar_base + scalar_used;
+            scalar_used += aligned_nb;
+        } else {
+            dst = (uint8_t *) big_base + big_used;
+            big_used += aligned_nb;
+        }
+
+        size_t remaining = nb;
+        uint8_t * out = (uint8_t *) dst;
+        while (remaining > 0) {
+            ssize_t r = pread(fd, out, remaining, file_off);
+            if (r <= 0) {
+                close(fd);
+                throw std::runtime_error("pread failed while loading GGUF tensor payload");
+            }
+            out += (size_t) r;
+            file_off += r;
+            remaining -= (size_t) r;
+        }
+        t->data = dst; // Patch tensor
+    }
+    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+    close(fd);
 
     ctx.n_layers = read_scalar_i32(data_ctx, "n_layers", 0);
     if (ctx.n_layers <= 0) ctx.n_layers = read_scalar_i32(data_ctx, "n_layer", 32);
@@ -263,8 +358,11 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     bmo_print_mem_diag("Start Prepare");
     size_t max_unpack_elems = 0;
 
-    // Rebuild from scratch if called repeatedly.
-    bmo_free_cuda_resources(ctx);
+    // Rebuild packed registry if called repeatedly; do not free streaming pools here.
+    for (auto & kv : ctx.packed_registry) {
+        free_device_packed_owned_buffers(kv.second);
+    }
+    ctx.packed_registry.clear();
 
     if (!ctx.cuda_backend) {
         ggml_backend_t backend = ggml_backend_cuda_init(0);
@@ -276,30 +374,6 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     }
 
 #ifdef BMO_JETSON
-    // Hybrid preload: always keep a stream buffer for fallback,
-    // but cap canonical pinned preload to avoid OOM.
-    ctx.cuda_packed_stream_buffer = nullptr;
-    ctx.cuda_packed_stream_buffer_dev = nullptr;
-    ctx.cuda_packed_stream_buffer_bytes = 0;
-    ctx.cuda_packed_stream_buffer_owns_raw_malloc = false;
-
-    size_t stream_size = 128ULL * 1024 * 1024;
-    void * stream_raw = nullptr;
-    if (posix_memalign(&stream_raw, 64, stream_size) == 0 && stream_raw) {
-        if (cudaHostRegister(stream_raw,
-                             stream_size,
-                             cudaHostRegisterMapped | cudaHostRegisterPortable) == cudaSuccess) {
-            cudaHostGetDevicePointer(&ctx.cuda_packed_stream_buffer_dev, stream_raw, 0);
-            ctx.cuda_packed_stream_buffer = stream_raw;
-            ctx.cuda_packed_stream_buffer_bytes = stream_size;
-            ctx.cuda_packed_stream_buffer_owns_raw_malloc = true;
-        } else {
-            std::free(stream_raw);
-        }
-    }
-
-    size_t total_pinned_so_far = 0;
-    const size_t PIN_LIMIT = 0; // 1.0 GB hard cap to ensure compute arena has room
     bmo_print_mem_diag("After Stream Alloc");
 #endif
 
@@ -416,115 +490,32 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             dp.zp_int4 = read_scalar_f32_gguf(model.wctx, base + ".zp_int4", 7.5f);
             dp.zp_int8 = read_scalar_f32_gguf(model.wctx, base + ".zp_int8", 127.5f);
 
-            const size_t bo_bytes = (size_t) dp.n_blocks * sizeof(int32_t);
-            void * raw_bo = nullptr;
-            if (posix_memalign(&raw_bo, 64, bo_bytes) != 0 || !raw_bo) {
-                std::cerr << "[bmo_prepare_device_packed_tensors] posix_memalign block_offset failed for " << base << "\n";
-                continue;
+            dp.canonical_base_host = nullptr;
+            dp.canonical_base = dp.host_packed_weights;
+            dp.canonical_pw = dp.host_packed_weights;
+            dp.canonical_pm = dp.host_packed_mask;
+            dp.canonical_fv =
+                dp.host_fp16_values ? reinterpret_cast<ggml_fp16_t *>(dp.host_fp16_values) : nullptr;
+
+            void * pw_dev = nullptr;
+            void * pm_dev = nullptr;
+            void * fv_dev = nullptr;
+            cudaError_t pw_map = cudaHostGetDevicePointer(&pw_dev, dp.host_packed_weights, 0);
+            cudaError_t pm_map = cudaHostGetDevicePointer(&pm_dev, dp.host_packed_mask, 0);
+            cudaError_t fv_map = cudaSuccess;
+            if (dp.host_fp16_values) {
+                fv_map = cudaHostGetDevicePointer(&fv_dev, dp.host_fp16_values, 0);
             }
-            cudaError_t bo_reg =
-                cudaHostRegister(raw_bo, bo_bytes, cudaHostRegisterMapped | cudaHostRegisterPortable);
-            if (bo_reg != cudaSuccess) {
-                std::cerr << "[bmo_prepare_device_packed_tensors] cudaHostRegister block_offset failed for " << base
-                          << ": " << cudaGetErrorString(bo_reg) << "\n";
-                std::free(raw_bo);
-                continue;
-            }
-            void * dev_bo = nullptr;
-            cudaError_t bo_map = cudaHostGetDevicePointer(&dev_bo, raw_bo, 0);
-            if (bo_map != cudaSuccess) {
-                std::cerr << "[bmo_prepare_device_packed_tensors] cudaHostGetDevicePointer block_offset failed for " << base
-                          << ": " << cudaGetErrorString(bo_map) << "\n";
-                cudaHostUnregister(raw_bo);
-                std::free(raw_bo);
-                continue;
-            }
-            dp.block_offset_host = raw_bo;
-            dp.block_offset_dev = dev_bo;
-            dp.block_offset_owns_raw_malloc = true;
-
-            auto * bo = reinterpret_cast<int32_t *>(raw_bo);
-            const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(dp.host_packed_mask);
-            int32_t c2 = 0, c4 = 0, c8 = 0, c16 = 0;
-            const int32_t bs = dp.block_size > 0 ? dp.block_size : 32;
-            for (int32_t b = 0; b < dp.n_blocks; ++b) {
-                const uint8_t mbyte = pm_host[(size_t)(b >> 2)];
-                const uint8_t tier = (mbyte >> ((b & 3) * 2)) & 0x3;
-                if (tier == 0) {
-                    bo[b] = c16;
-                    c16 += bs;
-                } else if (tier == 1) {
-                    bo[b] = c8;
-                    c8 += bs;
-                } else if (tier == 2) {
-                    bo[b] = c4;
-                    c4 += bs;
-                } else {
-                    bo[b] = c2;
-                    c2 += bs;
-                }
-            }
-
-            const size_t pw_aligned = (dp.pw_size + 15) & ~size_t(15);
-            const size_t pm_aligned = (dp.pm_size + 15) & ~size_t(15);
-            const size_t fv_aligned = dp.host_fp16_values ? ((dp.fv_size + 15) & ~size_t(15)) : 0;
-            const size_t total_size = pw_aligned + pm_aligned + fv_aligned;
-
-            if (total_pinned_so_far + total_size < PIN_LIMIT) {
-                void * raw_preload = nullptr;
-                if (posix_memalign(&raw_preload, 64, total_size) == 0 && raw_preload) {
-                    cudaError_t reg_err =
-                        cudaHostRegister(raw_preload,
-                                         total_size,
-                                         cudaHostRegisterMapped | cudaHostRegisterPortable);
-                    if (reg_err == cudaSuccess) {
-                        void * dev_preload = nullptr;
-                        if (cudaHostGetDevicePointer(&dev_preload, raw_preload, 0) == cudaSuccess) {
-                            uint8_t * cb_host = reinterpret_cast<uint8_t *>(raw_preload);
-                            uint8_t * cb_dev = reinterpret_cast<uint8_t *>(dev_preload);
-
-                            std::memcpy(cb_host, dp.host_packed_weights, dp.pw_size);
-                            std::memcpy(cb_host + pw_aligned, dp.host_packed_mask, dp.pm_size);
-                            if (dp.host_fp16_values) {
-                                std::memcpy(cb_host + pw_aligned + pm_aligned, dp.host_fp16_values, dp.fv_size);
-                            }
-
-                            posix_madvise((void *) dp.host_packed_weights, dp.pw_size, POSIX_MADV_DONTNEED);
-                            posix_madvise((void *) dp.host_packed_mask, dp.pm_size, POSIX_MADV_DONTNEED);
-                            if (dp.host_fp16_values) {
-                                posix_madvise((void *) dp.host_fp16_values, dp.fv_size, POSIX_MADV_DONTNEED);
-                            }
-
-                            dp.canonical_base_host = raw_preload;
-                            dp.canonical_base = cb_host;
-                            dp.canonical_pw = cb_host;
-                            dp.canonical_pm = cb_host + pw_aligned;
-                            dp.canonical_fv =
-                                dp.host_fp16_values
-                                    ? reinterpret_cast<ggml_fp16_t *>(cb_host + pw_aligned + pm_aligned)
-                                    : nullptr;
-                            dp.canonical_pw_dev = cb_dev;
-                            dp.canonical_pm_dev = cb_dev + pw_aligned;
-                            dp.canonical_fv_dev =
-                                dp.host_fp16_values
-                                    ? reinterpret_cast<void *>(cb_dev + pw_aligned + pm_aligned)
-                                    : nullptr;
-                            dp.preloaded = true;
-                            total_pinned_so_far += total_size;
-                            std::cout << "[bmo_jetson] Hybrid Preload OK: " << base << "\n";
-                        } else {
-                            cudaHostUnregister(raw_preload);
-                            std::free(raw_preload);
-                            dp.preloaded = false;
-                        }
-                    } else {
-                        std::free(raw_preload);
-                        dp.preloaded = false;
-                    }
-                } else {
-                    dp.preloaded = false;
-                }
+            if (pw_map == cudaSuccess && pm_map == cudaSuccess && fv_map == cudaSuccess) {
+                dp.canonical_pw_dev = pw_dev;
+                dp.canonical_pm_dev = pm_dev;
+                dp.canonical_fv_dev = fv_dev;
+                dp.preloaded = true;
             } else {
+                std::cerr << "[bmo_prepare_device_packed_tensors] cudaHostGetDevicePointer canonical map failed for "
+                          << base << " pw=" << cudaGetErrorString(pw_map)
+                          << " pm=" << cudaGetErrorString(pm_map)
+                          << " fv=" << cudaGetErrorString(fv_map) << "\n";
                 dp.preloaded = false;
             }
 #else
@@ -692,20 +683,6 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
     ctx.cuda_unpack_scratch_managed = false;
     ctx.cuda_unpack_scratch_owns_raw_malloc = false;
 #endif
-    if (ctx.cuda_packed_stream_buffer) {
-#ifdef BMO_JETSON
-        if (ctx.cuda_packed_stream_buffer_owns_raw_malloc) {
-            cudaHostUnregister(ctx.cuda_packed_stream_buffer);
-            std::free(ctx.cuda_packed_stream_buffer);
-        }
-#else
-        cudaFree(ctx.cuda_packed_stream_buffer);
-#endif
-        ctx.cuda_packed_stream_buffer = nullptr;
-    }
-    ctx.cuda_packed_stream_buffer_dev = nullptr;
-    ctx.cuda_packed_stream_buffer_bytes = 0;
-    ctx.cuda_packed_stream_buffer_owns_raw_malloc = false;
 #ifdef BMO_JETSON
     if (ctx.cuda_fused_output_buffer && ctx.cuda_fused_output_owns_raw_malloc) {
         cudaHostUnregister(ctx.cuda_fused_output_buffer);
@@ -722,6 +699,20 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
     }
     ctx.cuda_fused_input_buffer_dev = nullptr;
     ctx.cuda_fused_input_owns_raw_malloc = false;
+    if (ctx.streaming_big_pool_registered && ctx.streaming_big_pool) {
+        cudaHostUnregister(ctx.streaming_big_pool);
+        ctx.streaming_big_pool_registered = false;
+    }
+    if (ctx.streaming_big_pool) {
+        std::free(ctx.streaming_big_pool);
+        ctx.streaming_big_pool = nullptr;
+    }
+    ctx.streaming_big_pool_size = 0;
+    if (ctx.streaming_scalar_pool) {
+        std::free(ctx.streaming_scalar_pool);
+        ctx.streaming_scalar_pool = nullptr;
+    }
+    ctx.streaming_scalar_pool_size = 0;
 #endif
 #else
     (void) ctx;

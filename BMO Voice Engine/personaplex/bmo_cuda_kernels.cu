@@ -69,64 +69,87 @@ __global__ void unpack_kernel(
 
 } // namespace
 
-__global__ void fused_dequant_matvec_kernel(
+__global__ void fused_dequant_matvec_kernel_no_offsets(
     const uint8_t * __restrict__ pw,
     const uint8_t * __restrict__ pm,
-    const int32_t * __restrict__ block_offset,
     const __half * __restrict__ fp16_vals,
-    int rows,
-    int cols,
-    int block_size,
-    int n_2bit_bytes,
-    int n_4bit_bytes,
-    float scale_low,
-    float scale_int4,
-    float scale_int8,
-    float zp_low,
-    float zp_int4,
-    float zp_int8,
+    int rows, int cols, int block_size,
+    int n_2bit_bytes, int n_4bit_bytes,
+    int row_block_start_global,
+    int c2_base_global, int c4_base_global, int c8_base_global, int c16_base_global,
+    float scale_low, float scale_int4, float scale_int8,
+    float zp_low, float zp_int4, float zp_int8,
     const float * __restrict__ x,
     float * __restrict__ y) {
     const int row = blockIdx.x;
     const int tid = threadIdx.x;
-    if (row >= rows) {
-        return;
+    if (row >= rows) return;
+
+    (void) row_block_start_global;
+    (void) c2_base_global;
+    (void) c4_base_global;
+    (void) c8_base_global;
+    (void) c16_base_global;
+
+    const int blocks_per_row = cols / block_size;
+    const int64_t global_block_start = (int64_t) row * blocks_per_row;
+
+    __shared__ int32_t s_off[256];
+    __shared__ uint8_t s_tier[256];
+
+    if (tid < blocks_per_row) {
+        const int64_t b_global = global_block_start + tid;
+        const uint8_t mbyte = pm[b_global >> 2];
+        const uint8_t tier = (mbyte >> ((b_global & 3) * 2)) & 0x3;
+        s_tier[tid] = tier;
     }
+    __syncthreads();
 
-    const uint8_t * stream2 = pw;
-    const uint8_t * stream4 = pw + n_2bit_bytes;
-    const uint8_t * stream8 = pw + n_2bit_bytes + n_4bit_bytes;
-
-    const int64_t row_base = (int64_t) row * cols;
+    if (tid == 0) {
+        int32_t c2 = 0, c4 = 0, c8 = 0, c16 = 0;
+        for (int i = 0; i < blocks_per_row; ++i) {
+            const uint8_t t = s_tier[i];
+            if (t == 0) {
+                s_off[i] = c16;
+                c16 += block_size;
+            } else if (t == 1) {
+                s_off[i] = c8;
+                c8 += block_size;
+            } else if (t == 2) {
+                s_off[i] = c4;
+                c4 += block_size;
+            } else {
+                s_off[i] = c2;
+                c2 += block_size;
+            }
+        }
+    }
+    __syncthreads();
 
     float acc = 0.0f;
     for (int c = tid; c < cols; c += blockDim.x) {
-        const int64_t pos       = row_base + c;
-        const int     block_idx = (int)(pos / block_size);
-        const int     in_block  = (int)(pos - (int64_t) block_idx * block_size);
-
-        const uint8_t mbyte = pm[block_idx >> 2];
-        const uint8_t tier  = (mbyte >> ((block_idx & 3) * 2)) & 0x3;
-        const int     off   = block_offset[block_idx];
+        const int block_within_row = c / block_size;
+        const int in_block = c - block_within_row * block_size;
+        const uint8_t tier = s_tier[block_within_row];
+        const int off = s_off[block_within_row];
 
         float w;
         if (tier == 0) {
             w = __half2float(fp16_vals[off + in_block]);
         } else if (tier == 1) {
-            uint8_t q = stream8[off + in_block];
+            uint8_t q = pw[n_2bit_bytes + n_4bit_bytes + off + in_block];
             w = ((float) q - zp_int8) * scale_int8;
         } else if (tier == 2) {
             int idx = off + in_block;
-            uint8_t bb = stream4[idx >> 1];
-            uint8_t q = (idx & 1) ? ((bb >> 4) & 0x0F) : (bb & 0x0F);
+            uint8_t bb = pw[n_2bit_bytes + (idx >> 1)];
+            uint8_t q = (idx & 1) ? ((bb >> 4) & 0xF) : (bb & 0xF);
             w = ((float) q - zp_int4) * scale_int4;
         } else {
             int idx = off + in_block;
-            uint8_t bb = stream2[idx >> 2];
+            uint8_t bb = pw[idx >> 2];
             uint8_t q = (bb >> ((idx & 3) * 2)) & 0x3;
             w = ((float) q - zp_low) * scale_low;
         }
-
         acc += w * x[c];
     }
 
@@ -134,14 +157,10 @@ __global__ void fused_dequant_matvec_kernel(
     sdata[tid] = acc;
     __syncthreads();
     for (int s = 128; s > 0; s >>= 1) {
-        if (tid < s) {
-            sdata[tid] += sdata[tid + s];
-        }
+        if (tid < s) sdata[tid] += sdata[tid + s];
         __syncthreads();
     }
-    if (tid == 0) {
-        y[row] = sdata[0];
-    }
+    if (tid == 0) y[row] = sdata[0];
 }
 
 void launch_unpack_kernel_streamed(
@@ -189,7 +208,6 @@ void launch_unpack_kernel_streamed(
 void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
-    const int32_t * block_offset,
     const void * fp16_vals,
     int rows,
     int cols,
@@ -204,16 +222,16 @@ void launch_fused_dequant_matvec(
     float zp_int8,
     const float * x,
     float * y) {
-    fused_dequant_matvec_kernel<<<rows, 256>>>(
+    fused_dequant_matvec_kernel_no_offsets<<<rows, 256>>>(
         reinterpret_cast<const uint8_t *>(pw),
         reinterpret_cast<const uint8_t *>(pm),
-        block_offset,
         reinterpret_cast<const __half *>(fp16_vals),
         rows,
         cols,
         block_size,
         n_2bit_bytes,
         n_4bit_bytes,
+        0, 0, 0, 0, 0,
         scale_low,
         scale_int4,
         scale_int8,

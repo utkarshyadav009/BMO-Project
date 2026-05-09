@@ -354,15 +354,6 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     throw std::runtime_error("Jetson fused linear requires GGML_TYPE_F32 activations for "
                                              + linear.base);
                 }
-                if (!dp_ref.block_offset_dev) {
-                    throw std::runtime_error("Jetson fused: missing block_offset_dev for " + linear.base);
-                }
-                if (!dp_ref.preloaded) {
-                    if (!ctx.cuda_packed_stream_buffer || !ctx.cuda_packed_stream_buffer_dev
-                        || ctx.cuda_packed_stream_buffer_bytes == 0) {
-                        throw std::runtime_error("Jetson packed stream buffer is not allocated");
-                    }
-                }
                 if (!ctx.cuda_fused_output_buffer || !ctx.cuda_fused_output_buffer_dev) {
                     throw std::runtime_error("Jetson fused output buffer is not allocated");
                 }
@@ -378,18 +369,10 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 }
 
                 const bool has_fv = dp_ref.host_fp16_values && dp_ref.fv_size > 0;
-                if (!dp_ref.preloaded) {
-                    size_t payload = dp_ref.pw_size + dp_ref.pm_size;
-                    if (has_fv) {
-                        payload += dp_ref.fv_size;
-                    }
-                    if (payload > ctx.cuda_packed_stream_buffer_bytes) {
-                        throw std::runtime_error("Stream buffer overflow (payload) for " + linear.base);
-                    }
-                } else if (!dp_ref.canonical_pw || !dp_ref.canonical_pm) {
+                if (!dp_ref.preloaded || !dp_ref.canonical_pw_dev || !dp_ref.canonical_pm_dev) {
                     throw std::runtime_error("Jetson fused: preloaded canonical pointers missing for "
                                              + linear.base);
-                } else if (has_fv && !dp_ref.canonical_fv) {
+                } else if (has_fv && !dp_ref.canonical_fv_dev) {
                     throw std::runtime_error("Jetson fused: preloaded canonical fv missing for "
                                              + linear.base);
                 }
@@ -434,26 +417,9 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 const void * kern_pm = nullptr;
                 const void * kern_fv = nullptr;
 
-                if (dp_ref.preloaded) {
-                    kern_pw = dp_ref.canonical_pw_dev;
-                    kern_pm = dp_ref.canonical_pm_dev;
-                    kern_fv = has_fv ? static_cast<const void *>(dp_ref.canonical_fv_dev) : nullptr;
-                } else {
-                    uint8_t * base_h = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
-                    uint8_t * base_d = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
-                    size_t off = 0;
-                    std::memcpy(base_h + off, dp_ref.host_packed_weights, dp_ref.pw_size);
-                    off += dp_ref.pw_size;
-                    std::memcpy(base_h + off, dp_ref.host_packed_mask, dp_ref.pm_size);
-                    off += dp_ref.pm_size;
-                    if (has_fv) {
-                        std::memcpy(base_h + off, dp_ref.host_fp16_values, dp_ref.fv_size);
-                    }
-                    kern_pw = base_d;
-                    kern_pm = base_d + dp_ref.pw_size;
-                    kern_fv = has_fv ? static_cast<const void *>(base_d + dp_ref.pw_size + dp_ref.pm_size)
-                                     : nullptr;
-                }
+                kern_pw = dp_ref.canonical_pw_dev;
+                kern_pm = dp_ref.canonical_pm_dev;
+                kern_fv = has_fv ? static_cast<const void *>(dp_ref.canonical_fv_dev) : nullptr;
 
                 const size_t x_vec_bytes = (size_t) cols * sizeof(float);
                 float kern_ms_sum = 0.0f;
@@ -468,7 +434,6 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     launch_fused_dequant_matvec(
                         kern_pw,
                         kern_pm,
-                        reinterpret_cast<const int32_t *>(dp_ref.block_offset_dev),
                         kern_fv,
                         rows,
                         cols,
@@ -508,14 +473,6 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                                 row_out_bytes);
                 }
 
-                if (!dp_ref.preloaded && dp_ref.host_packed_weights) {
-                    (void) posix_madvise(dp_ref.host_packed_weights, dp_ref.pw_size, POSIX_MADV_DONTNEED);
-                    (void) posix_madvise(dp_ref.host_packed_mask, dp_ref.pm_size, POSIX_MADV_DONTNEED);
-                    if (dp_ref.host_fp16_values) {
-                        (void) posix_madvise(dp_ref.host_fp16_values, dp_ref.fv_size, POSIX_MADV_DONTNEED);
-                    }
-                }
-
                 y = out_lm;
                 if (linear.dense_bias) {
                     y = ggml_add(wctx, y, linear.dense_bias);
@@ -525,8 +482,8 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                 const double e2e_ms =
                     std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
                 std::fprintf(stderr,
-                             "[prof_prod] base=%s preloaded=%d kernel=%.2fms e2e_with_graph=%.2fms\n",
-                             linear.base.c_str(), (int) dp_ref.preloaded, (double) kern_ms_sum, e2e_ms);
+                             "[prof_prod] base=%s kernel=%.2fms e2e_with_graph=%.2fms\n",
+                             linear.base.c_str(), (double) kern_ms_sum, e2e_ms);
 
                 return y;
 #endif

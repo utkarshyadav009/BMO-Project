@@ -272,7 +272,6 @@ int main(int argc, char ** argv) {
     uint8_t * dev_pw = sb_dev;
     uint8_t * dev_pm = sb_dev + pw_size;
     const __half * dev_fv = reinterpret_cast<const __half *>(sb_dev + pw_size + pm_size);
-    const int32_t * dev_bo = reinterpret_cast<const int32_t *>(sb_dev + pre_bo_size);
 
     float * h_y = reinterpret_cast<float *>(vec_raw);
     float * h_x =
@@ -328,7 +327,6 @@ int main(int argc, char ** argv) {
         launch_fused_dequant_matvec(
             dev_pw,
             dev_pm,
-            dev_bo,
             dev_fv,
             rows,
             cols,

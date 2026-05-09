@@ -359,6 +359,14 @@ int main(int argc, char ** argv) {
             ggml_free(ctx.work_ctx);
             ctx.work_ctx = nullptr;
         }
+        if (model.wctx) {
+            ggml_free(model.wctx);
+            model.wctx = nullptr;
+        }
+        if (model.gctx) {
+            gguf_free(model.gctx);
+            model.gctx = nullptr;
+        }
         bmo_free_cuda_resources(ctx);
         std::cout << "[bmo_main] Test completed successfully!\n";
 
@@ -368,6 +376,14 @@ int main(int argc, char ** argv) {
         if (ctx.work_ctx) {
             ggml_free(ctx.work_ctx);
             ctx.work_ctx = nullptr;
+        }
+        if (model.wctx) {
+            ggml_free(model.wctx);
+            model.wctx = nullptr;
+        }
+        if (model.gctx) {
+            gguf_free(model.gctx);
+            model.gctx = nullptr;
         }
         bmo_free_cuda_resources(ctx);
         return 1;
