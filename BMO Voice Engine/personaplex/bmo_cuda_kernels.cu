@@ -267,6 +267,26 @@ void launch_rmsnorm(
     rmsnorm_kernel<<<1, 256, 0, s>>>(x_dev, weight_dev, eps, n_embd, y_dev);
 }
 
+__global__ void residual_add_kernel(
+    const float * __restrict__ a,
+    const float * __restrict__ b,
+    int n,
+    float * __restrict__ y) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) y[idx] = a[idx] + b[idx];
+}
+
+void launch_residual_add(
+    const float * a_dev,
+    const float * b_dev,
+    int n,
+    float * y_dev,
+    void * stream) {
+    const int threads = 256;
+    cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
+    residual_add_kernel<<<(n + threads - 1) / threads, threads, 0, s>>>(a_dev, b_dev, n, y_dev);
+}
+
 void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,

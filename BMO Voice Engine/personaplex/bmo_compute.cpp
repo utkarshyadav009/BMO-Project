@@ -47,11 +47,38 @@ void launch_unpack_kernel(
 #endif
 
 #ifdef BMO_JETSON
+// ---------- GPU staging pool: borrow/release ----------
+
+struct staging_slot {
+    void *              host = nullptr;
+    void *              dev  = nullptr;
+    int                 idx  = -1;
+    gpu_staging_pool *  pool = nullptr;
+};
+
+static staging_slot borrow_staging(gpu_staging_pool & p) {
+    for (int i = 0; i < gpu_staging_pool::N_SLOTS; ++i) {
+        if (!p.in_use[i] && p.host[i] && p.dev[i]) {
+            p.in_use[i] = true;
+            return staging_slot { p.host[i], p.dev[i], i, &p };
+        }
+    }
+    throw std::runtime_error("Staging pool exhausted");
+}
+
+static void release_all_staging(gpu_staging_pool & p) {
+    for (int i = 0; i < gpu_staging_pool::N_SLOTS; ++i) {
+        p.in_use[i] = false;
+    }
+}
+
 // Eagerly executes a fused RMSNorm + element-wise weight multiply on the GPU
 // and returns a leaf ggml_tensor whose data field already holds the result.
-// Mirrors the eager-execution pattern used by apply_linear_with_transient_unpack().
-// Handles both single-token (decode) and multi-token (prefill) inputs by
-// looping per token through the pinned staging buffers.
+// Borrows up to two slots from the pool: one to stage the activation (only
+// if x->data is not directly mappable) and one for the kernel output. The
+// output slot is intentionally kept borrowed until release_all_staging() so
+// downstream interceptors in the same layer can re-map y->data via
+// cudaHostGetDevicePointer instead of a memcpy.
 static ggml_tensor * apply_rmsnorm_gpu(
     bmo_context & ctx,
     ggml_context * wctx,
@@ -64,15 +91,11 @@ static ggml_tensor * apply_rmsnorm_gpu(
     if (x->type != GGML_TYPE_F32 || weight->type != GGML_TYPE_F32) {
         throw std::runtime_error("apply_rmsnorm_gpu: requires GGML_TYPE_F32 input and weight");
     }
-    if (!ctx.rmsnorm_input_host || !ctx.rmsnorm_input_dev ||
-        !ctx.rmsnorm_output_host || !ctx.rmsnorm_output_dev) {
-        throw std::runtime_error("apply_rmsnorm_gpu: rmsnorm staging buffers not allocated");
-    }
 
     const int n_embd = (int) x->ne[0];
     const size_t row_bytes = (size_t) n_embd * sizeof(float);
-    if (row_bytes > ctx.rmsnorm_buffer_bytes) {
-        throw std::runtime_error("apply_rmsnorm_gpu: n_embd exceeds staging buffer capacity");
+    if (row_bytes > gpu_staging_pool::SLOT_BYTES) {
+        throw std::runtime_error("apply_rmsnorm_gpu: n_embd exceeds staging slot capacity");
     }
 
     const int64_t n_el = ggml_nelements(x);
@@ -81,28 +104,41 @@ static ggml_tensor * apply_rmsnorm_gpu(
     }
     const int64_t n_tok = n_el / (int64_t) n_embd;
 
-    float * x_dev = (float *) ctx.rmsnorm_input_dev;
-    float * y_dev = (float *) ctx.rmsnorm_output_dev;
-    float * y_host = (float *) ctx.rmsnorm_output_host;
-
     float * w_dev = nullptr;
     if (cudaHostGetDevicePointer((void **) &w_dev, weight->data, 0) != cudaSuccess) {
         throw std::runtime_error("apply_rmsnorm_gpu: cudaHostGetDevicePointer(weight) failed");
     }
 
-    ggml_tensor * y = nullptr;
-    if (n_tok == 1) {
-        y = ggml_new_tensor_1d(wctx, GGML_TYPE_F32, n_embd);
-    } else {
-        y = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, n_embd, n_tok);
+    // Resolve / stage the input. If x->data is already pinned/mapped (e.g. it
+    // came from a previous staging slot), we skip the memcpy entirely.
+    float * x_base_dev = nullptr;
+    bool x_mapped = (cudaHostGetDevicePointer((void **) &x_base_dev, x->data, 0) == cudaSuccess);
+    staging_slot in_slot {};
+    if (!x_mapped) {
+        cudaGetLastError(); // flush stale error from the failed lookup
+        in_slot = borrow_staging(ctx.staging);
     }
 
-    for (int64_t t = 0; t < n_tok; ++t) {
-        const float * x_col = reinterpret_cast<const float *>(
-            (const uint8_t *) x->data + (size_t) t * x->nb[1]);
-        std::memcpy(ctx.rmsnorm_input_host, x_col, row_bytes);
+    staging_slot out_slot = borrow_staging(ctx.staging);
+    float * y_dev_slot = (float *) out_slot.dev;
+    float * y_host_slot = (float *) out_slot.host;
 
-        launch_rmsnorm(x_dev, w_dev, eps, n_embd, y_dev, nullptr);
+    ggml_tensor * y = (n_tok == 1)
+        ? ggml_new_tensor_1d(wctx, GGML_TYPE_F32, n_embd)
+        : ggml_new_tensor_2d(wctx, GGML_TYPE_F32, n_embd, n_tok);
+
+    for (int64_t t = 0; t < n_tok; ++t) {
+        const uint8_t * x_col_host = (const uint8_t *) x->data + (size_t) t * x->nb[1];
+        const float * x_col_dev;
+        if (x_mapped) {
+            x_col_dev = reinterpret_cast<const float *>(
+                (const uint8_t *) x_base_dev + (size_t) t * x->nb[1]);
+        } else {
+            std::memcpy(in_slot.host, x_col_host, row_bytes);
+            x_col_dev = (const float *) in_slot.dev;
+        }
+
+        launch_rmsnorm(x_col_dev, w_dev, eps, n_embd, y_dev_slot, nullptr);
 
         cudaError_t sync_err = cudaStreamSynchronize(0);
         if (sync_err != cudaSuccess) {
@@ -113,9 +149,76 @@ static ggml_tensor * apply_rmsnorm_gpu(
             throw std::runtime_error("apply_rmsnorm_gpu: kernel launch error");
         }
 
-        std::memcpy((uint8_t *) y->data + (size_t) t * y->nb[1], y_host, row_bytes);
+        if (n_tok == 1) {
+            // Single-token decode: keep y->data pointing at the slot so the
+            // next interceptor in the layer can map it directly.
+            y->data = y_host_slot;
+        } else {
+            std::memcpy((uint8_t *) y->data + (size_t) t * y->nb[1], y_host_slot, row_bytes);
+        }
     }
 
+    return y;
+}
+
+// Eagerly computes y = a + b on the GPU. For single-token inputs the result
+// stays in a borrowed staging slot so subsequent interceptors can map it
+// directly. For larger inputs we fall back to ggml_add so the graph still
+// builds correctly.
+static ggml_tensor * apply_residual_gpu(
+    bmo_context & ctx,
+    ggml_context * wctx,
+    ggml_tensor * a,
+    ggml_tensor * b) {
+    if (!a || !b) {
+        throw std::runtime_error("apply_residual_gpu: null input tensor");
+    }
+    if (a->type != GGML_TYPE_F32 || b->type != GGML_TYPE_F32) {
+        return ggml_add(wctx, a, b);
+    }
+
+    const int64_t n_el = ggml_nelements(a);
+    if (n_el != ggml_nelements(b) || n_el <= 0) {
+        return ggml_add(wctx, a, b);
+    }
+    const size_t total_bytes = (size_t) n_el * sizeof(float);
+    if (total_bytes > gpu_staging_pool::SLOT_BYTES) {
+        // Larger than a single slot (multi-token prefill): defer to the graph.
+        return ggml_add(wctx, a, b);
+    }
+
+    const int n = (int) n_el;
+
+    float * a_dev = nullptr;
+    if (cudaHostGetDevicePointer((void **) &a_dev, a->data, 0) != cudaSuccess) {
+        cudaGetLastError(); // flush stale error from the failed lookup
+        staging_slot stage_a = borrow_staging(ctx.staging);
+        std::memcpy(stage_a.host, a->data, total_bytes);
+        a_dev = (float *) stage_a.dev;
+    }
+
+    float * b_dev = nullptr;
+    if (cudaHostGetDevicePointer((void **) &b_dev, b->data, 0) != cudaSuccess) {
+        cudaGetLastError(); // flush stale error from the failed lookup
+        staging_slot stage_b = borrow_staging(ctx.staging);
+        std::memcpy(stage_b.host, b->data, total_bytes);
+        b_dev = (float *) stage_b.dev;
+    }
+
+    staging_slot out = borrow_staging(ctx.staging);
+    launch_residual_add(a_dev, b_dev, n, (float *) out.dev, nullptr);
+
+    cudaError_t sync_err = cudaStreamSynchronize(0);
+    if (sync_err != cudaSuccess) {
+        throw std::runtime_error(std::string("apply_residual_gpu: cudaStreamSynchronize failed: ")
+                                 + cudaGetErrorString(sync_err));
+    }
+    if (cudaGetLastError() != cudaSuccess) {
+        throw std::runtime_error("apply_residual_gpu: kernel launch error");
+    }
+
+    ggml_tensor * y = ggml_new_tensor_1d(wctx, GGML_TYPE_F32, n);
+    y->data = out.host;
     return y;
 }
 #endif
@@ -886,7 +989,11 @@ ggml_cgraph * bmo_build_temporal_graph(
                     base + "_self_attn_out_proj",
                 });
 
+#ifdef BMO_JETSON
+            x = apply_residual_gpu(ctx, wctx, S(residual), S(attn_out));
+#else
             x = ggml_add(wctx, S(residual), S(attn_out));
+#endif
 
         // -------- Feed-forward block --------
         ggml_tensor * ff_residual = x;
@@ -940,13 +1047,25 @@ ggml_cgraph * bmo_build_temporal_graph(
                     " residual elements=" + std::to_string((long long) ggml_nelements(ff_residual))
                 );
             } else {
+#ifdef BMO_JETSON
+                x = apply_residual_gpu(ctx, wctx, S(ff_residual), S(ff_out));
+#else
                 x = ggml_add(wctx, S(ff_residual), S(ff_out));
+#endif
             }
         }
 
         const std::string out_name = "out_layer_" + std::to_string(layer);
         ggml_set_name(x, out_name.c_str());
         ggml_build_forward_expand(gf, x);
+
+#ifdef BMO_JETSON
+        // All transient pinned slots used during this layer can be reclaimed
+        // for the next iteration (the layer output's data still points into
+        // a slot, but its contents survive until the next borrow at layer N+1
+        // overwrites it -- we copy/consume it earlier in that iteration).
+        release_all_staging(ctx.staging);
+#endif
     }
     return gf;
 }
@@ -1195,7 +1314,11 @@ ggml_cgraph * bmo_build_depth_graph(
             ggml_build_forward_expand(gf, attn_dbg);
         }
 
+#ifdef BMO_JETSON
+        x = apply_residual_gpu(ctx, wctx, residual, attn_out);
+#else
         x = ggml_add(wctx, residual, attn_out);
+#endif
         if (debug_step0 && i == 0) {
             ggml_set_name(x, "depth_attn_x");
         }
@@ -1260,7 +1383,16 @@ ggml_cgraph * bmo_build_depth_graph(
             );
         }
 
+#ifdef BMO_JETSON
+        x = apply_residual_gpu(ctx, wctx, ff_residual, ff_out);
+#else
         x = ggml_add(wctx, ff_residual, ff_out);
+#endif
+
+#ifdef BMO_JETSON
+        // Reclaim all transient pinned slots used during this depth layer.
+        release_all_staging(ctx.staging);
+#endif
     }
 
     const std::string out_name = "depth_out_step_" + std::to_string(codebook_step);

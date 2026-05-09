@@ -124,6 +124,19 @@ struct bmo_model {
     size_t gguf_mmap_size = 0;
 };
 
+// Generic pool of pinned/mapped GPU staging slots. Each slot is a fixed-size
+// page-locked block whose host and device aliases stay alive for the lifetime
+// of the runtime context. Borrowed transiently inside layer iterations and
+// bulk-released at the end of each iteration via release_all_staging().
+struct gpu_staging_pool {
+    static constexpr int    N_SLOTS    = 8;
+    static constexpr size_t SLOT_BYTES = 4096 * sizeof(float); // sized for n_embd <= 4096
+
+    void * host[N_SLOTS]   = {};
+    void * dev[N_SLOTS]    = {};
+    bool   in_use[N_SLOTS] = {};
+};
+
 // Runtime context that holds allocation contexts and runtime params (KV cache, etc.)
 struct bmo_context {
     // GGML contexts
@@ -151,15 +164,12 @@ struct bmo_context {
     bool streaming_big_pool_registered = false;
     void * streaming_scalar_pool = nullptr;
     size_t streaming_scalar_pool_size = 0;
-    // Pinned/mapped staging buffers for the GPU-fused RMSNorm kernel.
-    void * rmsnorm_input_host = nullptr;
-    void * rmsnorm_input_dev = nullptr;
-    bool rmsnorm_input_registered = false;
-    void * rmsnorm_output_host = nullptr;
-    void * rmsnorm_output_dev = nullptr;
-    bool rmsnorm_output_registered = false;
-    size_t rmsnorm_buffer_bytes = 0;
 #endif
+
+    // Generic ring buffer of pinned/mapped GPU staging slots used by the fused
+    // GPU op interceptors (RMSNorm, residual add, ...). Slots are borrowed
+    // during a layer iteration and bulk-released at its end.
+    gpu_staging_pool staging;
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
     // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.
@@ -243,6 +253,13 @@ void launch_rmsnorm(
     const float * weight_dev,
     float eps,
     int n_embd,
+    float * y_dev,
+    void * stream = nullptr);
+
+void launch_residual_add(
+    const float * a_dev,
+    const float * b_dev,
+    int n,
     float * y_dev,
     void * stream = nullptr);
 #endif
