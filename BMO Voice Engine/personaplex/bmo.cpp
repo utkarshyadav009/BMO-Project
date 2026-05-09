@@ -67,6 +67,16 @@ static int32_t read_scalar_i32(ggml_context * data_ctx, const char * name, int32
     return out;
 }
 
+static float read_scalar_f32(ggml_context * data_ctx, const char * name, float fallback = 0.0f) {
+    ggml_tensor * t = get_tensor(data_ctx, name);
+    if (!t || ggml_nbytes(t) < (int) sizeof(float)) {
+        return fallback;
+    }
+    float out = fallback;
+    std::memcpy(&out, t->data, sizeof(float));
+    return out;
+}
+
 static inline uint8_t unpack_u2_le(uint8_t byte, int lane) {
     return (byte >> (lane * 2)) & 0x3;
 }
@@ -260,6 +270,11 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     ctx.head_dim = read_scalar_i32(data_ctx, "head_dim", 0);
     if (ctx.head_dim <= 0) ctx.head_dim = read_scalar_i32(data_ctx, "n_embd_head_k", 0);
 
+    // RoPE base frequency: try the canonical names, fall back to Moshi default.
+    ctx.rope_theta = read_scalar_f32(data_ctx, "rope_theta", 0.0f);
+    if (ctx.rope_theta <= 0.0f) ctx.rope_theta = read_scalar_f32(data_ctx, "rope_freq_base", 0.0f);
+    if (ctx.rope_theta <= 0.0f) ctx.rope_theta = 10000.0f;
+
     // Infer missing temporal dimensions from packed QKV metadata in layer 0.
     {
         const std::string qkv0 = "transformer_layers_0_self_attn_in_proj_weight";
@@ -344,7 +359,7 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
 
     std::cout << "[bmo_load_model] Loaded model '" << fname << "'\n";
     bmo_prepare_device_packed_tensors(model, ctx);
-    std::cout << "[bmo_load_model] n_layers=" << ctx.n_layers << " n_heads=" << ctx.n_heads << " n_embd=" << ctx.n_embd << " n_ctx=" << ctx.n_ctx << "\n";
+    std::cout << "[bmo_load_model] n_layers=" << ctx.n_layers << " n_heads=" << ctx.n_heads << " n_embd=" << ctx.n_embd << " n_ctx=" << ctx.n_ctx << " rope_theta=" << ctx.rope_theta << "\n";
     std::cout << "[bmo_load_model] Total weight bytes: " << (double) total_bytes / (1024.0 * 1024.0) << " MB\n";
 }
 

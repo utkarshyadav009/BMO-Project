@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <algorithm>
 #include <stdexcept>
 
 namespace {
@@ -287,6 +288,56 @@ void launch_residual_add(
     residual_add_kernel<<<(n + threads - 1) / threads, threads, 0, s>>>(a_dev, b_dev, n, y_dev);
 }
 
+// Interleaved RoPE: pairs are (idx_r, idx_i) = (2i, 2i+1) within each head.
+// Tensor layout follows ggml's [head_dim, n_heads, n_token] (ne[0..2]).
+__global__ void rope_interleaved_kernel(
+    const float * __restrict__ x,
+    int n_heads, int head_dim, int n_token,
+    int pos_base, float theta_base,
+    float * __restrict__ y) {
+    const int head = blockIdx.x;
+    const int token = blockIdx.y;
+    const int tid = threadIdx.x;
+    if (head >= n_heads || token >= n_token) return;
+
+    const int half = head_dim >> 1;
+    const size_t off_in_tensor = ((size_t) token * n_heads + head) * head_dim;
+    const float * x_head = x + off_in_tensor;
+    float * y_head = y + off_in_tensor;
+
+    const int pos = pos_base + token;
+
+    for (int i = tid; i < half; i += blockDim.x) {
+        const float exponent = (float) (2 * i) / (float) head_dim;
+        const float inv_freq = __powf(theta_base, -exponent);
+        const float angle = (float) pos * inv_freq;
+        float cs, sn;
+        __sincosf(angle, &sn, &cs);
+
+        const int idx_r = 2 * i;
+        const int idx_i = 2 * i + 1;
+
+        const float xr = x_head[idx_r];
+        const float xi = x_head[idx_i];
+
+        y_head[idx_r] = xr * cs - xi * sn;
+        y_head[idx_i] = xr * sn + xi * cs;
+    }
+}
+
+void launch_rope_interleaved(
+    const float * x_dev,
+    int n_heads, int head_dim, int n_token,
+    int pos_base, float theta_base,
+    float * y_dev,
+    void * stream) {
+    const int threads = std::min(64, head_dim / 2);
+    dim3 grid((unsigned) n_heads, (unsigned) n_token);
+    cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
+    rope_interleaved_kernel<<<grid, threads, 0, s>>>(
+        x_dev, n_heads, head_dim, n_token, pos_base, theta_base, y_dev);
+}
+
 void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
@@ -303,7 +354,8 @@ void launch_fused_dequant_matvec(
     float zp_int4,
     float zp_int8,
     const float * x,
-    float * y) {
+    float * y,
+    void * stream) {
     constexpr int ROWS_PER_BLOCK = 8;
     const int blocks_per_row = cols / block_size;
     const size_t smem_bytes =
@@ -311,8 +363,9 @@ void launch_fused_dequant_matvec(
         + (size_t) ROWS_PER_BLOCK * blocks_per_row * sizeof(int);
 
     const int n_blocks = (rows + ROWS_PER_BLOCK - 1) / ROWS_PER_BLOCK;
+    cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
 
-    fused_dequant_matvec_kernel_v2<ROWS_PER_BLOCK><<<n_blocks, 256, smem_bytes>>>(
+    fused_dequant_matvec_kernel_v2<ROWS_PER_BLOCK><<<n_blocks, 256, smem_bytes, s>>>(
         reinterpret_cast<const uint8_t *>(pw),
         reinterpret_cast<const uint8_t *>(pm),
         reinterpret_cast<const __half *>(fp16_vals),

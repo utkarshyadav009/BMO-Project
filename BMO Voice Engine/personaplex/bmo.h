@@ -129,7 +129,7 @@ struct bmo_model {
 // of the runtime context. Borrowed transiently inside layer iterations and
 // bulk-released at the end of each iteration via release_all_staging().
 struct gpu_staging_pool {
-    static constexpr int    N_SLOTS    = 8;
+    static constexpr int    N_SLOTS    = 32;
     static constexpr size_t SLOT_BYTES = 4096 * sizeof(float); // sized for n_embd <= 4096
 
     void * host[N_SLOTS]   = {};
@@ -181,6 +181,9 @@ struct bmo_context {
     int32_t n_heads = 0;
     int32_t n_embd = 0;
     int32_t head_dim = 0;
+
+    // RoPE base frequency (theta). Parsed from the GGUF metadata at load time.
+    float rope_theta = 10000.0f;
 
     // Physical KV cache tensors allocated in kv_ctx
     ggml_tensor * k_cache = nullptr;
@@ -246,7 +249,8 @@ void launch_fused_dequant_matvec(
     float zp_int4,
     float zp_int8,
     const float * x,
-    float * y);
+    float * y,
+    void * stream = nullptr);
 
 void launch_rmsnorm(
     const float * x_dev,
@@ -260,6 +264,16 @@ void launch_residual_add(
     const float * a_dev,
     const float * b_dev,
     int n,
+    float * y_dev,
+    void * stream = nullptr);
+
+void launch_rope_interleaved(
+    const float * x_dev,
+    int n_heads,
+    int head_dim,
+    int n_token,
+    int pos_base,
+    float theta_base,
     float * y_dev,
     void * stream = nullptr);
 #endif

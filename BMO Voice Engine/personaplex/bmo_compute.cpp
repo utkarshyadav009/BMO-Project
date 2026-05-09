@@ -140,11 +140,8 @@ static ggml_tensor * apply_rmsnorm_gpu(
 
         launch_rmsnorm(x_col_dev, w_dev, eps, n_embd, y_dev_slot, nullptr);
 
-        cudaError_t sync_err = cudaStreamSynchronize(0);
-        if (sync_err != cudaSuccess) {
-            throw std::runtime_error(std::string("apply_rmsnorm_gpu: cudaStreamSynchronize failed: ")
-                                     + cudaGetErrorString(sync_err));
-        }
+        // Deferred sync: a boundary cudaStreamSynchronize before the next CPU
+        // consumer (flash_attn / silu) ensures the kernel has retired.
         if (cudaGetLastError() != cudaSuccess) {
             throw std::runtime_error("apply_rmsnorm_gpu: kernel launch error");
         }
@@ -208,17 +205,76 @@ static ggml_tensor * apply_residual_gpu(
     staging_slot out = borrow_staging(ctx.staging);
     launch_residual_add(a_dev, b_dev, n, (float *) out.dev, nullptr);
 
-    cudaError_t sync_err = cudaStreamSynchronize(0);
-    if (sync_err != cudaSuccess) {
-        throw std::runtime_error(std::string("apply_residual_gpu: cudaStreamSynchronize failed: ")
-                                 + cudaGetErrorString(sync_err));
-    }
+    // Deferred sync: see apply_rmsnorm_gpu for rationale.
     if (cudaGetLastError() != cudaSuccess) {
         throw std::runtime_error("apply_residual_gpu: kernel launch error");
     }
 
     ggml_tensor * y = ggml_new_tensor_1d(wctx, GGML_TYPE_F32, n);
     y->data = out.host;
+    return y;
+}
+
+// Eagerly applies interleaved RoPE on the GPU and returns a 3D leaf tensor
+// whose data field already holds the rotated activations. Falls back to
+// ggml_rope for the multi-token (prefill) case where the input view contains
+// strided gaps that the contiguous kernel cannot consume.
+static ggml_tensor * apply_rope_gpu_interleaved(
+    bmo_context & ctx,
+    ggml_context * wctx,
+    ggml_tensor * x,
+    ggml_tensor * pos) {
+    if (!x || !pos) {
+        throw std::runtime_error("apply_rope_gpu_interleaved: null tensor argument");
+    }
+    if (x->type != GGML_TYPE_F32 || pos->type != GGML_TYPE_I32) {
+        return ggml_rope(wctx, x, pos, (int) x->ne[0], GGML_ROPE_TYPE_NORMAL);
+    }
+
+    const int head_dim = (int) x->ne[0];
+    const int n_heads = (int) x->ne[1];
+    const int n_token = (int) x->ne[2];
+
+    // Multi-token views into a packed QKV tensor are strided across the
+    // token axis (ne[2] step crosses K/V slots). The contiguous kernel cannot
+    // consume those gaps, so defer to ggml_rope for prefill.
+    if (n_token != 1) {
+        return ggml_rope(wctx, x, pos, head_dim, GGML_ROPE_TYPE_NORMAL);
+    }
+    if ((head_dim & 1) != 0) {
+        throw std::runtime_error("apply_rope_gpu_interleaved: head_dim must be even");
+    }
+
+    const size_t row_bytes = (size_t) head_dim * (size_t) n_heads * sizeof(float);
+    if (row_bytes > gpu_staging_pool::SLOT_BYTES) {
+        return ggml_rope(wctx, x, pos, head_dim, GGML_ROPE_TYPE_NORMAL);
+    }
+    if (!pos->data || ggml_nbytes(pos) < (int64_t) sizeof(int32_t)) {
+        throw std::runtime_error("apply_rope_gpu_interleaved: invalid pos tensor");
+    }
+    const int pos_base = ((const int32_t *) pos->data)[0];
+
+    float * x_dev = nullptr;
+    if (cudaHostGetDevicePointer((void **) &x_dev, x->data, 0) != cudaSuccess) {
+        cudaGetLastError(); // flush stale error from the failed lookup
+        staging_slot in_slot = borrow_staging(ctx.staging);
+        std::memcpy(in_slot.host, x->data, row_bytes);
+        x_dev = (float *) in_slot.dev;
+    }
+
+    staging_slot out = borrow_staging(ctx.staging);
+    launch_rope_interleaved(
+        x_dev, n_heads, head_dim, n_token, pos_base, ctx.rope_theta,
+        (float *) out.dev, nullptr);
+
+    // Deferred sync: see apply_rmsnorm_gpu for rationale.
+    if (cudaGetLastError() != cudaSuccess) {
+        throw std::runtime_error("apply_rope_gpu_interleaved: kernel launch error");
+    }
+
+    ggml_tensor * y = ggml_new_tensor_3d(wctx, GGML_TYPE_F32, head_dim, n_heads, n_token);
+    y->data = out.host;
+    out.pool = nullptr; // detach: ownership transfers to release_all_staging at layer end
     return y;
 }
 #endif
@@ -629,17 +685,17 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         throw std::runtime_error("cudaEventRecord(stop_kern) failed for " + linear.base);
                     }
 
-                    cudaError_t sync_err = cudaStreamSynchronize(0);
-                    if (sync_err != cudaSuccess) {
-                        throw std::runtime_error(std::string("CUDA sync failed after fused matvec for ")
-                                                 + linear.base + ": "
-                                                 + cudaGetErrorString(sync_err));
-                    }
+                    // Deferred sync: do not block here. A boundary
+                    // cudaStreamSynchronize before the next CPU consumer
+                    // (flash_attn / silu) will wait for the stream.
                     float k_seg_ms = 0.0f;
-                    if (cudaEventElapsedTime(&k_seg_ms, start_kern, stop_kern) != cudaSuccess) {
+                    cudaError_t et = cudaEventElapsedTime(&k_seg_ms, start_kern, stop_kern);
+                    if (et != cudaSuccess && et != cudaErrorNotReady) {
                         throw std::runtime_error("cudaEventElapsedTime failed for " + linear.base);
                     }
-                    kern_ms_sum += k_seg_ms;
+                    if (et == cudaSuccess) {
+                        kern_ms_sum += k_seg_ms;
+                    }
 
                     if (cudaGetLastError() != cudaSuccess) {
                         throw std::runtime_error("fused_matvec CUDA error for " + linear.base);
@@ -939,8 +995,13 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * k_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) q_dim * e);
             ggml_tensor * v_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) (q_dim + kv_dim) * e);
 
+#ifdef BMO_JETSON
+            ggml_tensor * q_rope = apply_rope_gpu_interleaved(ctx, wctx, q_raw, pos);
+            ggml_tensor * k_rope = apply_rope_gpu_interleaved(ctx, wctx, k_raw, pos);
+#else
             ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
             ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
+#endif
 
             ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
             ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
@@ -971,6 +1032,9 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * k_hist = ggml_view_3d(wctx, k_layer, ctx.head_dim, kv_len, n_kv_heads, k_layer->nb[1], k_layer->nb[2], 0);
             ggml_tensor * v_hist = ggml_view_3d(wctx, v_layer, ctx.head_dim, kv_len, n_kv_heads, v_layer->nb[1], v_layer->nb[2], 0);
 
+#ifdef BMO_JETSON
+            cudaStreamSynchronize(0); // Sync before CPU Attention
+#endif
             ggml_tensor * attn_heads = ggml_flash_attn_ext(
                 wctx, q_trans, ggml_cont(wctx, k_hist), ggml_cont(wctx, v_hist), nullptr,
                 1.0f / std::sqrt((float) ctx.head_dim), 0.0f, 0.0f);
@@ -1028,6 +1092,9 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, hidden_dim, ff_in->ne[1], ff_in->nb[1], 0);
             ggml_tensor * ff_up   = ggml_view_2d(wctx, ff_in, hidden_dim, ff_in->ne[1], ff_in->nb[1], hidden_dim * ggml_type_size(ff_in->type));
 
+#ifdef BMO_JETSON
+            cudaStreamSynchronize(0); // Sync before CPU SwiGLU
+#endif
             ggml_tensor * ff_act = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 
             ggml_tensor * ff_out = apply_linear_with_transient_unpack(
@@ -1284,13 +1351,21 @@ ggml_cgraph * bmo_build_depth_graph(
         }
         stage_tensor_upload(ctx, pos, pos_host.data(), (size_t) n_token * sizeof(int32_t));
 
+#ifdef BMO_JETSON
+        ggml_tensor * q_rope = apply_rope_gpu_interleaved(ctx, wctx, q_raw, pos);
+        ggml_tensor * k_rope = apply_rope_gpu_interleaved(ctx, wctx, k_raw, pos);
+#else
         ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
         ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
+#endif
 
         ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
         ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
         ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
 
+#ifdef BMO_JETSON
+        cudaStreamSynchronize(0); // Sync before CPU Attention
+#endif
         ggml_tensor * attn_heads = ggml_flash_attn_ext(
             wctx,
             q_trans,
@@ -1360,6 +1435,10 @@ ggml_cgraph * bmo_build_depth_graph(
         const int64_t ff_hidden = ff_in->ne[0] / 2;
         ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], 0);
         ggml_tensor * ff_up = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], ff_hidden * ggml_type_size(ff_in->type));
+
+#ifdef BMO_JETSON
+        cudaStreamSynchronize(0); // Sync before CPU SwiGLU
+#endif
         ggml_tensor * ff_act = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
 
         ggml_tensor * ff_out = apply_linear_with_transient_unpack(
