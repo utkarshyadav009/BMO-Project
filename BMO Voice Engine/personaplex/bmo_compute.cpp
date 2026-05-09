@@ -46,6 +46,80 @@ void launch_unpack_kernel(
 #endif
 #endif
 
+#ifdef BMO_JETSON
+// Eagerly executes a fused RMSNorm + element-wise weight multiply on the GPU
+// and returns a leaf ggml_tensor whose data field already holds the result.
+// Mirrors the eager-execution pattern used by apply_linear_with_transient_unpack().
+// Handles both single-token (decode) and multi-token (prefill) inputs by
+// looping per token through the pinned staging buffers.
+static ggml_tensor * apply_rmsnorm_gpu(
+    bmo_context & ctx,
+    ggml_context * wctx,
+    ggml_tensor * x,
+    ggml_tensor * weight,
+    float eps) {
+    if (!x || !weight) {
+        throw std::runtime_error("apply_rmsnorm_gpu: null input/weight tensor");
+    }
+    if (x->type != GGML_TYPE_F32 || weight->type != GGML_TYPE_F32) {
+        throw std::runtime_error("apply_rmsnorm_gpu: requires GGML_TYPE_F32 input and weight");
+    }
+    if (!ctx.rmsnorm_input_host || !ctx.rmsnorm_input_dev ||
+        !ctx.rmsnorm_output_host || !ctx.rmsnorm_output_dev) {
+        throw std::runtime_error("apply_rmsnorm_gpu: rmsnorm staging buffers not allocated");
+    }
+
+    const int n_embd = (int) x->ne[0];
+    const size_t row_bytes = (size_t) n_embd * sizeof(float);
+    if (row_bytes > ctx.rmsnorm_buffer_bytes) {
+        throw std::runtime_error("apply_rmsnorm_gpu: n_embd exceeds staging buffer capacity");
+    }
+
+    const int64_t n_el = ggml_nelements(x);
+    if (n_el <= 0 || (n_el % (int64_t) n_embd) != 0) {
+        throw std::runtime_error("apply_rmsnorm_gpu: invalid input shape");
+    }
+    const int64_t n_tok = n_el / (int64_t) n_embd;
+
+    float * x_dev = (float *) ctx.rmsnorm_input_dev;
+    float * y_dev = (float *) ctx.rmsnorm_output_dev;
+    float * y_host = (float *) ctx.rmsnorm_output_host;
+
+    float * w_dev = nullptr;
+    if (cudaHostGetDevicePointer((void **) &w_dev, weight->data, 0) != cudaSuccess) {
+        throw std::runtime_error("apply_rmsnorm_gpu: cudaHostGetDevicePointer(weight) failed");
+    }
+
+    ggml_tensor * y = nullptr;
+    if (n_tok == 1) {
+        y = ggml_new_tensor_1d(wctx, GGML_TYPE_F32, n_embd);
+    } else {
+        y = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, n_embd, n_tok);
+    }
+
+    for (int64_t t = 0; t < n_tok; ++t) {
+        const float * x_col = reinterpret_cast<const float *>(
+            (const uint8_t *) x->data + (size_t) t * x->nb[1]);
+        std::memcpy(ctx.rmsnorm_input_host, x_col, row_bytes);
+
+        launch_rmsnorm(x_dev, w_dev, eps, n_embd, y_dev, nullptr);
+
+        cudaError_t sync_err = cudaStreamSynchronize(0);
+        if (sync_err != cudaSuccess) {
+            throw std::runtime_error(std::string("apply_rmsnorm_gpu: cudaStreamSynchronize failed: ")
+                                     + cudaGetErrorString(sync_err));
+        }
+        if (cudaGetLastError() != cudaSuccess) {
+            throw std::runtime_error("apply_rmsnorm_gpu: kernel launch error");
+        }
+
+        std::memcpy((uint8_t *) y->data + (size_t) t * y->nb[1], y_host, row_bytes);
+    }
+
+    return y;
+}
+#endif
+
 namespace {
 
 static void stage_tensor_upload(bmo_context & ctx, ggml_tensor * tensor, const void * data, size_t size) {
@@ -717,10 +791,19 @@ ggml_cgraph * bmo_build_temporal_graph(
 
         // -------- Attention block --------
         ggml_tensor * residual = x;
+#ifdef BMO_JETSON
+        ggml_tensor * x_norm;
+        if (model.temporal_layers[layer].norm1_weight) {
+            x_norm = apply_rmsnorm_gpu(ctx, wctx, x, model.temporal_layers[layer].norm1_weight, 1e-5f);
+        } else {
+            x_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        }
+#else
         ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
         if (model.temporal_layers[layer].norm1_weight) {
             x_norm = ggml_mul(wctx, x_norm, model.temporal_layers[layer].norm1_weight);
         }
+#endif
         ggml_tensor * qkv = apply_linear_with_transient_unpack(
             ctx,
             model,
@@ -807,10 +890,19 @@ ggml_cgraph * bmo_build_temporal_graph(
 
         // -------- Feed-forward block --------
         ggml_tensor * ff_residual = x;
+#ifdef BMO_JETSON
+        ggml_tensor * ff_norm;
+        if (model.temporal_layers[layer].norm2_weight) {
+            ff_norm = apply_rmsnorm_gpu(ctx, wctx, x, model.temporal_layers[layer].norm2_weight, 1e-5f);
+        } else {
+            ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        }
+#else
         ggml_tensor * ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
         if (model.temporal_layers[layer].norm2_weight) {
             ff_norm = ggml_mul(wctx, ff_norm, model.temporal_layers[layer].norm2_weight);
         }
+#endif
         ggml_tensor * ff_in = apply_linear_with_transient_unpack(
             ctx,
             model,
@@ -1010,11 +1102,16 @@ ggml_cgraph * bmo_build_depth_graph(
 
         // Shared attention block.
         ggml_tensor * residual = x;
-        ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
         if (!model.depth_layers[(size_t) i].norm1_weight) {
             throw std::runtime_error("bmo_build_depth_graph: missing norm1_weight for depth layer " + std::to_string(i));
         }
+#ifdef BMO_JETSON
+        ggml_tensor * x_norm = apply_rmsnorm_gpu(
+            ctx, wctx, x, model.depth_layers[(size_t) i].norm1_weight, 1e-5f);
+#else
+        ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
         x_norm = ggml_mul(wctx, x_norm, model.depth_layers[(size_t) i].norm1_weight);
+#endif
         if (debug_step0 && i == 0) {
             ggml_set_name(x_norm, "depth_x_norm");
             ggml_build_forward_expand(gf, x_norm);
@@ -1105,10 +1202,20 @@ ggml_cgraph * bmo_build_depth_graph(
 
         // Step-specific FFN block.
         ggml_tensor * ff_residual = x;
+#ifdef BMO_JETSON
+        ggml_tensor * ff_norm;
+        if (model.depth_layers[(size_t) i].norm2_weight) {
+            ff_norm = apply_rmsnorm_gpu(
+                ctx, wctx, x, model.depth_layers[(size_t) i].norm2_weight, 1e-5f);
+        } else {
+            ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
+        }
+#else
         ggml_tensor * ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
         if (model.depth_layers[(size_t) i].norm2_weight) {
             ff_norm = ggml_mul(wctx, ff_norm, model.depth_layers[(size_t) i].norm2_weight);
         }
+#endif
 
         ggml_tensor * ff_in = apply_linear_with_transient_unpack(
             ctx,

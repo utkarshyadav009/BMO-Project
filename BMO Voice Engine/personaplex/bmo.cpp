@@ -713,6 +713,25 @@ void bmo_free_cuda_resources(bmo_context & ctx) {
         ctx.streaming_scalar_pool = nullptr;
     }
     ctx.streaming_scalar_pool_size = 0;
+    if (ctx.rmsnorm_input_host) {
+        if (ctx.rmsnorm_input_registered) {
+            cudaHostUnregister(ctx.rmsnorm_input_host);
+            ctx.rmsnorm_input_registered = false;
+        }
+        std::free(ctx.rmsnorm_input_host);
+        ctx.rmsnorm_input_host = nullptr;
+    }
+    ctx.rmsnorm_input_dev = nullptr;
+    if (ctx.rmsnorm_output_host) {
+        if (ctx.rmsnorm_output_registered) {
+            cudaHostUnregister(ctx.rmsnorm_output_host);
+            ctx.rmsnorm_output_registered = false;
+        }
+        std::free(ctx.rmsnorm_output_host);
+        ctx.rmsnorm_output_host = nullptr;
+    }
+    ctx.rmsnorm_output_dev = nullptr;
+    ctx.rmsnorm_buffer_bytes = 0;
 #endif
 #else
     (void) ctx;
@@ -767,4 +786,57 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
     std::cout << "[bmo_init_kv_cache] Allocated KV cache: " << (double) ctx.kv_bytes / (1024.0 * 1024.0) << " MB\n";
     std::cout << "[bmo_init_kv_cache] per-layer estimate: " << (double) bytes_per_layer / (1024.0 * 1024.0) << " MB\n";
 
+#ifdef BMO_JETSON
+    // Allocate pinned/mapped staging buffers for the GPU-fused RMSNorm kernel.
+    // Sized for the max n_embd we'll see (temporal=4096; depth uses fewer dims).
+    {
+        const size_t norm_bytes = 4096ULL * sizeof(float);
+        ctx.rmsnorm_buffer_bytes = norm_bytes;
+
+        if (posix_memalign(&ctx.rmsnorm_input_host, 64, norm_bytes) != 0) {
+            ctx.rmsnorm_input_host = nullptr;
+            std::cerr << "[bmo_init_kv_cache] posix_memalign rmsnorm_input failed\n";
+        }
+        if (posix_memalign(&ctx.rmsnorm_output_host, 64, norm_bytes) != 0) {
+            ctx.rmsnorm_output_host = nullptr;
+            std::cerr << "[bmo_init_kv_cache] posix_memalign rmsnorm_output failed\n";
+        }
+
+        if (ctx.rmsnorm_input_host) {
+            cudaError_t err = cudaHostRegister(
+                ctx.rmsnorm_input_host, norm_bytes,
+                cudaHostRegisterMapped | cudaHostRegisterPortable);
+            if (err == cudaSuccess) {
+                ctx.rmsnorm_input_registered = true;
+                if (cudaHostGetDevicePointer(&ctx.rmsnorm_input_dev, ctx.rmsnorm_input_host, 0) != cudaSuccess) {
+                    std::cerr << "[bmo_init_kv_cache] cudaHostGetDevicePointer rmsnorm_input failed\n";
+                    ctx.rmsnorm_input_dev = nullptr;
+                }
+            } else {
+                std::cerr << "[bmo_init_kv_cache] cudaHostRegister rmsnorm_input failed: "
+                          << cudaGetErrorString(err) << "\n";
+            }
+        }
+        if (ctx.rmsnorm_output_host) {
+            cudaError_t err = cudaHostRegister(
+                ctx.rmsnorm_output_host, norm_bytes,
+                cudaHostRegisterMapped | cudaHostRegisterPortable);
+            if (err == cudaSuccess) {
+                ctx.rmsnorm_output_registered = true;
+                if (cudaHostGetDevicePointer(&ctx.rmsnorm_output_dev, ctx.rmsnorm_output_host, 0) != cudaSuccess) {
+                    std::cerr << "[bmo_init_kv_cache] cudaHostGetDevicePointer rmsnorm_output failed\n";
+                    ctx.rmsnorm_output_dev = nullptr;
+                }
+            } else {
+                std::cerr << "[bmo_init_kv_cache] cudaHostRegister rmsnorm_output failed: "
+                          << cudaGetErrorString(err) << "\n";
+            }
+        }
+
+        if (ctx.rmsnorm_input_dev && ctx.rmsnorm_output_dev) {
+            std::cout << "[bmo_jetson] rmsnorm staging buffers="
+                      << (double) (norm_bytes * 2) / 1024.0 << " KB pinned mapped\n";
+        }
+    }
+#endif
 }

@@ -151,6 +151,14 @@ struct bmo_context {
     bool streaming_big_pool_registered = false;
     void * streaming_scalar_pool = nullptr;
     size_t streaming_scalar_pool_size = 0;
+    // Pinned/mapped staging buffers for the GPU-fused RMSNorm kernel.
+    void * rmsnorm_input_host = nullptr;
+    void * rmsnorm_input_dev = nullptr;
+    bool rmsnorm_input_registered = false;
+    void * rmsnorm_output_host = nullptr;
+    void * rmsnorm_output_dev = nullptr;
+    bool rmsnorm_output_registered = false;
+    size_t rmsnorm_buffer_bytes = 0;
 #endif
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
@@ -229,4 +237,12 @@ void launch_fused_dequant_matvec(
     float zp_int8,
     const float * x,
     float * y);
+
+void launch_rmsnorm(
+    const float * x_dev,
+    const float * weight_dev,
+    float eps,
+    int n_embd,
+    float * y_dev,
+    void * stream = nullptr);
 #endif

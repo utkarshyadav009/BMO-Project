@@ -214,6 +214,59 @@ void launch_unpack_kernel_streamed(
         out_w);
 }
 
+__global__ void rmsnorm_kernel(
+    const float * __restrict__ x,
+    const float * __restrict__ weight,
+    float eps, int n_embd, float * __restrict__ y) {
+    const int tid = threadIdx.x;
+    const int lane = tid & 31;
+    const int warp_id = tid >> 5;
+
+    float sum_sq = 0.0f;
+    for (int i = tid; i < n_embd; i += blockDim.x) {
+        const float v = x[i];
+        sum_sq += v * v;
+    }
+
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        sum_sq += __shfl_down_sync(0xffffffff, sum_sq, offset);
+    }
+
+    __shared__ float warp_sums[8];
+    if (lane == 0) warp_sums[warp_id] = sum_sq;
+    __syncthreads();
+
+    float total_sq = 0.0f;
+    if (warp_id == 0) {
+        total_sq = (lane < (blockDim.x >> 5)) ? warp_sums[lane] : 0.0f;
+#pragma unroll
+        for (int offset = 4; offset > 0; offset >>= 1) {
+            total_sq += __shfl_down_sync(0xff, total_sq, offset);
+        }
+        if (lane == 0) warp_sums[0] = total_sq;
+    }
+    __syncthreads();
+    total_sq = warp_sums[0];
+
+    const float scale = rsqrtf(total_sq / (float) n_embd + eps);
+
+    for (int i = tid; i < n_embd; i += blockDim.x) {
+        y[i] = x[i] * scale * weight[i];
+    }
+}
+
+void launch_rmsnorm(
+    const float * x_dev,
+    const float * weight_dev,
+    float eps,
+    int n_embd,
+    float * y_dev,
+    void * stream) {
+    cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
+    rmsnorm_kernel<<<1, 256, 0, s>>>(x_dev, weight_dev, eps, n_embd, y_dev);
+}
+
 void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
