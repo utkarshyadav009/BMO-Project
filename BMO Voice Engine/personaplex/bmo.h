@@ -193,6 +193,7 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx);
 void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx);
 void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx);
 void bmo_free_cuda_resources(bmo_context & ctx);
+void bmo_print_mem_diag(const std::string & phase);
 
 // Compute graph builder
 struct ggml_cgraph * bmo_build_temporal_graph(

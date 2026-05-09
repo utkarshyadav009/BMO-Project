@@ -5,9 +5,12 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -21,6 +24,34 @@
 #include "ggml-backend.h"
 #include "ggml-cuda.h"
 #endif
+
+void bmo_print_mem_diag(const std::string & phase) {
+    std::ifstream meminfo("/proc/meminfo");
+    std::string line;
+    long mem_avail = 0;
+    while (std::getline(meminfo, line)) {
+        if (line.find("MemAvailable:") == 0) {
+            std::sscanf(line.c_str(), "MemAvailable: %ld kB", &mem_avail);
+            break;
+        }
+    }
+
+    std::ifstream status("/proc/self/status");
+    long vm_rss = 0, vm_lck = 0;
+    while (std::getline(status, line)) {
+        if (line.find("VmRSS:") == 0) {
+            std::sscanf(line.c_str(), "VmRSS: %ld kB", &vm_rss);
+        } else if (line.find("VmLck:") == 0) {
+            std::sscanf(line.c_str(), "VmLck: %ld kB", &vm_lck);
+        }
+    }
+    std::fprintf(stderr,
+                 "[mem_diag] %-20s | MemAvail: %4ld MB | VmRSS: %4ld MB | VmLck: %4ld MB\n",
+                 phase.c_str(),
+                 mem_avail / 1024,
+                 vm_rss / 1024,
+                 vm_lck / 1024);
+}
 
 namespace {
 
@@ -229,6 +260,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 #endif
 
 #ifdef BMO_ENABLE_CUDA
+    bmo_print_mem_diag("Start Prepare");
     size_t max_unpack_elems = 0;
 
     // Rebuild from scratch if called repeatedly.
@@ -268,6 +300,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 
     size_t total_pinned_so_far = 0;
     const size_t PIN_LIMIT = 0; // 1.0 GB hard cap to ensure compute arena has room
+    bmo_print_mem_diag("After Stream Alloc");
 #endif
 
     // Process all packed temporal matrices for each temporal layer.
@@ -630,6 +663,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         }
     }
 #endif
+    bmo_print_mem_diag("End Prepare");
 #endif
 }
 

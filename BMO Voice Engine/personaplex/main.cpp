@@ -117,6 +117,7 @@ int main(int argc, char ** argv) {
                 // Build only layer i (from i to i+1)
                 ggml_cgraph * gf = bmo_build_temporal_graph(ctx, model, layer_in, 0, i, i + 1);
                 
+                bmo_print_mem_diag("Before Graph Exec");
                 bmo_execute_graph(ctx, gf, inputs);
 
                 std::string out_name = "out_layer_" + std::to_string(i);
@@ -163,6 +164,7 @@ int main(int argc, char ** argv) {
 
             std::cout << "[bmo_main] Depth graph has " << ggml_graph_n_nodes(gf) << " nodes\n";
 
+            bmo_print_mem_diag("Before Graph Exec");
             bmo_execute_graph(ctx, gf, inputs);
 
             ggml_tensor * out_tensor = ggml_graph_get_tensor(gf, "depth_out_step_0");
