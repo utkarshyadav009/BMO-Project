@@ -969,6 +969,70 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 
 } // namespace
 
+void bmo_reset_work_ctx(bmo_context & ctx) {
+    if (ctx.work_ctx) {
+        ggml_free(ctx.work_ctx);
+        ctx.work_ctx = nullptr;
+    }
+    if (ctx.work_mem.empty()) {
+        throw std::runtime_error("bmo_reset_work_ctx: ctx.work_mem is empty; resize() it first");
+    }
+    ggml_init_params wp = {
+        ctx.work_mem.size(),
+        ctx.work_mem.data(),
+        /*.no_alloc =*/ false,
+    };
+    ctx.work_ctx = ggml_init(wp);
+    if (!ctx.work_ctx) {
+        throw std::runtime_error("bmo_reset_work_ctx: ggml_init failed");
+    }
+}
+
+ggml_tensor * bmo_embed_input_tokens(
+    bmo_context & ctx,
+    bmo_model & model,
+    const int32_t * input_tokens,
+    int num_codebooks) {
+    if (!ctx.work_ctx) {
+        throw std::runtime_error("bmo_embed_input_tokens: work_ctx not initialized");
+    }
+    if (!input_tokens || num_codebooks <= 0) {
+        throw std::runtime_error("bmo_embed_input_tokens: invalid input_tokens / num_codebooks");
+    }
+
+    ggml_context * wctx = ctx.work_ctx;
+
+    // Stage codebook indices in a single I32 [num_codebooks] tensor; per-codebook
+    // ggml_view_1d slices then feed ggml_get_rows on each embedding table.
+    ggml_tensor * tokens_t = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, num_codebooks);
+    if (!tokens_t || !tokens_t->data) {
+        throw std::runtime_error("bmo_embed_input_tokens: failed to allocate token tensor");
+    }
+    std::memcpy(tokens_t->data, input_tokens, (size_t) num_codebooks * sizeof(int32_t));
+
+    ggml_tensor * acc = nullptr;
+    int used = 0;
+    for (int k = 0; k < num_codebooks; ++k) {
+        if ((size_t) k >= model.audio_embs.size()) break;
+        ggml_tensor * emb_table = model.audio_embs[(size_t) k];
+        if (!emb_table) continue;
+
+        ggml_tensor * tok_view = ggml_view_1d(wctx, tokens_t, 1, (size_t) k * sizeof(int32_t));
+        ggml_tensor * emb_k    = ggml_get_rows(wctx, emb_table, tok_view);
+        if (!emb_k) {
+            throw std::runtime_error("bmo_embed_input_tokens: ggml_get_rows failed for codebook "
+                                     + std::to_string(k));
+        }
+        acc = (acc == nullptr) ? emb_k : ggml_add(wctx, acc, emb_k);
+        ++used;
+    }
+
+    if (!acc || used == 0) {
+        throw std::runtime_error("bmo_embed_input_tokens: no usable audio embedding tables");
+    }
+    return acc;
+}
+
 void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<tensor_upload> & inputs) {
     for (const auto & up : inputs) {
         if (up.tensor && up.tensor->data && up.host_data) {
@@ -976,6 +1040,17 @@ void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<te
         }
     }
     ctx.graph_uploads.clear();
+
+#ifdef BMO_JETSON
+    // Drain any in-flight eager GPU work (apply_linear, apply_rmsnorm_gpu,
+    // apply_residual_gpu, apply_rope_gpu_interleaved, apply_swiglu_gpu) before
+    // the CPU graph compute reads from staging-slot leaves. Per-op syncs were
+    // intentionally removed in phase 3c.41; this is the single boundary sync
+    // that guarantees graph_compute (and any post-execute host memcpy) sees
+    // valid data instead of racing the still-writing kernels.
+    cudaStreamSynchronize(0);
+#endif
+
     const ggml_status status = ggml_graph_compute_with_ctx(ctx.work_ctx, gf, /*n_threads=*/32);
     if (status != GGML_STATUS_SUCCESS) {
         throw std::runtime_error("ggml_graph_compute_with_ctx failed");
@@ -1221,6 +1296,29 @@ ggml_cgraph * bmo_build_temporal_graph(
         release_all_staging(ctx.staging);
 #endif
     }
+
+    // ---- Public outputs for the C-API ---------------------------------------
+    //
+    // `out_layer_{i}` names already exist for per-layer cascade / debug paths
+    // (see main.cpp). For the C-API we additionally expose:
+    //   - "transformer_out": a metadata-only alias of x (no extra compute) so
+    //     callers can find the final hidden state by a stable name.
+    //   - "text_logits": the text vocab projection, only when the full stack is
+    //     built (end == n_layers) and the model carries a text head.
+    //
+    // ggml_view_1d is a zero-cost view: it reuses x's data without copying.
+    {
+        ggml_tensor * transformer_out = ggml_view_1d(wctx, x, ggml_nelements(x), 0);
+        ggml_set_name(transformer_out, "transformer_out");
+        ggml_build_forward_expand(gf, transformer_out);
+
+        if (end == ctx.n_layers && model.text_linear) {
+            ggml_tensor * text_logits = ggml_mul_mat(wctx, model.text_linear, x);
+            ggml_set_name(text_logits, "text_logits");
+            ggml_build_forward_expand(gf, text_logits);
+        }
+    }
+
     return gf;
 }
 

@@ -128,3 +128,51 @@ if(BMO_ENABLE_CUDA)
     target_link_libraries(bmo_fused_mat_test PRIVATE ${_link_targets} bmo)
     set_target_properties(bmo_fused_mat_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 endif()
+
+# -----------------------------------------------------------------------------
+# Shared library bridge (Phase 4.1) -- libbmo.so for Python / external clients.
+# Builds the same source set as the static `bmo` lib plus the C-ABI shim
+# (bmo_api.cpp). bmo_cuda_kernels.cu is only added when CUDA is enabled.
+# -----------------------------------------------------------------------------
+
+find_package(Threads REQUIRED)
+
+set(_bmo_shared_sources bmo.cpp bmo_compute.cpp bmo_api.cpp)
+if(BMO_ENABLE_CUDA)
+    list(APPEND _bmo_shared_sources bmo_cuda_kernels.cu)
+endif()
+
+add_library(bmo_shared SHARED ${_bmo_shared_sources})
+set_target_properties(bmo_shared PROPERTIES
+    OUTPUT_NAME              bmo
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET    hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+
+target_include_directories(bmo_shared PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+if(EXISTS "${LLAMA_CPP_DIR}/ggml/include")
+    target_include_directories(bmo_shared PRIVATE "${LLAMA_CPP_DIR}/ggml/include")
+endif()
+if(DEFINED llamacpp_SOURCE_DIR AND EXISTS "${llamacpp_SOURCE_DIR}/ggml/include")
+    target_include_directories(bmo_shared PRIVATE "${llamacpp_SOURCE_DIR}/ggml/include")
+endif()
+
+# Tell bmo_api.h to use dllexport on Windows when building the shared lib.
+target_compile_definitions(bmo_shared PRIVATE BMO_BUILDING_SHARED=1)
+
+if(BMO_TARGET_JETSON)
+    target_compile_definitions(bmo_shared PRIVATE BMO_JETSON=1 BMO_TARGET_JETSON=1)
+endif()
+if(BMO_ENABLE_CUDA)
+    target_compile_definitions(bmo_shared PRIVATE BMO_ENABLE_CUDA=1)
+    set_target_properties(bmo_shared PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    if(BMO_TARGET_JETSON)
+        set_property(TARGET bmo_shared PROPERTY CUDA_ARCHITECTURES 87)
+    endif()
+    target_link_libraries(bmo_shared PRIVATE CUDA::cudart CUDA::cuda_driver)
+endif()
+
+target_link_libraries(bmo_shared PRIVATE ${_link_targets} Threads::Threads)
+
+message(STATUS "bmo_shared sources: ${_bmo_shared_sources}")
+message(STATUS "bmo_shared linking: ${_link_targets} Threads::Threads")

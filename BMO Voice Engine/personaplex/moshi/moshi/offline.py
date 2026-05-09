@@ -58,6 +58,54 @@ from .models.lm import load_audio as lm_load_audio
 from .models.lm import _iterate_audio as lm_iterate_audio
 from .models.lm import encode_from_sphn as lm_encode_from_sphn
 
+# ---------------------------------------------------------------------------
+# Phase 4.2: optional bridge to the optimized C++ Temporal engine.
+# Activated by the BMO_USE_CPP=1 environment variable; otherwise inert and the
+# original CUDA/PyTorch path runs unchanged.
+# ---------------------------------------------------------------------------
+from moshi.bmo_engine import BMOEngine
+import torch
+import numpy as np
+
+
+def patch_lm_for_bmo(lm, bmo_engine: BMOEngine):
+    assert bmo_engine.n_codebooks == lm.num_codebooks
+    assert bmo_engine.dep_q == lm.dep_q
+    device = next(lm.parameters()).device
+
+    original_forward_codes = lm.forward_codes
+    @torch.no_grad()
+    def patched_forward_codes(sequence: torch.Tensor):
+        tokens_np = sequence[0, :, 0].detach().cpu().numpy().astype(np.int32)
+        z, text_logits = bmo_engine.forward_temporal(tokens_np)
+        z_t = torch.from_numpy(z).to(device).reshape(1, 1, -1)
+        l_t = torch.from_numpy(text_logits).to(device).reshape(1, 1, 1, -1)
+        return z_t, l_t
+    lm.forward_codes = patched_forward_codes
+
+    @torch.no_grad()
+    def patched_forward_depformer(cb_index: int, sequence: torch.Tensor, transformer_out: torch.Tensor):
+        prev_token = int(sequence[0, 0, 0].detach().cpu().item())
+        z_np = transformer_out[0, 0].detach().cpu().numpy().astype(np.float32)
+        logits = bmo_engine.forward_depth(cb_index, prev_token, z_np)
+        return torch.from_numpy(logits).to(device).reshape(1, 1, 1, -1)
+    lm.forward_depformer = patched_forward_depformer
+
+
+def disable_cuda_graphs_in_lmgen(lm_gen):
+    if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
+        s = lm_gen._streaming_state
+        s.graphed_main = lambda inp: lm_gen.lm_model.forward_codes(inp)
+        s.graphed_embeddings = lambda inp: lm_gen.lm_model.forward_embeddings(inp)
+        # NOTE (deviation from spec): the spec's `lambda text_token, t_out:` only
+        # accepted 2 args, but LMGen.process_transformer_output calls
+        # state.graphed_depth(next_text_token, transformer_out, audio_tokens,
+        # audio_provided) -- 4 positional args matching depformer_step's real
+        # signature. Forwarding all four arguments here so the lambda doesn't
+        # raise TypeError on the first decode step.
+        s.graphed_depth = lambda text_token, transformer_out, audio_tokens, audio_provided: \
+            lm_gen.depformer_step(text_token, transformer_out, audio_tokens, audio_provided)
+
 
 def log(level: str, msg: str):
     print(make_log(level, msg))
@@ -226,6 +274,23 @@ def run_inference(
     mimi.streaming_forever(1)
     other_mimi.streaming_forever(1)
     lm_gen.streaming_forever(1)
+
+    # ----- Phase 4.2: optionally redirect Temporal/Depth to libbmo.so -----
+    # Placed after `lm_gen.streaming_forever(1)` so that:
+    #   1) the streaming state already exists for the trigger to clear,
+    #   2) the patched `lm.forward_codes`/`lm.forward_depformer` are in scope
+    #      when the next streaming_forever() captures CUDAGraphed wrappers,
+    #   3) the lambdas in disable_cuda_graphs_in_lmgen replace those wrappers
+    #      so the ctypes path is invoked directly (no CUDA-graph capture).
+    import os
+    if os.environ.get("BMO_USE_CPP", "0") == "1":
+        bmo_engine = BMOEngine(gguf_path=os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf"), n_ctx=128)
+        patch_lm_for_bmo(lm, bmo_engine)
+        if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
+            lm_gen._streaming_state = None
+        lm_gen.streaming_forever(1)
+        disable_cuda_graphs_in_lmgen(lm_gen)
+        print(f"[bmo] C++ engine engaged: n_embd={bmo_engine.n_embd} dep_q={bmo_engine.dep_q}")
 
     # 5) Warmup
     log("info", "warming up the model")

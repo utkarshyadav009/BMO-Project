@@ -184,6 +184,13 @@ struct bmo_context {
     int32_t n_embd = 0;
     int32_t head_dim = 0;
 
+    // Vocabulary / codebook geometry parsed at load time. Populated from the
+    // embedding tables in bmo_model and exposed through the C-API.
+    int32_t num_codebooks    = 0; // count of non-null audio embedding tables
+    int32_t dep_q            = 0; // count of non-null depformer input projections
+    int32_t text_vocab_size  = 0; // text_linear or text_emb output dim
+    int32_t audio_vocab_size = 0; // audio_embs[k] output dim (assumed uniform)
+
     // RoPE base frequency (theta). Parsed from the GGUF metadata at load time.
     float rope_theta = 10000.0f;
 
@@ -233,6 +240,23 @@ struct ggml_cgraph * bmo_build_depth_graph(
     int n_past);
 
 void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf, const std::vector<tensor_upload> & inputs = {});
+
+// (Re)initializes ctx.work_ctx using the host-side ctx.work_mem buffer.
+// Must be called before each new graph build (before bmo_embed_input_tokens
+// and bmo_build_temporal_graph) so that transient ggml allocations live in
+// a fresh arena.
+void bmo_reset_work_ctx(bmo_context & ctx);
+
+// Builds the input-token embedding for a single decode step:
+//   y[d] = sum_k audio_embs[k][input_tokens[k]][d]
+// Returns a graph node with shape [n_embd, 1] that can be fed directly to
+// bmo_build_temporal_graph as its `input_tokens` argument. Allocates inside
+// ctx.work_ctx (must already be initialized via bmo_reset_work_ctx).
+struct ggml_tensor * bmo_embed_input_tokens(
+    bmo_context & ctx,
+    bmo_model & model,
+    const int32_t * input_tokens,
+    int num_codebooks);
 
 #ifdef BMO_ENABLE_CUDA
 void launch_fused_dequant_matvec(

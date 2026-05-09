@@ -345,6 +345,32 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     // NOTE: token_embedding can belong to a different module width than temporal
     // transformer blocks; do not overwrite temporal n_embd from that tensor.
 
+    // ---- Vocabulary / codebook geometry derived from the loaded tensors ----
+    {
+        int32_t nc = 0;
+        int32_t dq = 0;
+        int32_t a_vocab = 0;
+        for (auto * t : model.audio_embs) {
+            if (!t) continue;
+            ++nc;
+            if (a_vocab == 0 && t->ne[1] > 0) a_vocab = (int32_t) t->ne[1];
+        }
+        for (auto * t : model.depformer_in) {
+            if (t) ++dq;
+        }
+        ctx.num_codebooks    = nc;
+        ctx.dep_q            = dq;
+        ctx.audio_vocab_size = a_vocab;
+
+        int32_t t_vocab = 0;
+        if (model.text_linear && model.text_linear->ne[1] > 0) {
+            t_vocab = (int32_t) model.text_linear->ne[1];
+        } else if (model.text_emb && model.text_emb->ne[1] > 0) {
+            t_vocab = (int32_t) model.text_emb->ne[1];
+        }
+        ctx.text_vocab_size = t_vocab;
+    }
+
     size_t total_bytes = 0;
     std::unordered_set<const void *> seen;
     for (const auto & L : model.temporal_layers) add_layer_bytes_unique(L, seen, total_bytes);
@@ -359,7 +385,16 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
 
     std::cout << "[bmo_load_model] Loaded model '" << fname << "'\n";
     bmo_prepare_device_packed_tensors(model, ctx);
-    std::cout << "[bmo_load_model] n_layers=" << ctx.n_layers << " n_heads=" << ctx.n_heads << " n_embd=" << ctx.n_embd << " n_ctx=" << ctx.n_ctx << " rope_theta=" << ctx.rope_theta << "\n";
+    std::cout << "[bmo_load_model] n_layers=" << ctx.n_layers
+              << " n_heads=" << ctx.n_heads
+              << " n_embd=" << ctx.n_embd
+              << " n_ctx=" << ctx.n_ctx
+              << " rope_theta=" << ctx.rope_theta
+              << " num_codebooks=" << ctx.num_codebooks
+              << " dep_q=" << ctx.dep_q
+              << " text_vocab=" << ctx.text_vocab_size
+              << " audio_vocab=" << ctx.audio_vocab_size
+              << "\n";
     std::cout << "[bmo_load_model] Total weight bytes: " << (double) total_bytes / (1024.0 * 1024.0) << " MB\n";
 }
 
