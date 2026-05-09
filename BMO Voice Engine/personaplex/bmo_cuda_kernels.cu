@@ -69,7 +69,7 @@ __global__ void unpack_kernel(
 
 } // namespace
 
-__global__ void fused_dequant_matvec_kernel_no_offsets(
+__global__ void fused_dequant_matvec_kernel_v1(
     const uint8_t * __restrict__ pw,
     const uint8_t * __restrict__ pm,
     const __half * __restrict__ fp16_vals,
@@ -91,20 +91,35 @@ __global__ void fused_dequant_matvec_kernel_no_offsets(
     (void) c8_base_global;
     (void) c16_base_global;
 
-    const int blocks_per_row = cols / block_size;
-    const int64_t global_block_start = (int64_t) row * blocks_per_row;
+    const int blocks_per_row = cols / block_size; // assumes cols % 32 == 0
 
-    __shared__ int32_t s_off[256];
-    __shared__ uint8_t s_tier[256];
+    // Dynamic shared memory layout
+    extern __shared__ uint8_t smem_raw[];
+    float * s_x = reinterpret_cast<float *>(smem_raw);
+    int * s_off = reinterpret_cast<int *>(s_x + cols);
+    uint8_t * s_tier = reinterpret_cast<uint8_t *>(s_off + blocks_per_row);
 
-    if (tid < blocks_per_row) {
-        const int64_t b_global = global_block_start + tid;
+    // ---- Cooperative load of x into shared mem ----
+    const int cols_f4 = cols >> 2;
+    const float4 * x_f4 = reinterpret_cast<const float4 *>(x);
+    float4 * sx_f4 = reinterpret_cast<float4 *>(s_x);
+#pragma unroll 4
+    for (int i = tid; i < cols_f4; i += blockDim.x) {
+        sx_f4[i] = x_f4[i];
+    }
+    for (int i = (cols_f4 << 2) + tid; i < cols; i += blockDim.x) {
+        s_x[i] = x[i];
+    }
+
+    // ---- Load tiers for this row ----
+    for (int b = tid; b < blocks_per_row; b += blockDim.x) {
+        const int64_t b_global = (int64_t) row * blocks_per_row + b;
         const uint8_t mbyte = pm[b_global >> 2];
-        const uint8_t tier = (mbyte >> ((b_global & 3) * 2)) & 0x3;
-        s_tier[tid] = tier;
+        s_tier[b] = (mbyte >> ((b_global & 3) * 2)) & 0x3;
     }
     __syncthreads();
 
+    // ---- Prefix scan (thread 0) ----
     if (tid == 0) {
         int32_t c2 = 0, c4 = 0, c8 = 0, c16 = 0;
         for (int i = 0; i < blocks_per_row; ++i) {
@@ -126,6 +141,7 @@ __global__ void fused_dequant_matvec_kernel_no_offsets(
     }
     __syncthreads();
 
+    // ---- Matvec accumulator (reads x from shared mem) ----
     float acc = 0.0f;
     for (int c = tid; c < cols; c += blockDim.x) {
         const int block_within_row = c / block_size;
@@ -150,17 +166,29 @@ __global__ void fused_dequant_matvec_kernel_no_offsets(
             uint8_t q = (bb >> ((idx & 3) * 2)) & 0x3;
             w = ((float) q - zp_low) * scale_low;
         }
-        acc += w * x[c];
+        acc += w * s_x[c];
     }
 
-    __shared__ float sdata[256];
-    sdata[tid] = acc;
-    __syncthreads();
-    for (int s = 128; s > 0; s >>= 1) {
-        if (tid < s) sdata[tid] += sdata[tid + s];
-        __syncthreads();
+    // ---- Warp-shuffle reduction ----
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        acc += __shfl_down_sync(0xffffffff, acc, offset);
     }
-    if (tid == 0) y[row] = sdata[0];
+
+    __shared__ float warp_sums[8];
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    if (lane == 0) warp_sums[warp_id] = acc;
+    __syncthreads();
+
+    if (warp_id == 0) {
+        acc = (lane < 8) ? warp_sums[lane] : 0.0f;
+#pragma unroll
+        for (int offset = 4; offset > 0; offset >>= 1) {
+            acc += __shfl_down_sync(0xff, acc, offset);
+        }
+        if (lane == 0) y[row] = acc;
+    }
 }
 
 void launch_unpack_kernel_streamed(
@@ -222,7 +250,11 @@ void launch_fused_dequant_matvec(
     float zp_int8,
     const float * x,
     float * y) {
-    fused_dequant_matvec_kernel_no_offsets<<<rows, 256>>>(
+    const int blocks_per_row = cols / block_size;
+    const size_t smem_bytes =
+        (size_t) cols * sizeof(float) + (size_t) blocks_per_row * sizeof(int) + (size_t) blocks_per_row * sizeof(uint8_t);
+
+    fused_dequant_matvec_kernel_v1<<<rows, 256, smem_bytes>>>(
         reinterpret_cast<const uint8_t *>(pw),
         reinterpret_cast<const uint8_t *>(pm),
         reinterpret_cast<const __half *>(fp16_vals),
@@ -240,6 +272,13 @@ void launch_fused_dequant_matvec(
         zp_int8,
         x,
         y);
+}
+
+void bmo_cuda_configure_fused_kernel_v1() {
+    cudaFuncSetAttribute(
+        fused_dequant_matvec_kernel_v1,
+        cudaFuncAttributeMaxDynamicSharedMemorySize,
+        96 * 1024);
 }
 
 #ifndef BMO_JETSON

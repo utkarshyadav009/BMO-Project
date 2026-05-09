@@ -374,6 +374,8 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
     }
 
 #ifdef BMO_JETSON
+    // Opt-in to 96KB shared memory for our V1 optimized kernel.
+    bmo_cuda_configure_fused_kernel_v1();
     bmo_print_mem_diag("After Stream Alloc");
 #endif
 

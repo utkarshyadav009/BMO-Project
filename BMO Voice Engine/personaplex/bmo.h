@@ -229,4 +229,5 @@ void launch_fused_dequant_matvec(
     float zp_int8,
     const float * x,
     float * y);
+void bmo_cuda_configure_fused_kernel_v1();
 #endif
