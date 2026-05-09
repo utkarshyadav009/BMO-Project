@@ -140,78 +140,6 @@ static void cpu_reference_matvec(
 }
 
 // ---------------------------------------------------------------------------
-// FUSED dequant + matmul kernel
-//
-// Launch: <<<rows, 256>>>
-// Each block produces one element y[row] via cooperative dot product.
-// Block size MUST be 256 (matches shared-memory reduction below).
-// ---------------------------------------------------------------------------
-
-__global__ void fused_dequant_matvec_kernel(
-    const uint8_t * __restrict__ pw,
-    const uint8_t * __restrict__ pm,
-    const int32_t * __restrict__ block_offset,
-    const __half  * __restrict__ fp16_vals,
-    int   rows, int cols, int block_size,
-    int   n_2bit_bytes, int n_4bit_bytes,
-    float scale_low, float scale_int4, float scale_int8,
-    float zp_low,    float zp_int4,    float zp_int8,
-    const float * __restrict__ x,
-    float       * __restrict__ y)
-{
-    const int row = blockIdx.x;
-    const int tid = threadIdx.x;
-    if (row >= rows) return;
-
-    const uint8_t * stream2 = pw;
-    const uint8_t * stream4 = pw + n_2bit_bytes;
-    const uint8_t * stream8 = pw + n_2bit_bytes + n_4bit_bytes;
-
-    const int64_t row_base = (int64_t) row * cols;
-
-    float acc = 0.0f;
-    for (int c = tid; c < cols; c += blockDim.x) {
-        const int64_t pos       = row_base + c;
-        const int     block_idx = (int)(pos / block_size);
-        const int     in_block  = (int)(pos - (int64_t) block_idx * block_size);
-
-        const uint8_t mbyte = pm[block_idx >> 2];
-        const uint8_t tier  = (mbyte >> ((block_idx & 3) * 2)) & 0x3;
-        const int     off   = block_offset[block_idx];
-
-        float w;
-        if (tier == 0) {
-            w = __half2float(fp16_vals[off + in_block]);
-        } else if (tier == 1) {
-            uint8_t q = stream8[off + in_block];
-            w = ((float) q - zp_int8) * scale_int8;
-        } else if (tier == 2) {
-            int idx = off + in_block;
-            uint8_t bb = stream4[idx >> 1];
-            uint8_t q  = (idx & 1) ? ((bb >> 4) & 0x0F) : (bb & 0x0F);
-            w = ((float) q - zp_int4) * scale_int4;
-        } else {
-            int idx = off + in_block;
-            uint8_t bb = stream2[idx >> 2];
-            uint8_t q  = (bb >> ((idx & 3) * 2)) & 0x3;
-            w = ((float) q - zp_low) * scale_low;
-        }
-
-        acc += w * x[c];
-    }
-
-    // Block-wide reduction (256 threads -> 1 value).
-    __shared__ float sdata[256];
-    sdata[tid] = acc;
-    __syncthreads();
-    for (int s = 128; s > 0; s >>= 1) {
-        if (tid < s) sdata[tid] += sdata[tid + s];
-        __syncthreads();
-    }
-    if (tid == 0) y[row] = sdata[0];
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -317,21 +245,20 @@ int main(int argc, char ** argv) {
                   << ctx.cuda_packed_stream_buffer_bytes << "\n";
         return 5;
     }
-    if (!ctx.cuda_unpack_scratch || !ctx.cuda_unpack_scratch_dev) {
-        std::cerr << "[fused_test] ctx.cuda_unpack_scratch not allocated\n";
-        return 5;
+    // Local pinned slab for x/y (model no longer allocates cuda_unpack_scratch on Jetson).
+    const size_t y_al = ((size_t) rows * sizeof(float) + 63) & ~size_t(63);
+    const size_t x_al = ((size_t) cols * sizeof(float) + 63) & ~size_t(63);
+    const size_t vec_pin = y_al + x_al;
+    void * vec_raw = nullptr;
+    if (posix_memalign(&vec_raw, 64, vec_pin) != 0 || !vec_raw) {
+        std::cerr << "[fused_test] posix_memalign vec failed\n";
+        return 6;
     }
+    CUDA_CHECK(cudaHostRegister(vec_raw, vec_pin, cudaHostRegisterMapped | cudaHostRegisterPortable));
+    void * vec_dev = nullptr;
+    CUDA_CHECK(cudaHostGetDevicePointer(&vec_dev, vec_raw, 0));
 
-    size_t y_bytes_chk = (size_t) rows * sizeof(float);
-    y_bytes_chk = (y_bytes_chk + 63) & ~size_t(63);
-    const size_t scratch_need = y_bytes_chk + (size_t) cols * sizeof(float);
-    if (scratch_need > ctx.cuda_unpack_scratch_bytes) {
-        std::cerr << "[fused_test] need " << scratch_need
-                  << " bytes in unpack scratch, have " << ctx.cuda_unpack_scratch_bytes << "\n";
-        return 5;
-    }
-
-    // --- BYPASS NVMAP: Reuse the existing OS-allocated ctx buffers ---
+    // --- BYPASS NVMAP: Reuse the existing OS-allocated ctx stream buffer ---
     uint8_t * sb_host = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
     uint8_t * sb_dev  = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
 
@@ -347,15 +274,12 @@ int main(int argc, char ** argv) {
     const __half * dev_fv = reinterpret_cast<const __half *>(sb_dev + pw_size + pm_size);
     const int32_t * dev_bo = reinterpret_cast<const int32_t *>(sb_dev + pre_bo_size);
 
-    // Reuse the massive 352MB scratch buffer for our input (x) and output (y) vectors
-    float * h_y = reinterpret_cast<float *>(ctx.cuda_unpack_scratch);
-    float * d_y = reinterpret_cast<float *>(ctx.cuda_unpack_scratch_dev);
-
-    size_t y_bytes = (size_t) rows * sizeof(float);
-    y_bytes = (y_bytes + 63) & ~size_t(63); // 64-byte align
-
-    float * h_x = reinterpret_cast<float *>((uint8_t *) ctx.cuda_unpack_scratch + y_bytes);
-    float * d_x = reinterpret_cast<float *>((uint8_t *) ctx.cuda_unpack_scratch_dev + y_bytes);
+    float * h_y = reinterpret_cast<float *>(vec_raw);
+    float * h_x =
+        reinterpret_cast<float *>(reinterpret_cast<uint8_t *>(vec_raw) + y_al);
+    float * d_y = reinterpret_cast<float *>(vec_dev);
+    float * d_x =
+        reinterpret_cast<float *>(reinterpret_cast<uint8_t *>(vec_dev) + y_al);
 
     // Fill x with deterministic random data via host pointer
     std::mt19937 rng(42);
@@ -399,15 +323,26 @@ int main(int argc, char ** argv) {
         }
         auto jit_t1 = std::chrono::steady_clock::now();
 
-        // 3. Launch fused kernel
+        // 3. Launch fused kernel (implemented in bmo_cuda_kernels.cu)
         CUDA_CHECK(cudaEventRecord(k_start));
-        fused_dequant_matvec_kernel<<<rows, 256>>>(
-            dev_pw, dev_pm, dev_bo, dev_fv,
-            rows, cols, block_size,
-            n_2bit_bytes, n_4bit_bytes,
-            scale_low, scale_int4, scale_int8,
-            zp_low,    zp_int4,    zp_int8,
-            d_x, d_y);
+        launch_fused_dequant_matvec(
+            dev_pw,
+            dev_pm,
+            dev_bo,
+            dev_fv,
+            rows,
+            cols,
+            block_size,
+            n_2bit_bytes,
+            n_4bit_bytes,
+            scale_low,
+            scale_int4,
+            scale_int8,
+            zp_low,
+            zp_int4,
+            zp_int8,
+            d_x,
+            d_y);
         CUDA_CHECK(cudaEventRecord(k_stop));
         CUDA_CHECK(cudaEventSynchronize(k_stop));
 
@@ -417,6 +352,10 @@ int main(int argc, char ** argv) {
         if (kerr != cudaSuccess) {
             std::cerr << "Kernel failed at iter " << iter << ": "
                       << cudaGetErrorString(kerr) << "\n";
+            cudaHostUnregister(vec_raw);
+            std::free(vec_raw);
+            cudaEventDestroy(k_start);
+            cudaEventDestroy(k_stop);
             return 7;
         }
 
@@ -505,6 +444,9 @@ int main(int argc, char ** argv) {
         std::cout << "verdict: RED — fused not faster; bottleneck is elsewhere\n";
     }
     std::cout << "====================================================\n";
+
+    cudaHostUnregister(vec_raw);
+    std::free(vec_raw);
 
     cudaEventDestroy(k_start);
     cudaEventDestroy(k_stop);

@@ -44,26 +44,6 @@ void launch_unpack_kernel(
     float zp_int8,
     float * out_w);
 #endif
-#ifdef BMO_JETSON
-void launch_unpack_kernel_streamed(
-    const void * packed_weights,
-    const void * packed_mask,
-    const void * fp16_values,
-    const int32_t * block_offset,
-    int32_t rows,
-    int32_t cols,
-    int32_t block_size,
-    int32_t n_2bit_bytes,
-    int32_t n_4bit_bytes,
-    int32_t n_8bit_bytes,
-    float scale_low,
-    float scale_int4,
-    float scale_int8,
-    float zp_low,
-    float zp_int4,
-    float zp_int8,
-    float * out_w);
-#endif
 #endif
 
 namespace {
@@ -365,177 +345,191 @@ static ggml_tensor * apply_linear_with_transient_unpack(
             throw std::runtime_error("incomplete packed tensor set for " + linear.base);
         }
 
-        ggml_tensor * W = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, cols, rows);
-
 #ifdef BMO_ENABLE_CUDA
         if (ctx.cuda_backend && ctx.packed_registry.find(linear.base) != ctx.packed_registry.end()) {
             device_packed_t & dp_ref = ctx.packed_registry[linear.base];
             if (dp_ref.is_valid) {
-                const int64_t total = (int64_t) rows * (int64_t) cols;
-                const size_t total_bytes = (size_t) total * sizeof(float);
-                if (!ctx.cuda_unpack_scratch || ctx.cuda_unpack_scratch_bytes < total_bytes) {
-                    throw std::runtime_error("CUDA unpack scratch is too small for " + linear.base);
-                }
-#ifndef BMO_JETSON
-                if ((int64_t) ctx.shared_scratch_w.size() < total) {
-                    ctx.shared_scratch_w.resize((size_t) total);
-                }
-#endif
-
 #ifdef BMO_JETSON
+                if (x->type != GGML_TYPE_F32) {
+                    throw std::runtime_error("Jetson fused linear requires GGML_TYPE_F32 activations for "
+                                             + linear.base);
+                }
+                if (!dp_ref.block_offset_dev) {
+                    throw std::runtime_error("Jetson fused: missing block_offset_dev for " + linear.base);
+                }
                 if (!ctx.cuda_packed_stream_buffer || !ctx.cuda_packed_stream_buffer_dev
                     || ctx.cuda_packed_stream_buffer_bytes == 0) {
                     throw std::runtime_error("Jetson packed stream buffer is not allocated");
                 }
-                uint8_t * base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
-                uint8_t * dev_base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
-                size_t offset = 0;
-
-                // 1. Copy weights
-                void * d_weights = base + offset;
-                std::memcpy(d_weights, dp_ref.host_packed_weights, dp_ref.pw_size);
-                offset += dp_ref.pw_size;
-
-                // 2. Copy mask
-                void * d_mask = base + offset;
-                std::memcpy(d_mask, dp_ref.host_packed_mask, dp_ref.pm_size);
-                offset += dp_ref.pm_size;
-
-                // 3. Copy FP16 values
-                void * d_fv = nullptr;
-                const bool has_fv =
-                    dp_ref.host_fp16_values != nullptr && dp_ref.fv_size > 0;
-                if (has_fv) {
-                    d_fv = base + offset;
-                    std::memcpy(d_fv, dp_ref.host_fp16_values, dp_ref.fv_size);
-                    offset += dp_ref.fv_size;
+                if (!ctx.cuda_fused_output_buffer || !ctx.cuda_fused_output_buffer_dev) {
+                    throw std::runtime_error("Jetson fused output buffer is not allocated");
                 }
-
-                // 4. Pad offset to a 4-byte boundary (ARM-aligned int32_t block_offset table).
-                offset = (offset + 3) & ~static_cast<size_t>(3);
-
-                // 5. Pre-check overflow before writing JIT offsets
-                const size_t bo_size = static_cast<size_t>(dp_ref.n_blocks) * sizeof(int32_t);
-                if (offset + bo_size > ctx.cuda_packed_stream_buffer_bytes) {
-                    throw std::runtime_error(
-                        "Stream buffer overflow! Matrix payload exceeds buffer size.");
+                if (!ctx.cuda_fused_input_buffer || !ctx.cuda_fused_input_buffer_dev) {
+                    throw std::runtime_error("Jetson fused input buffer is not allocated");
                 }
-
-                // 6. JIT offset table writes
-                void * d_offsets = base + offset;
-                int32_t * bo_ptr = reinterpret_cast<int32_t *>(d_offsets);
-                const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(dp_ref.host_packed_mask);
-                int32_t c2 = 0, c4 = 0, c8 = 0, c16 = 0;
-                const int32_t bs = dp_ref.block_size > 0 ? dp_ref.block_size : 32;
-                for (int32_t block_idx = 0; block_idx < dp_ref.n_blocks; ++block_idx) {
-                    const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
-                    const uint8_t tier = (mbyte >> ((block_idx % 4) * 2)) & 0x3;
-                    if (tier == 0) {
-                        bo_ptr[block_idx] = c16;
-                        c16 += bs;
-                    } else if (tier == 1) {
-                        bo_ptr[block_idx] = c8;
-                        c8 += bs;
-                    } else if (tier == 2) {
-                        bo_ptr[block_idx] = c4;
-                        c4 += bs;
-                    } else {
-                        bo_ptr[block_idx] = c2;
-                        c2 += bs;
+                {
+                    const size_t max_in_elems = 11264ULL;
+                    if ((size_t) cols > max_in_elems) {
+                        throw std::runtime_error("Activation cols exceed fused input buffer capacity for "
+                                                 + linear.base);
                     }
                 }
-                offset += bo_size;
 
-                // GPU reads via device VA; layout matches host memcpy + padding bytes.
+                const bool has_fv = dp_ref.host_fp16_values && dp_ref.fv_size > 0;
+                size_t payload = dp_ref.pw_size + dp_ref.pm_size;
+                if (has_fv) {
+                    payload += dp_ref.fv_size;
+                }
+                if (payload > ctx.cuda_packed_stream_buffer_bytes) {
+                    throw std::runtime_error("Stream buffer overflow (payload) for " + linear.base);
+                }
+                const size_t row_out_bytes = (size_t) rows * sizeof(float);
+                if (row_out_bytes > ctx.cuda_fused_output_buffer_bytes) {
+                    throw std::runtime_error("Fused output buffer too small for rows in " + linear.base);
+                }
+                const int64_t n_el = ggml_nelements(x);
+                if (n_el <= 0 || (n_el % (int64_t) cols) != 0) {
+                    throw std::runtime_error("Invalid activation shape for fused linear " + linear.base);
+                }
+                const int64_t n_tok = n_el / (int64_t) cols;
+
+                uint8_t * base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer);
+                uint8_t * dev_base = reinterpret_cast<uint8_t *>(ctx.cuda_packed_stream_buffer_dev);
+                size_t off = 0;
+                std::memcpy(base + off, dp_ref.host_packed_weights, dp_ref.pw_size);
+                off += dp_ref.pw_size;
+                std::memcpy(base + off, dp_ref.host_packed_mask, dp_ref.pm_size);
+                off += dp_ref.pm_size;
+                if (has_fv) {
+                    std::memcpy(base + off, dp_ref.host_fp16_values, dp_ref.fv_size);
+                }
+
                 void * dev_weights = dev_base;
                 void * dev_mask = dev_base + dp_ref.pw_size;
                 void * dev_fv = has_fv ? (dev_base + dp_ref.pw_size + dp_ref.pm_size) : nullptr;
-                size_t dev_offset_pos = dp_ref.pw_size + dp_ref.pm_size + (has_fv ? dp_ref.fv_size : 0);
-                dev_offset_pos = (dev_offset_pos + 3) & ~static_cast<size_t>(3);
-                void * dev_offsets = dev_base + dev_offset_pos;
 
-                if (!ctx.cuda_unpack_scratch_dev) {
-                    throw std::runtime_error("Jetson unpack scratch has no device pointer (cudaHostGetDevicePointer failed)");
-                }
-                launch_unpack_kernel_streamed(
-                    dev_weights,
-                    dev_mask,
-                    dev_fv,
-                    reinterpret_cast<int32_t *>(dev_offsets),
-                    rows,
-                    cols,
-                    dp_ref.block_size > 0 ? dp_ref.block_size : 32,
-                    n_2bit_bytes,
-                    n_4bit_bytes,
-                    n_8bit_bytes,
-                    scale_low,
-                    scale_int4,
-                    scale_int8,
-                    zp_low,
-                    zp_int4,
-                    zp_int8,
-                    reinterpret_cast<float *>(ctx.cuda_unpack_scratch_dev));
-#else
-                launch_unpack_kernel(
-                    &dp_ref,
-                    rows,
-                    cols,
-                    n_2bit_bytes,
-                    n_4bit_bytes,
-                    n_8bit_bytes,
-                    scale_low,
-                    scale_int4,
-                    scale_int8,
-                    zp_low,
-                    zp_int4,
-                    zp_int8,
-                    reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
-#endif
+                ggml_tensor * out_lm = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, rows, n_tok);
+                float * fused_out_host = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer);
+                float * fused_out_dev = reinterpret_cast<float *>(ctx.cuda_fused_output_buffer_dev);
 
-#ifdef BMO_JETSON
-                cudaError_t sync_err = cudaStreamSynchronize(0);
-#else
-                cudaError_t sync_err = cudaDeviceSynchronize();
-#endif
-                if (sync_err != cudaSuccess) {
-                    throw std::runtime_error(std::string("CUDA sync failed after unpack for ") + linear.base + ": " + cudaGetErrorString(sync_err));
+                const size_t x_vec_bytes = (size_t) cols * sizeof(float);
+                for (int64_t t = 0; t < n_tok; ++t) {
+                    const float * x_col = reinterpret_cast<const float *>(
+                        (const uint8_t *) x->data + (size_t) t * x->nb[1]);
+                    std::memcpy(ctx.cuda_fused_input_buffer, x_col, x_vec_bytes);
+                    launch_fused_dequant_matvec(
+                        dev_weights,
+                        dev_mask,
+                        reinterpret_cast<const int32_t *>(dp_ref.block_offset_dev),
+                        dev_fv,
+                        rows,
+                        cols,
+                        dp_ref.block_size > 0 ? dp_ref.block_size : 32,
+                        dp_ref.n_2bit_bytes,
+                        dp_ref.n_4bit_bytes,
+                        dp_ref.scale_low,
+                        dp_ref.scale_int4,
+                        dp_ref.scale_int8,
+                        dp_ref.zp_low,
+                        dp_ref.zp_int4,
+                        dp_ref.zp_int8,
+                        reinterpret_cast<const float *>(ctx.cuda_fused_input_buffer_dev),
+                        fused_out_dev);
+                    cudaError_t sync_err = cudaStreamSynchronize(0);
+                    if (sync_err != cudaSuccess) {
+                        throw std::runtime_error(std::string("CUDA sync failed after fused matvec for ")
+                                                 + linear.base + ": "
+                                                 + cudaGetErrorString(sync_err));
+                    }
+                    if (cudaGetLastError() != cudaSuccess) {
+                        throw std::runtime_error("fused_matvec CUDA error for " + linear.base);
+                    }
+                    std::memcpy((uint8_t *) out_lm->data + (size_t) t * out_lm->nb[1],
+                                fused_out_host,
+                                row_out_bytes);
                 }
 
-                // Evict streamed mmap pages from Linux page cache to reduce RSS growth.
                 (void) posix_madvise(dp_ref.host_packed_weights, dp_ref.pw_size, POSIX_MADV_DONTNEED);
                 (void) posix_madvise(dp_ref.host_packed_mask, dp_ref.pm_size, POSIX_MADV_DONTNEED);
                 if (dp_ref.host_fp16_values) {
                     (void) posix_madvise(dp_ref.host_fp16_values, dp_ref.fv_size, POSIX_MADV_DONTNEED);
                 }
 
-#ifdef BMO_JETSON
-                W->data = ctx.cuda_unpack_scratch;
-#else
-                cudaError_t copy_err = cudaMemcpy(
-                    ctx.shared_scratch_w.data(),
-                    ctx.cuda_unpack_scratch,
-                    total_bytes,
-                    cudaMemcpyDeviceToHost);
+                auto unpack_t1 = std::chrono::steady_clock::now();
+                long fused_us =
+                    std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+                std::fprintf(stderr, "[prof_fused] base=%s rows=%d cols=%d tok=%ld fused_us=%ld\n",
+                             linear.base.c_str(), rows, cols, (long) n_tok, fused_us);
+
+                y = out_lm;
+                if (linear.dense_bias) {
+                    y = ggml_add(wctx, y, linear.dense_bias);
+                }
+                return y;
+#endif
+#ifndef BMO_JETSON
+                ggml_tensor * W = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, cols, rows);
+
+                const int64_t total = (int64_t) rows * (int64_t) cols;
+                const size_t total_bytes = (size_t) total * sizeof(float);
+                if (!ctx.cuda_unpack_scratch || ctx.cuda_unpack_scratch_bytes < total_bytes) {
+                    throw std::runtime_error("CUDA unpack scratch is too small for " + linear.base);
+                }
+
+                if ((int64_t) ctx.shared_scratch_w.size() < total) {
+                    ctx.shared_scratch_w.resize((size_t) total);
+                }
+
+                launch_unpack_kernel(&dp_ref,
+                                     rows,
+                                     cols,
+                                     n_2bit_bytes,
+                                     n_4bit_bytes,
+                                     n_8bit_bytes,
+                                     scale_low,
+                                     scale_int4,
+                                     scale_int8,
+                                     zp_low,
+                                     zp_int4,
+                                     zp_int8,
+                                     reinterpret_cast<float *>(ctx.cuda_unpack_scratch));
+
+                cudaError_t sync_err = cudaDeviceSynchronize();
+                if (sync_err != cudaSuccess) {
+                    throw std::runtime_error(std::string("CUDA sync failed after unpack for ") + linear.base
+                                             + ": " + cudaGetErrorString(sync_err));
+                }
+
+                cudaError_t copy_err =
+                    cudaMemcpy(ctx.shared_scratch_w.data(),
+                               ctx.cuda_unpack_scratch,
+                               total_bytes,
+                               cudaMemcpyDeviceToHost);
                 if (copy_err != cudaSuccess) {
-                    throw std::runtime_error(std::string("cudaMemcpy D2H failed after unpack for ") + linear.base + ": " + cudaGetErrorString(copy_err));
+                    throw std::runtime_error(std::string("cudaMemcpy D2H failed after unpack for ")
+                                             + linear.base + ": " + cudaGetErrorString(copy_err));
                 }
 
                 std::memcpy(W->data, ctx.shared_scratch_w.data(), total_bytes);
-#endif
 
                 auto unpack_t1 = std::chrono::steady_clock::now();
-                long unpack_us = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
-                std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d cuda_d2h_unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_us);
+                long unpack_us =
+                    std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+                std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d cuda_d2h_unpack_us=%ld\n",
+                             linear.base.c_str(), rows, cols, unpack_us);
 
                 y = ggml_mul_mat(wctx, S(W), S(x));
                 if (linear.dense_bias) {
                     y = ggml_add(wctx, y, linear.dense_bias);
                 }
                 return y;
+#endif
             }
         }
 #endif
         {
+            ggml_tensor * W = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, cols, rows);
+
             const int64_t total = (int64_t) rows * (int64_t) cols;
             if ((int64_t) ctx.shared_scratch_w.size() < total) {
                 ctx.shared_scratch_w.resize((size_t) total);
@@ -615,9 +609,10 @@ static ggml_tensor * apply_linear_with_transient_unpack(
             std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_ms);
 
             std::memcpy(W->data, ctx.shared_scratch_w.data(), (size_t) total * sizeof(float));
-        }
 
-        y = ggml_mul_mat(wctx, S(W), S(x));
+            // CPU / non-CUDA packed path: W only exists in this scope
+            y = ggml_mul_mat(wctx, S(W), S(x));
+        }
     } else {
         y = ggml_mul_mat(wctx, linear.dense_weight, x);
     }

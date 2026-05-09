@@ -19,6 +19,19 @@ struct device_packed_t {
     size_t pm_size = 0;
     void * host_fp16_values = nullptr;
     size_t fv_size = 0;
+    /// Host posix slab backing block_offset (unregister + std::free this pointer)
+    void * block_offset_host = nullptr;
+    void * block_offset_dev = nullptr;
+    bool block_offset_owns_raw_malloc = false;
+    int32_t n_2bit_bytes = 0;
+    int32_t n_4bit_bytes = 0;
+    int32_t n_8bit_bytes = 0;
+    float scale_low = 1.0f;
+    float scale_int4 = 1.0f;
+    float scale_int8 = 1.0f;
+    float zp_low = 1.5f;
+    float zp_int4 = 7.5f;
+    float zp_int8 = 127.5f;
 #else
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
     void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
@@ -111,15 +124,26 @@ struct bmo_context {
 
     // CUDA backend (if available)
     void * cuda_backend = nullptr;     // ggml_backend_t (opaque, to avoid ggml-backend.h)
-    void * cuda_unpack_scratch = nullptr; // Host pointer (pageable OS mem + cudaHostRegister on Jetson)
-    void * cuda_unpack_scratch_dev = nullptr; // Device-mapped alias (cudaHostGetDevicePointer / device buffer)
+#ifndef BMO_JETSON
+    void * cuda_unpack_scratch = nullptr;
+    void * cuda_unpack_scratch_dev = nullptr;
     size_t cuda_unpack_scratch_bytes = 0;
     bool cuda_unpack_scratch_managed = false;
     bool cuda_unpack_scratch_owns_raw_malloc = false;
+#endif
     void * cuda_packed_stream_buffer = nullptr;
     void * cuda_packed_stream_buffer_dev = nullptr;
     size_t cuda_packed_stream_buffer_bytes = 0;
     bool cuda_packed_stream_buffer_owns_raw_malloc = false;
+#ifdef BMO_JETSON
+    void * cuda_fused_output_buffer = nullptr;
+    void * cuda_fused_output_buffer_dev = nullptr;
+    size_t cuda_fused_output_buffer_bytes = 0;
+    bool cuda_fused_output_owns_raw_malloc = false;
+    void * cuda_fused_input_buffer = nullptr;
+    void * cuda_fused_input_buffer_dev = nullptr;
+    bool cuda_fused_input_owns_raw_malloc = false;
+#endif
 
     // Registry mapping a matrix base name (e.g. "transformer_layers_0_self_attn_in_proj_weight")
     // to device-side packed metadata allocated by bmo_prepare_device_packed_tensors.
@@ -177,3 +201,24 @@ struct ggml_cgraph * bmo_build_depth_graph(
     int n_past);
 
 void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf, const std::vector<tensor_upload> & inputs = {});
+
+#ifdef BMO_ENABLE_CUDA
+void launch_fused_dequant_matvec(
+    const void * pw,
+    const void * pm,
+    const int32_t * block_offset,
+    const void * fp16_vals,
+    int rows,
+    int cols,
+    int block_size,
+    int n_2bit_bytes,
+    int n_4bit_bytes,
+    float scale_low,
+    float scale_int4,
+    float scale_int8,
+    float zp_low,
+    float zp_int4,
+    float zp_int8,
+    const float * x,
+    float * y);
+#endif
