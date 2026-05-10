@@ -103,12 +103,27 @@ struct bmo_model {
     std::vector<bmo_layer> temporal_layers;
     std::vector<bmo_layer> depth_layers;
 
-    // Codebook embedding tables and depformer input projections
-    std::vector<ggml_tensor *> audio_embs;
-    std::vector<ggml_tensor *> depformer_in;
+    // Depth-tier (depformer_dim) audio embedding tables and depformer input
+    // projections. These are consumed exclusively by bmo_build_depth_graph.
+    std::vector<ggml_tensor *> audio_embs;        // depformer_emb.{k}.weight (1024-dim)
+    std::vector<ggml_tensor *> depformer_in;      // depformer_in.{k}.weight
 
-    ggml_tensor * text_emb = nullptr;
-    ggml_tensor * text_linear = nullptr;
+    ggml_tensor * text_emb = nullptr;             // depformer_text_emb.weight (1024-dim)
+    ggml_tensor * text_linear = nullptr;          // shared temporal text head
+    ggml_tensor * text_linear_bias = nullptr;     // text_linear.bias (text_vocab-dim, fp32)
+
+    // Final temporal RMSNorm gain applied to the residual stream after layer
+    // n_layers-1 and before either text_linear OR depformer_in. Stored as a
+    // 1D (n_embd,) tensor in the GGUF (key "out_norm_weight"; flattened from
+    // PyTorch's (1,1,4096) "out_norm.alpha"). Skipping it makes text_logits
+    // collapse to ~uniform near-zero values and feeds an unnormalised vector
+    // into the depth conditioning -- both produce gibberish output.
+    ggml_tensor * out_norm_weight = nullptr;
+
+    // Temporal-tier (n_embd) embedding tables consumed by bmo_embed_input_tokens
+    // when constructing the temporal transformer's input.
+    std::vector<ggml_tensor *> temporal_audio_embs; // emb.{k}.weight (n_embd-dim)
+    ggml_tensor * temporal_text_emb = nullptr;      // text_emb.weight (n_embd-dim)
 
     // embeddings and head tensors (may be stored as ggml tensors inside the
     // weights ggml_context that gguf provides)
@@ -186,10 +201,10 @@ struct bmo_context {
 
     // Vocabulary / codebook geometry parsed at load time. Populated from the
     // embedding tables in bmo_model and exposed through the C-API.
-    int32_t num_codebooks    = 0; // count of non-null audio embedding tables
+    int32_t num_codebooks    = 0; // K = n_q + 1 (text + audio) channels in temporal input
     int32_t dep_q            = 0; // count of non-null depformer input projections
-    int32_t text_vocab_size  = 0; // text_linear or text_emb output dim
-    int32_t audio_vocab_size = 0; // audio_embs[k] output dim (assumed uniform)
+    int32_t text_vocab_size  = 0; // text_linear (or text_emb) output dim
+    int32_t audio_vocab_size = 0; // temporal_audio_embs[k] output dim (assumed uniform)
 
     // RoPE base frequency (theta). Parsed from the GGUF metadata at load time.
     float rope_theta = 10000.0f;
@@ -247,8 +262,14 @@ void bmo_execute_graph(bmo_context & ctx, struct ggml_cgraph * gf, const std::ve
 // a fresh arena.
 void bmo_reset_work_ctx(bmo_context & ctx);
 
-// Builds the input-token embedding for a single decode step:
-//   y[d] = sum_k audio_embs[k][input_tokens[k]][d]
+// Builds the input-token embedding for a single decode step using the
+// temporal-tier (n_embd-wide) embedding tables. Token layout follows Moshi:
+//   y[d] =  temporal_text_emb[input_tokens[0]][d]
+//        + sum_{k=1..K-1} temporal_audio_embs[k-1][input_tokens[k]][d]
+// where K = num_codebooks. Indices < 0 (Moshi's "no token yet" convention)
+// or out-of-vocab values silently skip their channel; if all channels skip,
+// returns a zeroed n_embd vector so the caller still sees a well-shaped input.
+//
 // Returns a graph node with shape [n_embd, 1] that can be fed directly to
 // bmo_build_temporal_graph as its `input_tokens` argument. Allocates inside
 // ctx.work_ctx (must already be initialized via bmo_reset_work_ctx).

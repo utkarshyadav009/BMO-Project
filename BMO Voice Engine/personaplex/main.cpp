@@ -112,6 +112,17 @@ int main(int argc, char ** argv) {
                 reset_work_ctx(ctx, work_mem_size);
                 
                 ggml_tensor * layer_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
+                if (!layer_in || !layer_in->data) {
+                    throw std::runtime_error("temporal_cascade: failed to allocate layer_in");
+                }
+                // Eagerly populate layer_in->data BEFORE graph build. The Jetson
+                // path runs apply_rmsnorm_gpu / apply_linear_with_transient_unpack
+                // during graph construction, which read x->data immediately. The
+                // tensor_upload memcpy inside bmo_execute_graph happens after build
+                // and is too late on this path; on dGPU the lazy graph compute
+                // hides the issue, but on Jetson it produced NaNs.
+                std::memcpy(layer_in->data, current_x.data(),
+                            (size_t) ctx.n_embd * sizeof(float));
                 std::vector<tensor_upload> inputs = { { layer_in, current_x.data() } };
 
                 // Build only layer i (from i to i+1)
@@ -257,6 +268,13 @@ int main(int argc, char ** argv) {
                 for (int layer = 0; layer < ctx.n_layers; ++layer) {
                     reset_work_ctx(ctx, work_mem_size);
                     ggml_tensor * layer_in = ggml_new_tensor_2d(ctx.work_ctx, GGML_TYPE_F32, ctx.n_embd, 1);
+                    if (!layer_in || !layer_in->data) {
+                        throw std::runtime_error("stress_test: failed to allocate layer_in");
+                    }
+                    // Populate before build: the Jetson eager-GPU ops in
+                    // bmo_build_temporal_graph read x->data at construction time.
+                    std::memcpy(layer_in->data, temporal_state.data(),
+                                (size_t) ctx.n_embd * sizeof(float));
                     std::vector<tensor_upload> temporal_inputs = { { layer_in, temporal_state.data() } };
 
                     auto build_t0_temp = std::chrono::steady_clock::now();

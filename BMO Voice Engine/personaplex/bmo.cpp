@@ -339,32 +339,67 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
 
     model.text_emb = ggml_get_tensor(data_ctx, "depformer_text_emb.weight");
     model.text_linear = ggml_get_tensor(data_ctx, "text_linear.weight");
+    model.text_linear_bias = ggml_get_tensor(data_ctx, "text_linear.bias");
+    model.out_norm_weight = ggml_get_tensor(data_ctx, "out_norm_weight");
     model.token_embedding = ggml_get_tensor(data_ctx, "token_embedding");
     model.output_head = ggml_get_tensor(data_ctx, "output_head");
+
+    // Temporal-tier (n_embd-wide) embedding tables. The export writes one
+    // emb.{k}.weight per audio codebook plus a single text_emb.weight; we
+    // size to a generous upper bound and trim trailing nulls so the array
+    // length equals the true audio codebook count.
+    constexpr int kMaxTemporalAudioCodebooks = 32;
+    {
+        std::vector<ggml_tensor *> embs(kMaxTemporalAudioCodebooks, nullptr);
+        int last_present = -1;
+        for (int i = 0; i < kMaxTemporalAudioCodebooks; ++i) {
+            std::string idx = std::to_string(i);
+            ggml_tensor * t = ggml_get_tensor(data_ctx, ("emb." + idx + ".weight").c_str());
+            embs[(size_t) i] = t;
+            if (t) last_present = i;
+        }
+        embs.resize((size_t) (last_present + 1));
+        model.temporal_audio_embs = std::move(embs);
+    }
+    model.temporal_text_emb = ggml_get_tensor(data_ctx, "text_emb.weight");
 
     // NOTE: token_embedding can belong to a different module width than temporal
     // transformer blocks; do not overwrite temporal n_embd from that tensor.
 
     // ---- Vocabulary / codebook geometry derived from the loaded tensors ----
     {
-        int32_t nc = 0;
-        int32_t dq = 0;
+        // Count temporal-tier audio codebooks; fall back to the depformer
+        // tables only if the temporal embeddings are missing (legacy GGUFs).
+        int32_t n_q = 0;
         int32_t a_vocab = 0;
-        for (auto * t : model.audio_embs) {
+        for (auto * t : model.temporal_audio_embs) {
             if (!t) continue;
-            ++nc;
+            ++n_q;
             if (a_vocab == 0 && t->ne[1] > 0) a_vocab = (int32_t) t->ne[1];
         }
+        if (n_q == 0) {
+            for (auto * t : model.audio_embs) {
+                if (!t) continue;
+                ++n_q;
+                if (a_vocab == 0 && t->ne[1] > 0) a_vocab = (int32_t) t->ne[1];
+            }
+        }
+
+        int32_t dq = 0;
         for (auto * t : model.depformer_in) {
             if (t) ++dq;
         }
-        ctx.num_codebooks    = nc;
+
+        // Moshi exposes K = n_q + 1 channels (text + audio) as the temporal input.
+        ctx.num_codebooks    = (n_q > 0) ? (n_q + 1) : 0;
         ctx.dep_q            = dq;
         ctx.audio_vocab_size = a_vocab;
 
         int32_t t_vocab = 0;
         if (model.text_linear && model.text_linear->ne[1] > 0) {
             t_vocab = (int32_t) model.text_linear->ne[1];
+        } else if (model.temporal_text_emb && model.temporal_text_emb->ne[1] > 0) {
+            t_vocab = (int32_t) model.temporal_text_emb->ne[1];
         } else if (model.text_emb && model.text_emb->ne[1] > 0) {
             t_vocab = (int32_t) model.text_emb->ne[1];
         }
@@ -377,8 +412,12 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     for (const auto & L : model.depth_layers) add_layer_bytes_unique(L, seen, total_bytes);
     for (auto * t : model.audio_embs) add_tensor_bytes_unique(t, seen, total_bytes);
     for (auto * t : model.depformer_in) add_tensor_bytes_unique(t, seen, total_bytes);
+    for (auto * t : model.temporal_audio_embs) add_tensor_bytes_unique(t, seen, total_bytes);
     add_tensor_bytes_unique(model.text_emb, seen, total_bytes);
+    add_tensor_bytes_unique(model.temporal_text_emb, seen, total_bytes);
     add_tensor_bytes_unique(model.text_linear, seen, total_bytes);
+    add_tensor_bytes_unique(model.text_linear_bias, seen, total_bytes);
+    add_tensor_bytes_unique(model.out_norm_weight, seen, total_bytes);
     add_tensor_bytes_unique(model.token_embedding, seen, total_bytes);
     add_tensor_bytes_unique(model.output_head, seen, total_bytes);
     ctx.weights_bytes = total_bytes;
@@ -394,6 +433,10 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
               << " dep_q=" << ctx.dep_q
               << " text_vocab=" << ctx.text_vocab_size
               << " audio_vocab=" << ctx.audio_vocab_size
+              << " temporal_emb_tables=" << model.temporal_audio_embs.size()
+              << (model.temporal_text_emb ? " temporal_text_emb=present" : " temporal_text_emb=MISSING")
+              << (model.out_norm_weight ? " out_norm=present" : " out_norm=MISSING")
+              << (model.text_linear_bias ? " text_linear_bias=present" : " text_linear_bias=MISSING")
               << "\n";
     std::cout << "[bmo_load_model] Total weight bytes: " << (double) total_bytes / (1024.0 * 1024.0) << " MB\n";
 }

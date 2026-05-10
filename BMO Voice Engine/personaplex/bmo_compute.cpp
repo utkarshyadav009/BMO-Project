@@ -12,6 +12,7 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -320,6 +321,173 @@ static ggml_tensor * apply_swiglu_gpu(
     y->data = out_slot.host;
     out_slot.pool = nullptr; // detach: ownership transfers to release_all_staging at layer end
     return y;
+}
+
+// Eagerly compute self-attention for the single-token decode path.
+//
+// Replaces the lazy ggml_cpy + ggml_flash_attn_ext + ggml_permute + ggml_cont
+// chain in the temporal graph. That chain was structurally racy on the Jetson
+// eager-build pipeline:
+//   - q_rope / k_rope live in staging slots that are recycled by subsequent
+//     layers' apply_* eager kernels (release_all_staging at the end of each
+//     layer marks slots free), so by the time ggml_graph_compute runs the
+//     lazy ggml_cpy / flash_attn it reads garbage Q/K/V.
+//   - The next eager op (out_proj's apply_linear_with_transient_unpack) reads
+//     attn_cont->data *before* ggml_graph_compute populates it, so on call N+1
+//     it consumes call N's garbage attention output and propagates NaN.
+//
+// This routine fixes both by materialising the attention output synchronously
+// during graph build:
+//   1. Memcpy current-token K, V (FP32 from staging slots) into the FP16 KV
+//      cache at position n_past, for every kv head.
+//   2. For each Q head, compute scores = Q . K^T / sqrt(d), softmax (with the
+//      max-subtract trick for numerical stability), and the weighted V sum
+//      across kv_len = n_past + 1 cached keys.
+//   3. Write the result into a fresh leaf tensor [head_dim, n_heads, 1]
+//      allocated in work_ctx, whose ->data is fully populated before return.
+//
+// Only handles n_token == 1; multi-token prefill keeps the lazy flash_attn
+// path (out_proj is still racy on that path, but the prefill path isn't
+// exercised by bmo_inference.py and bmo_main reads out via ggml_graph_compute
+// which sees the lazy result).
+static ggml_tensor * apply_attention_eager_decode(
+    bmo_context & ctx,
+    ggml_context * wctx,
+    ggml_tensor * q,        // F32 [head_dim, n_heads,    1] in staging slot (post RoPE)
+    ggml_tensor * k,        // F32 [head_dim, n_kv_heads, 1] in staging slot (post RoPE)
+    ggml_tensor * v,        // F32 [head_dim, n_kv_heads, 1] view into qkv slot
+    int n_past,
+    int layer) {
+    if (!q || !k || !v || !q->data || !k->data || !v->data) {
+        throw std::runtime_error("apply_attention_eager_decode: null tensor data");
+    }
+    if (q->type != GGML_TYPE_F32 || k->type != GGML_TYPE_F32 || v->type != GGML_TYPE_F32) {
+        throw std::runtime_error("apply_attention_eager_decode: requires F32 q/k/v");
+    }
+    if (!ctx.k_cache || !ctx.v_cache || !ctx.k_cache->data || !ctx.v_cache->data) {
+        throw std::runtime_error("apply_attention_eager_decode: KV cache not initialised");
+    }
+    if (ctx.k_cache->type != GGML_TYPE_F16 || ctx.v_cache->type != GGML_TYPE_F16) {
+        throw std::runtime_error("apply_attention_eager_decode: expected FP16 KV cache");
+    }
+
+    const int head_dim   = (int) q->ne[0];
+    const int n_heads    = (int) q->ne[1];
+    const int n_kv_heads = (int) k->ne[1];
+    const int n_token    = (int) q->ne[2];
+    const int n_ctx      = ctx.n_ctx;
+    const int kv_len     = n_past + n_token;
+
+    if (n_token != 1) {
+        throw std::runtime_error("apply_attention_eager_decode: only n_token==1 supported");
+    }
+    if (kv_len > n_ctx) {
+        throw std::runtime_error(
+            "apply_attention_eager_decode: kv_len " + std::to_string(kv_len)
+            + " exceeds n_ctx " + std::to_string(n_ctx));
+    }
+
+    // One-shot log so we can confirm from a real run that this helper is live
+    // in the deployed libbmo.so (rather than a stale lazy-attention path).
+    {
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true)) {
+            std::fprintf(stderr,
+                         "[bmo_attn_eager] active: head_dim=%d n_heads=%d "
+                         "n_kv_heads=%d n_ctx=%d kv_len=%d layer=%d\n",
+                         head_dim, n_heads, n_kv_heads, n_ctx, kv_len, layer);
+        }
+    }
+    if (n_kv_heads <= 0 || n_heads % n_kv_heads != 0) {
+        throw std::runtime_error(
+            "apply_attention_eager_decode: incompatible n_heads="
+            + std::to_string(n_heads) + " n_kv_heads=" + std::to_string(n_kv_heads));
+    }
+
+    // KV cache layout (ggml ne ordering): [head_dim, n_ctx, n_heads, n_layers].
+    // Element [d, p, h, l] sits at element-offset
+    //   d + p*head_dim + h*head_dim*n_ctx + l*head_dim*n_ctx*n_heads.
+    // Note: ctx.k_cache is allocated with n_heads (full count), so when
+    // n_kv_heads < n_heads the trailing head slots are simply unused.
+    ggml_fp16_t * const k_cache_data = (ggml_fp16_t *) ctx.k_cache->data;
+    ggml_fp16_t * const v_cache_data = (ggml_fp16_t *) ctx.v_cache->data;
+    const float * const k_src = (const float *) k->data;
+    const float * const v_src = (const float *) v->data;
+
+    const size_t per_layer = (size_t) head_dim * (size_t) n_ctx * (size_t) ctx.n_heads;
+    const size_t per_head  = (size_t) head_dim * (size_t) n_ctx;
+
+    // Step 1: write current K, V (FP32) into the FP16 cache at position n_past.
+    for (int h = 0; h < n_kv_heads; ++h) {
+        const size_t cache_offset =
+            (size_t) layer * per_layer +
+            (size_t) h * per_head +
+            (size_t) n_past * (size_t) head_dim;
+        const float * k_h = k_src + (size_t) h * (size_t) head_dim;
+        const float * v_h = v_src + (size_t) h * (size_t) head_dim;
+        for (int d = 0; d < head_dim; ++d) {
+            k_cache_data[cache_offset + (size_t) d] = ggml_fp32_to_fp16(k_h[d]);
+            v_cache_data[cache_offset + (size_t) d] = ggml_fp32_to_fp16(v_h[d]);
+        }
+    }
+
+    // Step 2: allocate output [head_dim, n_heads, 1] in work_ctx.
+    ggml_tensor * attn_out = ggml_new_tensor_3d(wctx, GGML_TYPE_F32, head_dim, n_heads, 1);
+    if (!attn_out || !attn_out->data) {
+        throw std::runtime_error("apply_attention_eager_decode: failed to allocate attn_out");
+    }
+    float * const attn_data = (float *) attn_out->data;
+
+    const float * const q_src = (const float *) q->data;
+    const float scale = 1.0f / std::sqrt((float) head_dim);
+    const int q_per_kv = n_heads / n_kv_heads; // GQA fold: each kv-head serves q_per_kv q-heads
+
+    // Per-Q-head attention.
+    std::vector<float> scores((size_t) kv_len);
+    for (int h = 0; h < n_heads; ++h) {
+        const int kv_h = (n_kv_heads == n_heads) ? h : (h / q_per_kv);
+        const float * q_h = q_src + (size_t) h * (size_t) head_dim;
+        const size_t kv_head_base =
+            (size_t) layer * per_layer +
+            (size_t) kv_h * per_head;
+
+        // Q . K_t for every cached position.
+        for (int t = 0; t < kv_len; ++t) {
+            const ggml_fp16_t * k_t = k_cache_data + kv_head_base + (size_t) t * (size_t) head_dim;
+            float dot = 0.0f;
+            for (int d = 0; d < head_dim; ++d) {
+                dot += q_h[d] * ggml_fp16_to_fp32(k_t[d]);
+            }
+            scores[(size_t) t] = dot * scale;
+        }
+
+        // Softmax (max-subtract for numerical stability).
+        float max_score = scores[0];
+        for (int t = 1; t < kv_len; ++t) {
+            if (scores[(size_t) t] > max_score) max_score = scores[(size_t) t];
+        }
+        float sum = 0.0f;
+        for (int t = 0; t < kv_len; ++t) {
+            const float e = std::exp(scores[(size_t) t] - max_score);
+            scores[(size_t) t] = e;
+            sum += e;
+        }
+        const float inv_sum = (sum > 0.0f) ? (1.0f / sum) : 0.0f;
+        for (int t = 0; t < kv_len; ++t) scores[(size_t) t] *= inv_sum;
+
+        // attn_h = sum_t scores_t * V_t.
+        float * const out_h = attn_data + (size_t) h * (size_t) head_dim;
+        for (int d = 0; d < head_dim; ++d) out_h[d] = 0.0f;
+        for (int t = 0; t < kv_len; ++t) {
+            const ggml_fp16_t * v_t = v_cache_data + kv_head_base + (size_t) t * (size_t) head_dim;
+            const float w = scores[(size_t) t];
+            for (int d = 0; d < head_dim; ++d) {
+                out_h[d] += w * ggml_fp16_to_fp32(v_t[d]);
+            }
+        }
+    }
+
+    return attn_out;
 }
 #endif
 
@@ -1000,37 +1168,78 @@ ggml_tensor * bmo_embed_input_tokens(
         throw std::runtime_error("bmo_embed_input_tokens: invalid input_tokens / num_codebooks");
     }
 
+    // Resolve n_embd from whichever temporal table is available so we can
+    // size the output tensor before any other work.
+    int64_t n_embd = 0;
+    if (model.temporal_text_emb) {
+        n_embd = model.temporal_text_emb->ne[0];
+    } else {
+        for (auto * t : model.temporal_audio_embs) {
+            if (t) { n_embd = t->ne[0]; break; }
+        }
+    }
+    if (n_embd <= 0) {
+        throw std::runtime_error(
+            "bmo_embed_input_tokens: no temporal embedding tables loaded "
+            "(emb.{k}.weight / text_emb.weight). Re-export the GGUF.");
+    }
+
     ggml_context * wctx = ctx.work_ctx;
 
-    // Stage codebook indices in a single I32 [num_codebooks] tensor; per-codebook
-    // ggml_view_1d slices then feed ggml_get_rows on each embedding table.
-    ggml_tensor * tokens_t = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, num_codebooks);
-    if (!tokens_t || !tokens_t->data) {
-        throw std::runtime_error("bmo_embed_input_tokens: failed to allocate token tensor");
+    // We must return a *leaf* tensor whose ->data is already populated, because
+    // the temporal graph immediately consumes it through eager-GPU ops
+    // (apply_rmsnorm_gpu, apply_linear_with_transient_unpack, ...) at build
+    // time. Building the embedding as ggml_get_rows + ggml_add nodes would
+    // leave ->data uninitialized until ggml_graph_compute_with_ctx runs, which
+    // happens *after* every eager kernel has already executed. So instead we
+    // synthesise the sum on the host and memcpy it in.
+    ggml_tensor * out = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, n_embd, 1);
+    if (!out || !out->data) {
+        throw std::runtime_error("bmo_embed_input_tokens: failed to allocate output tensor");
     }
-    std::memcpy(tokens_t->data, input_tokens, (size_t) num_codebooks * sizeof(int32_t));
+    float * acc = (float *) out->data;
+    std::memset(acc, 0, (size_t) n_embd * sizeof(float));
 
-    ggml_tensor * acc = nullptr;
-    int used = 0;
-    for (int k = 0; k < num_codebooks; ++k) {
-        if ((size_t) k >= model.audio_embs.size()) break;
-        ggml_tensor * emb_table = model.audio_embs[(size_t) k];
-        if (!emb_table) continue;
-
-        ggml_tensor * tok_view = ggml_view_1d(wctx, tokens_t, 1, (size_t) k * sizeof(int32_t));
-        ggml_tensor * emb_k    = ggml_get_rows(wctx, emb_table, tok_view);
-        if (!emb_k) {
-            throw std::runtime_error("bmo_embed_input_tokens: ggml_get_rows failed for codebook "
-                                     + std::to_string(k));
+    auto add_row = [&](const ggml_tensor * t, int32_t tok, int channel_id) {
+        if (!t || tok < 0) return;
+        const int64_t d = t->ne[0];
+        const int64_t vocab = t->ne[1];
+        if (d != n_embd) {
+            throw std::runtime_error(
+                "bmo_embed_input_tokens: embedding dim mismatch on channel "
+                + std::to_string(channel_id) + " (got " + std::to_string(d)
+                + ", expected " + std::to_string(n_embd) + ")");
         }
-        acc = (acc == nullptr) ? emb_k : ggml_add(wctx, acc, emb_k);
-        ++used;
+        if (vocab > 0 && tok >= vocab) return;            // out-of-vocab: skip
+        const uint8_t * row = (const uint8_t *) t->data + (size_t) tok * t->nb[1];
+        switch (t->type) {
+            case GGML_TYPE_F32: {
+                const float * f = (const float *) row;
+                for (int64_t i = 0; i < n_embd; ++i) acc[i] += f[i];
+                break;
+            }
+            case GGML_TYPE_F16: {
+                const ggml_fp16_t * h = (const ggml_fp16_t *) row;
+                for (int64_t i = 0; i < n_embd; ++i) acc[i] += ggml_fp16_to_fp32(h[i]);
+                break;
+            }
+            default:
+                throw std::runtime_error(
+                    "bmo_embed_input_tokens: unsupported dtype "
+                    + std::to_string((int) t->type) + " on channel "
+                    + std::to_string(channel_id));
+        }
+    };
+
+    // Moshi token layout: tokens[0] = text, tokens[1..K-1] = audio codebooks.
+    add_row(model.temporal_text_emb, input_tokens[0], /*channel_id=*/0);
+    for (int k = 1; k < num_codebooks; ++k) {
+        const int audio_idx = k - 1;
+        if ((size_t) audio_idx >= model.temporal_audio_embs.size()) break;
+        add_row(model.temporal_audio_embs[(size_t) audio_idx], input_tokens[k], k);
     }
 
-    if (!acc || used == 0) {
-        throw std::runtime_error("bmo_embed_input_tokens: no usable audio embedding tables");
-    }
-    return acc;
+    return out;
 }
 
 void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<tensor_upload> & inputs) {
@@ -1101,7 +1310,25 @@ ggml_cgraph * bmo_build_temporal_graph(
     }
     stage_tensor_upload(ctx, pos, pos_host.data(), (size_t) n_token * sizeof(int32_t));
 
-    ggml_tensor * x = ggml_cont(wctx, S(input_tokens));
+    // The temporal graph runs *eager* GPU ops (apply_rmsnorm_gpu,
+    // apply_linear_with_transient_unpack, ...) that read x->data at build
+    // time. ggml_cont() allocates a fresh, uninitialised buffer for the
+    // output and only fills it during ggml_graph_compute_with_ctx (which we
+    // run after the build) -- so a naive ggml_cont here would feed garbage
+    // into layer 0 and propagate NaNs. When the caller already provided a
+    // contiguous leaf (bmo_embed_input_tokens, bmo_main's cascade harness),
+    // alias it directly so x->data points at the populated source data.
+    // Otherwise we fall back to ggml_cont + an immediate host-side memcpy.
+    ggml_tensor * x = nullptr;
+    if (ggml_is_contiguous(S(input_tokens))) {
+        x = input_tokens;
+    } else {
+        x = ggml_cont(wctx, S(input_tokens));
+        if (x && x->data && input_tokens->data &&
+            ggml_nbytes(x) == ggml_nbytes(input_tokens)) {
+            std::memcpy(x->data, input_tokens->data, ggml_nbytes(x));
+        }
+    }
 
     for (int layer = begin; layer < end; ++layer) {
         const std::string base = "transformer_layers_" + std::to_string(layer);
@@ -1162,45 +1389,65 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
 #endif
 
-            ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
-            ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
-            ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
+            ggml_tensor * attn_2d = nullptr;
+#ifdef BMO_JETSON
+            // Single-token decode: use the fully-eager CPU attention so that
+            // (a) the staging-slot-resident K/V data is consumed before
+            // subsequent layers reuse those slots, (b) attn_2d->data is live
+            // by the time the next eager kernel (out_proj) reads it. This
+            // replaces the lazy ggml_cpy + ggml_flash_attn_ext + ggml_permute +
+            // ggml_cont chain entirely. The KV cache write is performed inside
+            // the helper, so we no longer need k_slot / v_slot / k_write /
+            // v_write / k_hist / v_hist nodes on this path.
+            if (n_token == 1) {
+                cudaStreamSynchronize(0); // ensure RoPE / qkv kernels finished
+                ggml_tensor * attn_3d = apply_attention_eager_decode(
+                    ctx, wctx, q_rope, k_rope, v_raw, n_past, layer);
+                attn_2d = ggml_reshape_2d(wctx, attn_3d, ctx.n_embd, n_token);
+            }
+#endif
+            if (!attn_2d) {
+                // Multi-token prefill (or non-Jetson): keep the lazy graph path.
+                ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
+                ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
+                ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
 
-            ggml_tensor * k_layer = ggml_view_3d(
-                wctx, ctx.k_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
-                ctx.k_cache->nb[1], ctx.k_cache->nb[2], (size_t) layer * ctx.k_cache->nb[3]);
+                ggml_tensor * k_layer = ggml_view_3d(
+                    wctx, ctx.k_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
+                    ctx.k_cache->nb[1], ctx.k_cache->nb[2], (size_t) layer * ctx.k_cache->nb[3]);
 
-            ggml_tensor * v_layer = ggml_view_3d(
-                wctx, ctx.v_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
-                ctx.v_cache->nb[1], ctx.v_cache->nb[2], (size_t) layer * ctx.v_cache->nb[3]);
+                ggml_tensor * v_layer = ggml_view_3d(
+                    wctx, ctx.v_cache, ctx.head_dim, ctx.n_ctx, n_kv_heads,
+                    ctx.v_cache->nb[1], ctx.v_cache->nb[2], (size_t) layer * ctx.v_cache->nb[3]);
 
-            ggml_tensor * k_slot = ggml_view_3d(
-                wctx, k_layer, ctx.head_dim, n_token, n_kv_heads,
-                k_layer->nb[1], k_layer->nb[2], (size_t) n_past * k_layer->nb[1]);
+                ggml_tensor * k_slot = ggml_view_3d(
+                    wctx, k_layer, ctx.head_dim, n_token, n_kv_heads,
+                    k_layer->nb[1], k_layer->nb[2], (size_t) n_past * k_layer->nb[1]);
 
-            ggml_tensor * v_slot = ggml_view_3d(
-                wctx, v_layer, ctx.head_dim, n_token, n_kv_heads,
-                v_layer->nb[1], v_layer->nb[2], (size_t) n_past * v_layer->nb[1]);
+                ggml_tensor * v_slot = ggml_view_3d(
+                    wctx, v_layer, ctx.head_dim, n_token, n_kv_heads,
+                    v_layer->nb[1], v_layer->nb[2], (size_t) n_past * v_layer->nb[1]);
 
-            ggml_tensor * k_write = ggml_cpy(wctx, k_trans, k_slot);
-            ggml_tensor * v_write = ggml_cpy(wctx, v_trans, v_slot);
-            ggml_build_forward_expand(gf, k_write);
-            ggml_build_forward_expand(gf, v_write);
+                ggml_tensor * k_write = ggml_cpy(wctx, k_trans, k_slot);
+                ggml_tensor * v_write = ggml_cpy(wctx, v_trans, v_slot);
+                ggml_build_forward_expand(gf, k_write);
+                ggml_build_forward_expand(gf, v_write);
 
-            const int64_t kv_len = n_past + n_token;
-            ggml_tensor * k_hist = ggml_view_3d(wctx, k_layer, ctx.head_dim, kv_len, n_kv_heads, k_layer->nb[1], k_layer->nb[2], 0);
-            ggml_tensor * v_hist = ggml_view_3d(wctx, v_layer, ctx.head_dim, kv_len, n_kv_heads, v_layer->nb[1], v_layer->nb[2], 0);
+                const int64_t kv_len = n_past + n_token;
+                ggml_tensor * k_hist = ggml_view_3d(wctx, k_layer, ctx.head_dim, kv_len, n_kv_heads, k_layer->nb[1], k_layer->nb[2], 0);
+                ggml_tensor * v_hist = ggml_view_3d(wctx, v_layer, ctx.head_dim, kv_len, n_kv_heads, v_layer->nb[1], v_layer->nb[2], 0);
 
 #ifdef BMO_JETSON
-            cudaStreamSynchronize(0); // Sync before CPU Attention
+                cudaStreamSynchronize(0); // Sync before CPU Attention
 #endif
-            ggml_tensor * attn_heads = ggml_flash_attn_ext(
-                wctx, q_trans, ggml_cont(wctx, k_hist), ggml_cont(wctx, v_hist), nullptr,
-                1.0f / std::sqrt((float) ctx.head_dim), 0.0f, 0.0f);
+                ggml_tensor * attn_heads = ggml_flash_attn_ext(
+                    wctx, q_trans, ggml_cont(wctx, k_hist), ggml_cont(wctx, v_hist), nullptr,
+                    1.0f / std::sqrt((float) ctx.head_dim), 0.0f, 0.0f);
 
-            ggml_tensor * attn_trans_out = ggml_permute(wctx, attn_heads, 0, 2, 1, 3);
-            ggml_tensor * attn_cont  = ggml_cont(wctx, attn_trans_out);
-            ggml_tensor * attn_2d    = ggml_reshape_2d(wctx, attn_cont, ctx.n_embd, n_token);
+                ggml_tensor * attn_trans_out = ggml_permute(wctx, attn_heads, 0, 2, 1, 3);
+                ggml_tensor * attn_cont      = ggml_cont(wctx, attn_trans_out);
+                attn_2d                      = ggml_reshape_2d(wctx, attn_cont, ctx.n_embd, n_token);
+            }
 
             ggml_tensor * attn_out = apply_linear_with_transient_unpack(
                 ctx,
@@ -1301,19 +1548,39 @@ ggml_cgraph * bmo_build_temporal_graph(
     //
     // `out_layer_{i}` names already exist for per-layer cascade / debug paths
     // (see main.cpp). For the C-API we additionally expose:
-    //   - "transformer_out": a metadata-only alias of x (no extra compute) so
-    //     callers can find the final hidden state by a stable name.
-    //   - "text_logits": the text vocab projection, only when the full stack is
-    //     built (end == n_layers) and the model carries a text head.
+    //   - "transformer_out": the final-normed hidden state. Moshi/Helium apply
+    //     a final RMSNorm (out_norm.alpha) to the residual stream after layer
+    //     n_layers-1 and feed the normalised vector into BOTH text_linear and
+    //     depformer_in. Skipping the norm makes text_logits collapse to
+    //     ~uniform near-zero values (top logit ~0.24 instead of ~10) and
+    //     produces gibberish text + miscalibrated audio conditioning. We only
+    //     apply it when the caller is running the full stack (end == n_layers).
+    //   - "text_logits": text_linear @ final_norm + text_linear.bias (when
+    //     present), exposed only when the model carries a text head.
     //
-    // ggml_view_1d is a zero-cost view: it reuses x's data without copying.
+    // For partial cascade builds (end < n_layers, used by main.cpp's
+    // per-layer validation harness) we deliberately skip the final norm so
+    // bit-exact A/B against the PyTorch per-layer dump still works.
     {
-        ggml_tensor * transformer_out = ggml_view_1d(wctx, x, ggml_nelements(x), 0);
+        ggml_tensor * final_x = x;
+        if (end == ctx.n_layers && model.out_norm_weight) {
+#ifdef BMO_JETSON
+            final_x = apply_rmsnorm_gpu(ctx, wctx, x, model.out_norm_weight, 1e-5f);
+#else
+            ggml_tensor * normed = ggml_rms_norm(wctx, x, 1e-5f);
+            final_x = ggml_mul(wctx, normed, model.out_norm_weight);
+#endif
+        }
+
+        ggml_tensor * transformer_out = ggml_view_1d(wctx, final_x, ggml_nelements(final_x), 0);
         ggml_set_name(transformer_out, "transformer_out");
         ggml_build_forward_expand(gf, transformer_out);
 
         if (end == ctx.n_layers && model.text_linear) {
-            ggml_tensor * text_logits = ggml_mul_mat(wctx, model.text_linear, x);
+            ggml_tensor * text_logits = ggml_mul_mat(wctx, model.text_linear, final_x);
+            if (model.text_linear_bias) {
+                text_logits = ggml_add(wctx, text_logits, model.text_linear_bias);
+            }
             ggml_set_name(text_logits, "text_logits");
             ggml_build_forward_expand(gf, text_logits);
         }
