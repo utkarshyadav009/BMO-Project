@@ -511,6 +511,37 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
               << "/" << model.temporal_layers.size()
               << " norm2=" << n_norm2 << "/" << model.temporal_layers.size() << "\n";
 
+    // Dump per-layer norm gamma stats. Anomalously large gammas (e.g. mean
+    // >> 2 or values > 5x the layer median) flag a wrong-tensor or scale
+    // bug, which would explode the residual stream's DC component layer
+    // by layer -- exactly the "DC attractor" symptom we're investigating.
+    auto dump_norm_stats = [&](const char * tag, ggml_tensor * t, int layer) {
+        if (!t || !t->data) return;
+        const int64_t n = ggml_nelements(t);
+        double s = 0, smax = -1e30, smin = 1e30;
+        if (t->type == GGML_TYPE_F32) {
+            const float * w = (const float *) t->data;
+            for (int64_t i = 0; i < n; ++i) { s += w[i]; if (w[i] > smax) smax = w[i]; if (w[i] < smin) smin = w[i]; }
+        } else if (t->type == GGML_TYPE_F16) {
+            const ggml_fp16_t * w = (const ggml_fp16_t *) t->data;
+            for (int64_t i = 0; i < n; ++i) {
+                const float v = ggml_fp16_to_fp32(w[i]);
+                s += v; if (v > smax) smax = v; if (v < smin) smin = v;
+            }
+        } else {
+            return;
+        }
+        std::cout << "[bmo_load_model] " << tag << "[" << layer << "] n=" << n
+                  << " mean=" << (s / (double) n)
+                  << " min=" << smin << " max=" << smax << "\n";
+    };
+    if (getenv("BMO_LOG_NORM_STATS")) {
+        for (size_t li = 0; li < model.temporal_layers.size(); ++li) {
+            dump_norm_stats("norm1", model.temporal_layers[li].norm1_weight, (int) li);
+            dump_norm_stats("norm2", model.temporal_layers[li].norm2_weight, (int) li);
+        }
+    }
+
     std::cout << "[bmo_load_model] head tensors:"
               << " text_linear=" << ttype(model.text_linear)
               << "[" << tshape(model.text_linear) << "]"
@@ -742,7 +773,9 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 #ifndef BMO_JETSON
             max_unpack_elems = std::max(max_unpack_elems, (size_t) rows * (size_t) cols);
 #endif
-            std::cout << "[bmo_prepare_device_packed_tensors] registered " << base << " rows=" << rows << " cols=" << cols << " n_fp16=" << n_fp16 << "\n";
+            if (getenv("BMO_LOG_INIT")) {
+                std::cout << "[bmo_prepare_device_packed_tensors] registered " << base << " rows=" << rows << " cols=" << cols << " n_fp16=" << n_fp16 << "\n";
+            }
             continue;
 
             cleanup_partial_dp:

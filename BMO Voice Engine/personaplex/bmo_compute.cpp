@@ -17,6 +17,7 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 #include <cctype>
 #include <cstdint>
 #include <cstring>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -391,7 +392,7 @@ static ggml_tensor * apply_attention_eager_decode(
     // in the deployed libbmo.so (rather than a stale lazy-attention path).
     {
         static std::atomic<bool> logged{false};
-        if (!logged.exchange(true)) {
+        if (getenv("BMO_LOG_ATTN") && !logged.exchange(true)) {
             std::fprintf(stderr,
                          "[bmo_attn_eager] active: head_dim=%d n_heads=%d "
                          "n_kv_heads=%d n_ctx=%d kv_len=%d layer=%d\n",
@@ -1075,12 +1076,14 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         y = ggml_add(wctx, y, linear.dense_bias);
                     }
 
-                    auto e2e_t1 = std::chrono::steady_clock::now();
-                    const double e2e_ms =
-                        std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
-                    std::fprintf(stderr,
-                                 "[prof_prod] base=%s kernel=async e2e_with_graph=%.2fms\n",
-                                 linear.base.c_str(), e2e_ms);
+                    if (getenv("BMO_LOG_PROF")) {
+                        auto e2e_t1 = std::chrono::steady_clock::now();
+                        const double e2e_ms =
+                            std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
+                        std::fprintf(stderr,
+                                     "[prof_prod] base=%s kernel=async e2e_with_graph=%.2fms\n",
+                                     linear.base.c_str(), e2e_ms);
+                    }
 
                     return y;
                 }
@@ -1138,12 +1141,14 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     y = ggml_add(wctx, y, linear.dense_bias);
                 }
 
-                auto e2e_t1 = std::chrono::steady_clock::now();
-                const double e2e_ms =
-                    std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
-                std::fprintf(stderr,
-                             "[prof_prod] base=%s n_tok=%lld kernel=sync e2e_with_graph=%.2fms\n",
-                             linear.base.c_str(), (long long) n_tok, e2e_ms);
+                if (getenv("BMO_LOG_PROF")) {
+                    auto e2e_t1 = std::chrono::steady_clock::now();
+                    const double e2e_ms =
+                        std::chrono::duration<double, std::milli>(e2e_t1 - e2e_t0).count();
+                    std::fprintf(stderr,
+                                 "[prof_prod] base=%s n_tok=%lld kernel=sync e2e_with_graph=%.2fms\n",
+                                 linear.base.c_str(), (long long) n_tok, e2e_ms);
+                }
 
                 return y;
 #endif
@@ -1192,11 +1197,13 @@ static ggml_tensor * apply_linear_with_transient_unpack(
 
                 std::memcpy(W->data, ctx.shared_scratch_w.data(), total_bytes);
 
-                auto unpack_t1 = std::chrono::steady_clock::now();
-                long unpack_us =
-                    std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
-                std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d cuda_d2h_unpack_us=%ld\n",
-                             linear.base.c_str(), rows, cols, unpack_us);
+                if (getenv("BMO_LOG_PROF")) {
+                    auto unpack_t1 = std::chrono::steady_clock::now();
+                    long unpack_us =
+                        std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+                    std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d cuda_d2h_unpack_us=%ld\n",
+                                 linear.base.c_str(), rows, cols, unpack_us);
+                }
 
                 y = ggml_mul_mat(wctx, S(W), S(x));
                 if (linear.dense_bias) {
@@ -1284,9 +1291,11 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     ctx.shared_scratch_w.data());
             }
 
-            auto unpack_t1 = std::chrono::steady_clock::now();
-            long unpack_ms = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
-            std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_ms);
+            if (getenv("BMO_LOG_PROF")) {
+                auto unpack_t1 = std::chrono::steady_clock::now();
+                long unpack_ms = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
+                std::fprintf(stderr, "[prof_unpack] base=%s rows=%d cols=%d unpack_us=%ld\n", linear.base.c_str(), rows, cols, unpack_ms);
+            }
 
             std::memcpy(W->data, ctx.shared_scratch_w.data(), (size_t) total * sizeof(float));
 
@@ -1301,9 +1310,9 @@ static ggml_tensor * apply_linear_with_transient_unpack(
         y = ggml_add(wctx, y, linear.dense_bias);
     }
 
-    auto unpack_t1 = std::chrono::steady_clock::now();
-    long unpack_us = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
-    if (!linear.packed_weights) {
+    if (getenv("BMO_LOG_PROF") && !linear.packed_weights) {
+        auto unpack_t1 = std::chrono::steady_clock::now();
+        long unpack_us = std::chrono::duration_cast<std::chrono::microseconds>(unpack_t1 - unpack_t0).count();
         std::fprintf(stderr, "[prof_unpack] base=%s dense_path_us=%ld\n", linear.base.c_str(), unpack_us);
     }
 
@@ -1416,25 +1425,104 @@ ggml_tensor * bmo_embed_input_tokens(
 
     // Diagnostic: confirm the embedding sum is non-zero. With token text=PAD=3
     // plus audio=0 across all 16 codebooks, the sum should NOT be all zeros.
+    // We now also report MEAN (the DC component), which is the single most
+    // useful number for the "DC attractor" investigation -- silence inputs
+    // should give |mean| ~ 0, non-silence inputs should also give |mean|
+    // small if the embedding tables are correctly loaded and balanced.
     if (getenv("BMO_LOG_EMBED")) {
-        double s2 = 0;
+        double s = 0, s2 = 0;
         float vmin = acc[0], vmax = acc[0];
         for (int64_t i = 0; i < n_embd; ++i) {
+            s  += (double) acc[i];
             s2 += (double) acc[i] * (double) acc[i];
             if (acc[i] < vmin) vmin = acc[i];
             if (acc[i] > vmax) vmax = acc[i];
         }
-        const float rms = (float) std::sqrt(s2 / (double) n_embd);
+        const double mean = s / (double) n_embd;
+        const double rms2 = s2 / (double) n_embd;
+        const double var  = rms2 - mean * mean;
+        const float rms = (float) std::sqrt(rms2);
+        const float stdv = (float) std::sqrt(std::max(0.0, var));
         fprintf(stderr,
-                "[bmo_embed] tokens=[%d %d %d %d ...] num_cb=%d n_embd=%lld out[0..3]=%.4f %.4f %.4f %.4f rms=%.4f min=%.4f max=%.4f\n",
+                "[bmo_embed] tokens=[%d %d %d %d ...] num_cb=%d n_embd=%lld out[0..3]=%.4f %.4f %.4f %.4f mean=%+.5f std=%.5f rms=%.4f min=%.4f max=%.4f\n",
                 (int) input_tokens[0],
                 num_codebooks > 1 ? (int) input_tokens[1] : -1,
                 num_codebooks > 2 ? (int) input_tokens[2] : -1,
                 num_codebooks > 3 ? (int) input_tokens[3] : -1,
                 num_codebooks, (long long) n_embd,
-                acc[0], acc[1], acc[2], acc[3], rms, vmin, vmax);
-        // also peek the text emb for the requested token directly to verify it
-        // even has non-zero content
+                acc[0], acc[1], acc[2], acc[3], mean, stdv, rms, vmin, vmax);
+        // Full tensor geometry + fixed tok={2,100} fingerprints every call so a
+        // single forward's stderr answers "same row?" without needing two pastes.
+        if (model.temporal_text_emb && model.temporal_text_emb->data) {
+            const ggml_tensor * te = model.temporal_text_emb;
+            const size_t esz = ggml_type_size(te->type);
+            const size_t expect_nb1 = (size_t) te->ne[0] * esz;
+            fprintf(stderr,
+                    "[bmo_embed] text_emb_geom ne0=%lld ne1=%lld nb0=%zu nb1=%zu "
+                    "expect_nb1(ne0*esz)=%zu type=%s data=%p%s\n",
+                    (long long) te->ne[0], (long long) te->ne[1],
+                    (size_t) te->nb[0], (size_t) te->nb[1], expect_nb1,
+                    ggml_type_name(te->type), te->data,
+                    te->nb[1] != expect_nb1 ? "  !! nb1!=expect (non-contiguous layout?)" : "");
+
+            auto row_sqsum_first64 = [&](int tok) -> double {
+                if (tok < 0 || (int64_t) tok >= te->ne[1]) return -1.0;
+                const uint8_t * row = (const uint8_t *) te->data + (size_t) tok * te->nb[1];
+                const int64_t npeek = std::min<int64_t>(64, te->ne[0]);
+                double s = 0.0;
+                if (te->type == GGML_TYPE_F16) {
+                    const ggml_fp16_t * h = (const ggml_fp16_t *) row;
+                    for (int64_t i = 0; i < npeek; ++i) {
+                        float v = ggml_fp16_to_fp32(h[i]);
+                        s += (double) v * (double) v;
+                    }
+                } else if (te->type == GGML_TYPE_F32) {
+                    const float * f = (const float *) row;
+                    for (int64_t i = 0; i < npeek; ++i) {
+                        s += (double) f[i] * (double) f[i];
+                    }
+                }
+                return s;
+            };
+            auto peek_row0123 = [&](int tok, float out[4]) {
+                for (int i = 0; i < 4; ++i) out[i] = 0.f;
+                if (tok < 0 || (int64_t) tok >= te->ne[1]) return;
+                const uint8_t * row = (const uint8_t *) te->data + (size_t) tok * te->nb[1];
+                if (te->type == GGML_TYPE_F16) {
+                    const ggml_fp16_t * h = (const ggml_fp16_t *) row;
+                    for (int i = 0; i < 4 && i < (int) te->ne[0]; ++i) {
+                        out[i] = ggml_fp16_to_fp32(h[i]);
+                    }
+                } else if (te->type == GGML_TYPE_F32) {
+                    const float * f = (const float *) row;
+                    for (int i = 0; i < 4 && i < (int) te->ne[0]; ++i) {
+                        out[i] = f[i];
+                    }
+                }
+            };
+            const size_t off2   = (size_t) 2 * te->nb[1];
+            const size_t off100 = (size_t) 100 * te->nb[1];
+            const double s2 = row_sqsum_first64(2);
+            const double s100 = row_sqsum_first64(100);
+            fprintf(stderr,
+                    "[bmo_embed] row_byte_off tok=2 -> %zu tok=100 -> %zu delta=%td\n",
+                    off2, off100,
+                    (ptrdiff_t) off100 - (ptrdiff_t) off2);
+            fprintf(stderr,
+                    "[bmo_embed] row_sqsum_first64 tok=2 -> %.10f tok=100 -> %.10f "
+                    "same_sqsum=%s\n",
+                    s2, s100, (s2 == s100) ? "YES" : "NO");
+            float p2[4], p100[4];
+            peek_row0123(2, p2);
+            peek_row0123(100, p100);
+            fprintf(stderr,
+                    "[bmo_embed] text_emb_row[2][0..3]=%.6f %.6f %.6f %.6f\n",
+                    p2[0], p2[1], p2[2], p2[3]);
+            fprintf(stderr,
+                    "[bmo_embed] text_emb_row[100][0..3]=%.6f %.6f %.6f %.6f\n",
+                    p100[0], p100[1], p100[2], p100[3]);
+        }
+        // Peek row for the active text token (same as historical diagnostic).
         if (model.temporal_text_emb && model.temporal_text_emb->data
             && input_tokens[0] >= 0 && input_tokens[0] < model.temporal_text_emb->ne[1]) {
             const auto * t = model.temporal_text_emb;
@@ -1782,6 +1870,43 @@ ggml_cgraph * bmo_build_temporal_graph(
         ggml_set_name(x, out_name.c_str());
         ggml_build_forward_expand(gf, x);
 
+        // ---- Per-layer residual diagnostic (DC-attractor investigation) ----
+        // After this layer's attention + FFN, x is the residual stream's post-
+        // layer state. On the Jetson eager path (apply_residual_gpu) the value
+        // already lives in pinned-mapped memory, so we just sync the stream
+        // and read x->data directly. On non-Jetson the residual is a lazy
+        // ggml_add and its ->data is unset until graph_compute runs, so we
+        // emit only the layer index and skip stats.
+        if (getenv("BMO_LOG_LAYER_Z")) {
+#ifdef BMO_JETSON
+            cudaStreamSynchronize(0);
+            const float * p = x ? (const float *) x->data : nullptr;
+            const int64_t n = x ? ggml_nelements(x) : 0;
+            if (p && n > 0) {
+                double s = 0, s2 = 0;
+                float mn = p[0], mx = p[0];
+                for (int64_t i = 0; i < n; ++i) {
+                    s  += (double) p[i];
+                    s2 += (double) p[i] * (double) p[i];
+                    if (p[i] < mn) mn = p[i];
+                    if (p[i] > mx) mx = p[i];
+                }
+                const double mean = s  / (double) n;
+                const double rms2 = s2 / (double) n;
+                const double var  = rms2 - mean * mean;
+                const double stdv = std::sqrt(std::max(0.0, var));
+                const double norm = std::sqrt(s2);
+                fprintf(stderr,
+                    "[bmo_layer_z] L=%2d n=%lld mean=%+.5f std=%.5f |z|=%.3f min=%+.3f max=%+.3f n_past=%d\n",
+                    layer, (long long) n, mean, stdv, norm, mn, mx, n_past);
+            } else {
+                fprintf(stderr, "[bmo_layer_z] L=%2d (no host-readable data)\n", layer);
+            }
+#else
+            fprintf(stderr, "[bmo_layer_z] L=%2d (lazy graph; data unavailable until compute)\n", layer);
+#endif
+        }
+
 #ifdef BMO_JETSON
         // All transient pinned slots used during this layer can be reclaimed
         // for the next iteration (the layer output's data still points into
@@ -1816,6 +1941,35 @@ ggml_cgraph * bmo_build_temporal_graph(
 #else
             ggml_tensor * normed = ggml_rms_norm(wctx, x, 1e-5f);
             final_x = ggml_mul(wctx, normed, model.out_norm_weight);
+#endif
+        }
+
+        // Final residual stats just before LM head. Pairs with the per-layer
+        // BMO_LOG_LAYER_Z trace so we can isolate whether out_norm changes
+        // the DC component, RMS, or just rescales channels uniformly.
+        if (getenv("BMO_LOG_LAYER_Z")) {
+#ifdef BMO_JETSON
+            cudaStreamSynchronize(0);
+            const float * p = final_x ? (const float *) final_x->data : nullptr;
+            const int64_t n = final_x ? ggml_nelements(final_x) : 0;
+            if (p && n > 0) {
+                double s = 0, s2 = 0;
+                float mn = p[0], mx = p[0];
+                for (int64_t i = 0; i < n; ++i) {
+                    s  += (double) p[i];
+                    s2 += (double) p[i] * (double) p[i];
+                    if (p[i] < mn) mn = p[i];
+                    if (p[i] > mx) mx = p[i];
+                }
+                const double mean = s  / (double) n;
+                const double rms2 = s2 / (double) n;
+                const double var  = rms2 - mean * mean;
+                const double stdv = std::sqrt(std::max(0.0, var));
+                const double norm = std::sqrt(s2);
+                fprintf(stderr,
+                    "[bmo_layer_z] OUTNORM n=%lld mean=%+.5f std=%.5f |z|=%.3f min=%+.3f max=%+.3f n_past=%d\n",
+                    (long long) n, mean, stdv, norm, mn, mx, n_past);
+            }
 #endif
         }
 

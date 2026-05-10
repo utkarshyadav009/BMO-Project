@@ -131,11 +131,15 @@ DEFAULT_N_MOSHI_CODEBOOKS = 8
 # is OOD and is what produced earlier gibberish-only outputs.
 TEXT_PAD_ID = 3
 
-# Pre-encoded Mimi codes for "8 codebooks of pure silence" and "8 codebooks of
-# a 440 Hz placeholder sine wave". These are NOT all-zeros; they're the actual
-# token ids that Mimi.encode produces for those signals, baked in as constants.
-# See moshi/models/lm.py lines 56-57: feeding any other 8-tuple (e.g. all-zeros)
-# during prompt phases puts the model far out of training distribution.
+# Pre-encoded Mimi codes for "8 codebooks of pure silence" (used on BOTH the
+# moshi/agent and the user audio channels during prefill) and "8 codebooks of
+# a 440 Hz placeholder sine wave" (kept here as documented reference -- vanilla
+# Moshi feeds this on the user channel during prompt phases, but PersonaPlex/
+# BMO empirically requires SILENCE_TOKENS on user instead; SINE_TOKENS produces
+# a DC-attractor residual mean=+1.13 / std=0.99 that gibbers, while
+# SILENCE_TOKENS gives mean=+0.03 / std=1.50, the model's healthy fixed point).
+# These are NOT all-zeros; they're the actual token ids that Mimi.encode
+# produces for those signals, baked in as constants.
 SILENCE_TOKENS = np.array([948, 243, 1178, 546, 1736, 1030, 1978, 2008], dtype=np.int32)
 SINE_TOKENS    = np.array([430, 1268, 381, 1611, 1095, 1495,   56,  472], dtype=np.int32)
 
@@ -633,7 +637,8 @@ def _read_wav_24k(path: str):
         import soundfile as sf
     except ImportError as ex:
         raise RuntimeError(
-            "stream --input-wav requires `soundfile` (pip install soundfile)."
+            "`soundfile` is required for --voice-prompt / wav IO "
+            "(pip install soundfile)."
         ) from ex
     data, sr = sf.read(path, dtype="float32", always_2d=True)
     # to mono
@@ -652,6 +657,77 @@ def _read_wav_24k(path: str):
         g = gcd(sr, 24000)
         data = resample_poly(data, 24000 // g, sr // g).astype("float32", copy=False)
     return data
+
+
+def _encode_user_wav_codes_like_offline(mimi, wav_path: str, n_user: int):
+    """Encode user-channel WAV the same way as ``moshi.offline.run_inference``.
+
+    Offline loads PCM with ``lm.load_audio`` (``sphn`` read + resample), walks
+    fixed-size chunks with ``_iterate_audio(..., pad=True)``, and runs
+    ``mimi.encode`` per chunk via ``encode_from_sphn``, with streaming state
+    enabled — matching the reference path immediately after
+    ``mimi.reset_streaming()`` there.
+
+    Returns ``(codes, meta)`` where ``codes`` is ``(T_frames, n_user)`` int32.
+    """
+    import torch
+    from moshi.models.lm import encode_from_sphn as lm_encode_from_sphn
+    from moshi.models.lm import load_audio as lm_load_audio
+    from moshi.models.lm import _iterate_audio as lm_iterate_audio
+
+    sample_rate = int(mimi.sample_rate)
+    frame_rate = float(mimi.frame_rate)
+    frame_size = int(round(sample_rate / frame_rate))
+
+    user_audio = lm_load_audio(str(wav_path), sample_rate)
+    n_ch = int(user_audio.shape[0])
+    total_samples = int(user_audio.shape[-1])
+    n_pcm_chunks = (
+        (total_samples + frame_size - 1) // frame_size if total_samples > 0 else 0
+    )
+
+    pieces: list[np.ndarray] = []
+    with torch.no_grad():
+        with mimi.streaming(1):
+            mimi.reset_streaming()
+            for enc in lm_encode_from_sphn(
+                mimi,
+                lm_iterate_audio(
+                    user_audio, sample_interval_size=frame_size, pad=True
+                ),
+                max_batch=1,
+            ):
+                # enc: (1, K, F) -> (F, K)
+                kt = enc[0].transpose(0, 1).detach().cpu().numpy().astype(np.int32)
+                pieces.append(kt)
+
+    if not pieces:
+        codes = np.zeros((0, max(n_user, 1)), dtype=np.int32)
+    else:
+        codes = np.concatenate(pieces, axis=0)
+
+    enc_k = int(codes.shape[1]) if codes.size else 0
+    if enc_k < n_user:
+        raise RuntimeError(
+            f"user wav encoded with only {enc_k} codebooks but "
+            f"the model expects {n_user} user slots."
+        )
+    codes = codes[:, :n_user]
+
+    meta = {
+        "path": str(wav_path),
+        "pcm_channels": n_ch,
+        "pcm_samples_at_model_sr": total_samples,
+        "pcm_duration_s": total_samples / float(sample_rate),
+        "frame_size_samples": frame_size,
+        "frame_rate_hz": frame_rate,
+        "pcm_chunks_zero_padded": n_pcm_chunks,
+        "user_codec_frames": int(codes.shape[0]),
+        "user_codebooks": int(n_user),
+        "load_resample": "moshi.models.lm.load_audio (sphn), same as moshi.offline",
+        "chunking": "lm._iterate_audio(..., pad=True) + lm.encode_from_sphn",
+    }
+    return codes, meta
 
 
 def _write_wav_24k(path: str, wav: np.ndarray) -> None:
@@ -680,8 +756,11 @@ def mode_stream(args) -> int:
         Phase 3 (text prompt prefill)    text channel   = <system> tokens
                                          audio channels = 0
         Phase 4 (audio silence spacer)   all channels   = 0     (~0.5 s)
-        Phase 5 (sampling loop)          user channels  = mimi.encode(input_wav)
-                                                          (or zeros if not set)
+        Phase 5 (sampling loop)          user channels  = Mimi codes from
+                                                          ``--input-wav``
+                                                          (offline-parity
+                                                          chunked encode), else
+                                                          SILENCE_TOKENS.
                                          text + moshi   = sampled
 
     Each phase consumes one KV-cache slot per frame, so total slots used is
@@ -691,10 +770,7 @@ def mode_stream(args) -> int:
     budget summary up front so it's obvious when the cap needs raising.
 
     Caveats vs the canonical PyTorch `moshi.offline`:
-      * Moshi's per-channel delay array `[0,0,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1]`
-        is NOT applied (Phase B2). We feed the most recent prediction for
-        every channel; if speech is audible but slurred/aliased, that's the
-        first follow-up.
+      * ``TokenDelayer`` applies ``PERSONAPLEX_DELAYS`` across prefill and gen.
       * Single Mimi instance for both encode and decode (offline.py uses two
         with separate streaming state). Should be benign as long as we don't
         interleave encode/decode mid-stream.
@@ -759,17 +835,14 @@ def mode_stream(args) -> int:
               f"({voice_codes.shape[0] / float(mimi.frame_rate):.2f}s) "
               f"x {voice_codes.shape[1]} codebooks")
 
-    user_codes = None  # (T_user, n_moshi)
+    user_codes = None  # (T_user, n_user)
     if args.input_wav and n_user > 0:
-        import torch  # noqa: WPS433  -- local: only paid when used
-        print(f"[stream] encoding user audio: {args.input_wav}")
-        wav_user = _read_wav_24k(args.input_wav)
-        wav_t = torch.from_numpy(wav_user).float().unsqueeze(0).unsqueeze(0)
-        with torch.no_grad():
-            codes_t = mimi.encode(wav_t)  # (1, K, T_frames)
-        user_codes = codes_t[0].transpose(0, 1).cpu().numpy().astype(np.int32)
-        print(f"[stream] user audio: {wav_user.shape[0] / 24000:.2f}s -> "
-              f"{user_codes.shape[0]} frames x {user_codes.shape[1]} codebooks")
+        print(f"[stream] encoding user audio (offline-parity): {args.input_wav}")
+        user_codes, user_meta = _encode_user_wav_codes_like_offline(
+            mimi, args.input_wav, n_user
+        )
+        for key, val in user_meta.items():
+            print(f"[stream] user_audio: {key}={val}")
 
     text_prompt_ids = []
     if sp is not None and args.text_prompt:
@@ -802,23 +875,26 @@ def mode_stream(args) -> int:
     # ----- 4. Reset state, run prompt phases -----
     # IMPORTANT: the moshi/user "silence" tokens are NOT all-zeros. They are
     # the specific Mimi codewords [948, 243, 1178, 546, 1736, 1030, 1978, 2008]
-    # for silence on the agent side, and [430, 1268, 381, 1611, 1095, 1495,
-    # 56, 472] for a 440 Hz placeholder on the user side (see moshi.lm
-    # lines 56-57). Feeding zeros instead drives the temporal stack into a
-    # distribution it was never trained for, which is why the earlier run
-    # produced 100% non-PAD text tokens clustered in id range 21316-21345.
+    # for silence on the agent side, and we feed the SAME silence codewords on
+    # the user side during prefill.
+    #
+    # NOTE on canonical Moshi divergence: vanilla Moshi's `step_system_prompts`
+    # uses a 440 Hz "sine" placeholder (SINE_TOKENS = [430, 1268, 381, 1611,
+    # 1095, 1495, 56, 472]) on the user channel for every prefill frame.
+    # Empirically (probe_user_channel.log) feeding SINE_TOKENS on user puts
+    # PersonaPlex/BMO in a DC-attractor state with residual mean = +1.13 and
+    # std = 0.99 for ~every silent prefill frame, KV cache is stuck in that
+    # mode for the rest of the run, EPAD/PAD logits get suppressed, and
+    # generation produces gibberish wordpieces. Feeding SILENCE_TOKENS on user
+    # keeps mean = +0.03 and std = 1.50 -- the model's healthy fixed point.
+    # PersonaPlex was fine-tuned with silence on user during prefill, not the
+    # 440 Hz sine, so SINE_TOKENS is wrong for this checkpoint.
     engine.reset()
 
     moshi_silence_tokens = SILENCE_TOKENS[:n_moshi].astype(np.int32, copy=False)
     if n_user > 0:
-        user_sine_tokens = SINE_TOKENS[:n_user].astype(np.int32, copy=False)
-        # In the sampling loop, when --input-wav is missing or has run out,
-        # we feed real silence codewords (NOT zeros) on the user channel so
-        # the model just sees "user is quiet right now" rather than something
-        # OOD. SINE_TOKENS is reserved for the prompt-phase placeholder.
         user_silence_tokens = SILENCE_TOKENS[:n_user].astype(np.int32, copy=False)
     else:
-        user_sine_tokens = np.zeros(0, dtype=np.int32)
         user_silence_tokens = np.zeros(0, dtype=np.int32)
 
     # Single delayer instance shared across prefill phases AND the sampling
@@ -834,35 +910,39 @@ def mode_stream(args) -> int:
         toks = delayer.step(int(text_tok), moshi_in, user_in)
         engine.forward_temporal(toks)
 
-    # Phase 1: voice prompt -- moshi=voice_codes, user=SINE, text=PAD(=zero_text_code).
+    # Phase 1: voice prompt -- moshi=voice_codes, user=SILENCE, text=PAD(=zero_text_code).
+    # See the SINE_TOKENS divergence note above: PersonaPlex/BMO lands in a DC
+    # attractor when fed SINE on user during prefill, but is healthy on
+    # SILENCE. That's the only deviation from canonical Moshi prefill.
     if voice_codes is not None:
         t0 = time.perf_counter()
         for f in range(voice_codes.shape[0]):
-            _prefill_one(TEXT_PAD_ID, voice_codes[f], user_sine_tokens)
+            _prefill_one(TEXT_PAD_ID, voice_codes[f], user_silence_tokens)
         print(f"[stream] phase1 voice prompt: {voice_codes.shape[0]} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
-        # Phase 2: silence spacer -- moshi=SILENCE, user=SINE, text=PAD.
+        # Phase 2: silence spacer -- moshi=SILENCE, user=SILENCE, text=PAD.
         t0 = time.perf_counter()
         for _ in range(silence_frames):
-            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_sine_tokens)
+            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_silence_tokens)
         print(f"[stream] phase2 silence: {silence_frames} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
-    # Phase 3: text prompt -- moshi=SILENCE, user=SINE, text=current prompt token.
+    # Phase 3: text prompt -- moshi=SILENCE, user=SILENCE, text=current prompt token.
     # No shift: each prompt token is fed as text input on its own frame, exactly
-    # matching LMGen._step_text_prompt_core (lm.py lines 1183-1191).
+    # matching LMGen._step_text_prompt_core (lm.py lines 1183-1191), with the
+    # user-channel divergence noted above.
     if text_prompt_ids:
         t0 = time.perf_counter()
         for tid in text_prompt_ids:
-            _prefill_one(int(tid), moshi_silence_tokens, user_sine_tokens)
+            _prefill_one(int(tid), moshi_silence_tokens, user_silence_tokens)
         print(f"[stream] phase3 text prompt: {text_frames} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
         # Phase 4: silence spacer -- same as phase 2.
         t0 = time.perf_counter()
         for _ in range(silence_frames):
-            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_sine_tokens)
+            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_silence_tokens)
         print(f"[stream] phase4 silence: {silence_frames} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
