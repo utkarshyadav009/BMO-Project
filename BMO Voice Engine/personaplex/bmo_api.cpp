@@ -59,6 +59,16 @@ bmo_handle_t * bmo_init(const char * gguf_path, int n_ctx) {
                 ggml_free(hh->ctx.work_ctx);
                 hh->ctx.work_ctx = nullptr;
             }
+            if (hh->ctx.kv_ctx) {
+                ggml_free(hh->ctx.kv_ctx);
+                hh->ctx.kv_ctx = nullptr;
+            }
+            hh->ctx.kv_mem.reset();
+            if (hh->ctx.depth_kv_ctx) {
+                ggml_free(hh->ctx.depth_kv_ctx);
+                hh->ctx.depth_kv_ctx = nullptr;
+            }
+            hh->ctx.depth_kv_mem.reset();
             if (hh->model.wctx) {
                 ggml_free(hh->model.wctx);
                 hh->model.wctx = nullptr;
@@ -103,6 +113,16 @@ void bmo_free(bmo_handle_t * h) {
             ggml_free(h->ctx.work_ctx);
             h->ctx.work_ctx = nullptr;
         }
+        if (h->ctx.kv_ctx) {
+            ggml_free(h->ctx.kv_ctx);
+            h->ctx.kv_ctx = nullptr;
+        }
+        h->ctx.kv_mem.reset();
+        if (h->ctx.depth_kv_ctx) {
+            ggml_free(h->ctx.depth_kv_ctx);
+            h->ctx.depth_kv_ctx = nullptr;
+        }
+        h->ctx.depth_kv_mem.reset();
         if (h->model.wctx) {
             ggml_free(h->model.wctx);
             h->model.wctx = nullptr;
@@ -218,9 +238,6 @@ int bmo_forward_depth(
     int32_t prev_token,
     const float * transformer_out,
     float * out_audio_logits) {
-    // Argument validation runs even in the stub so callers get useful errors
-    // for obvious misuse (null handle, bad cb_index, etc.) before they hit the
-    // "not implemented" message.
     if (!h || !transformer_out || !out_audio_logits) {
         set_err(h, "bmo_forward_depth: null pointer argument");
         return 1;
@@ -229,23 +246,90 @@ int bmo_forward_depth(
         set_err(h, "bmo_forward_depth: cb_index out of range");
         return 2;
     }
-    (void) prev_token;
+    if (h->ctx.depth_n_ctx <= 0 || cb_index >= h->ctx.depth_n_ctx) {
+        set_err(h, "bmo_forward_depth: depth KV cache not initialised or cb_index too large");
+        return 2;
+    }
 
-    // Phase 4.2 stub. The temporal path (bmo_forward_temporal) is fully wired,
-    // but the depformer path needs:
-    //   * a per-frame depformer KV cache (reset at cb_index == 0, advanced at
-    //     each subsequent cb_index call),
-    //   * an audio-logits head: out = linears[cb_index] @ depformer_out,
-    //   * input embedding selection between depformer_text_emb (cb_index==0)
-    //     and depformer_emb[cb_index-1] (cb_index>0).
-    //
-    // bmo_build_depth_graph already covers most of the layer math but does not
-    // yet plumb a KV cache or compute audio_logits. That work is scheduled for
-    // Phase 4.3.
-    set_err(h,
-            "bmo_forward_depth: not implemented yet (Phase 4.3); the symbol "
-            "is exported only so the Python ctypes wrapper can bind it.");
-    return 10;
+    std::lock_guard<std::mutex> lk(h->mu);
+    try {
+        // 1. Reset the depth KV cache at the start of every new temporal frame.
+        if (cb_index == 0) {
+            bmo_reset_depth_kv(h->ctx);
+        }
+
+        // 2. Fresh work arena for this graph.
+        bmo_reset_work_ctx(h->ctx);
+        h->ctx.graph_uploads.clear();
+
+        ggml_context * wctx = h->ctx.work_ctx;
+        if (!wctx) {
+            set_err(h, "bmo_forward_depth: work context is not initialized");
+            return 3;
+        }
+
+        // 3. Build host-side leaf tensors. bmo_build_depth_graph is happy to
+        //    consume tensors that already have ->data populated; we just need
+        //    them to live in the work arena so the graph executor finds them.
+        const int n_embd = h->ctx.n_embd;
+        ggml_tensor * temporal_in = ggml_new_tensor_2d(wctx, GGML_TYPE_F32, n_embd, 1);
+        if (!temporal_in || !temporal_in->data) {
+            set_err(h, "bmo_forward_depth: failed to allocate temporal_in");
+            return 4;
+        }
+        std::memcpy(temporal_in->data, transformer_out, (size_t) n_embd * sizeof(float));
+
+        // text_tokens / audio_tokens are both single-element I32 leaves so
+        // bmo_build_depth_graph's per-codebook embedding lookup
+        //   (cb_index == 0 -> text_emb[prev_token],
+        //    cb_index >  0 -> audio_embs[cb_index - 1][prev_token])
+        // can read whichever one matches the current step. We populate both
+        // with prev_token; only one is dereferenced per call.
+        ggml_tensor * text_tokens  = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, 1);
+        ggml_tensor * audio_tokens = ggml_new_tensor_1d(wctx, GGML_TYPE_I32, 1);
+        if (!text_tokens || !text_tokens->data || !audio_tokens || !audio_tokens->data) {
+            set_err(h, "bmo_forward_depth: failed to allocate token leaves");
+            return 4;
+        }
+        *((int32_t *) text_tokens->data)  = prev_token;
+        *((int32_t *) audio_tokens->data) = prev_token;
+
+        // 4. Build and execute the depth graph. n_past is unused inside the
+        //    builder (depth attention indexes by codebook_step), so we pass 0.
+        ggml_cgraph * gf = bmo_build_depth_graph(
+            h->ctx, h->model, temporal_in, text_tokens, audio_tokens,
+            /*codebook_step=*/cb_index, /*n_past=*/0);
+        if (!gf) {
+            set_err(h, "bmo_forward_depth: failed to build depth graph");
+            return 4;
+        }
+
+        bmo_execute_graph(h->ctx, gf, /*inputs=*/{});
+
+        // 5. Pull out the audio logits.
+        ggml_tensor * t_logits = ggml_graph_get_tensor(gf, "audio_logits");
+        if (!t_logits || !t_logits->data) {
+            set_err(h,
+                    "bmo_forward_depth: audio_logits tensor missing "
+                    "(model.audio_heads[cb_index] may be null)");
+            return 3;
+        }
+        const size_t want_bytes = (size_t) h->ctx.audio_vocab_size * sizeof(float);
+        if ((size_t) ggml_nbytes(t_logits) < want_bytes) {
+            set_err(h, "bmo_forward_depth: audio_logits smaller than audio_vocab_size");
+            return 5;
+        }
+        std::memcpy(out_audio_logits, t_logits->data, want_bytes);
+
+        h->last_error.clear();
+        return 0;
+    } catch (const std::exception & ex) {
+        set_err(h, ex.what());
+        return 9;
+    } catch (...) {
+        set_err(h, "bmo_forward_depth: unknown exception");
+        return 9;
+    }
 }
 
 } // extern "C"

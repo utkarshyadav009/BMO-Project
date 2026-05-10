@@ -2,6 +2,7 @@
 
 #include "bmo.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
@@ -310,10 +311,27 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
         layer.packed_mask = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.packed_mask").c_str());
         layer.fp16_indices = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.fp16_indices").c_str());
         layer.fp16_values = ggml_get_tensor(data_ctx, (base + "_self_attn_in_proj_weight.fp16_values").c_str());
-        layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_attn_norm.weight").c_str());
-        layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_ffn_norm.weight").c_str());
+        // The exporter writes per-layer RMSNorm gamma as
+        // `transformer_layers_{i}_norm1_weight` / `_norm2_weight` (underscore
+        // separator, no dot). Older keys are kept as fallbacks for backward
+        // compatibility with experimental GGUFs. If none of these are found,
+        // norm{1,2}_weight stays NULL and we silently fall back to the LAZY
+        // ggml_rms_norm path -- whose ->data field is uninitialized when the
+        // eager QKV linear reads it on Jetson, producing all-zero Q/K/V and
+        // killing attention for the entire stack. (This was the actual root
+        // cause of the Phase 4.4 "gibberish text" bug.)
+        layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_norm1_weight").c_str());
+        layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_norm2_weight").c_str());
+        if (!layer.norm1_weight) layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_attn_norm.weight").c_str());
+        if (!layer.norm2_weight) layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_ffn_norm.weight").c_str());
         if (!layer.norm1_weight) layer.norm1_weight = ggml_get_tensor(data_ctx, (base + "_norm1.weight").c_str());
         if (!layer.norm2_weight) layer.norm2_weight = ggml_get_tensor(data_ctx, (base + "_norm2.weight").c_str());
+        if (!layer.norm1_weight || !layer.norm2_weight) {
+            std::cerr << "[bmo_load_model] WARNING: missing per-layer norm weights for " << base
+                      << " (norm1=" << (layer.norm1_weight ? "found" : "MISSING")
+                      << ", norm2=" << (layer.norm2_weight ? "found" : "MISSING")
+                      << "). Attention/FFN inputs will read uninitialised memory.\n";
+        }
     }
 
     constexpr int kDepthLayers = 6;
@@ -344,6 +362,16 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     model.token_embedding = ggml_get_tensor(data_ctx, "token_embedding");
     model.output_head = ggml_get_tensor(data_ctx, "output_head");
 
+    // Per-codebook depth output heads: linears.{k}.weight projects the
+    // depformer's hidden state to per-codebook audio logits. Sized to
+    // model.depformer_in.size() because that array is already trimmed to the
+    // true number of depth codebooks.
+    model.audio_heads.assign(model.depformer_in.size(), nullptr);
+    for (size_t k = 0; k < model.depformer_in.size(); ++k) {
+        const std::string key = "linears." + std::to_string(k) + ".weight";
+        model.audio_heads[k] = ggml_get_tensor(data_ctx, key.c_str());
+    }
+
     // Temporal-tier (n_embd-wide) embedding tables. The export writes one
     // emb.{k}.weight per audio codebook plus a single text_emb.weight; we
     // size to a generous upper bound and trim trailing nulls so the array
@@ -371,17 +399,17 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
         // Count temporal-tier audio codebooks; fall back to the depformer
         // tables only if the temporal embeddings are missing (legacy GGUFs).
         int32_t n_q = 0;
-        int32_t a_vocab = 0;
+        int32_t input_vocab = 0;  // input embedding row count (often vocab + EPAD)
         for (auto * t : model.temporal_audio_embs) {
             if (!t) continue;
             ++n_q;
-            if (a_vocab == 0 && t->ne[1] > 0) a_vocab = (int32_t) t->ne[1];
+            if (input_vocab == 0 && t->ne[1] > 0) input_vocab = (int32_t) t->ne[1];
         }
         if (n_q == 0) {
             for (auto * t : model.audio_embs) {
                 if (!t) continue;
                 ++n_q;
-                if (a_vocab == 0 && t->ne[1] > 0) a_vocab = (int32_t) t->ne[1];
+                if (input_vocab == 0 && t->ne[1] > 0) input_vocab = (int32_t) t->ne[1];
             }
         }
 
@@ -390,10 +418,27 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
             if (t) ++dq;
         }
 
+        // The depth output vocab is what bmo_forward_depth actually emits, so
+        // it's the canonical audio_vocab_size for the C-API. In Moshi-style
+        // models the input embedding usually has one extra row for EPAD
+        // (input_vocab = output_vocab + 1) -- we don't want callers sizing
+        // their buffers for that extra slot since the head never produces it.
+        int32_t output_vocab = 0;
+        for (auto * t : model.audio_heads) {
+            if (!t) continue;
+            if (t->ne[1] > 0) { output_vocab = (int32_t) t->ne[1]; break; }
+        }
+
         // Moshi exposes K = n_q + 1 channels (text + audio) as the temporal input.
         ctx.num_codebooks    = (n_q > 0) ? (n_q + 1) : 0;
         ctx.dep_q            = dq;
-        ctx.audio_vocab_size = a_vocab;
+        ctx.audio_vocab_size = (output_vocab > 0) ? output_vocab : input_vocab;
+        if (output_vocab > 0 && input_vocab > 0 && output_vocab != input_vocab) {
+            std::cout << "[bmo_load_model] audio vocab: input=" << input_vocab
+                      << " output=" << output_vocab
+                      << " (using output dim as canonical audio_vocab_size; "
+                         "extra input rows are EPAD/special tokens)\n";
+        }
 
         int32_t t_vocab = 0;
         if (model.text_linear && model.text_linear->ne[1] > 0) {
@@ -420,6 +465,7 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
     add_tensor_bytes_unique(model.out_norm_weight, seen, total_bytes);
     add_tensor_bytes_unique(model.token_embedding, seen, total_bytes);
     add_tensor_bytes_unique(model.output_head, seen, total_bytes);
+    for (auto * t : model.audio_heads) add_tensor_bytes_unique(t, seen, total_bytes);
     ctx.weights_bytes = total_bytes;
 
     std::cout << "[bmo_load_model] Loaded model '" << fname << "'\n";
@@ -437,8 +483,50 @@ void bmo_load_model(const char * fname, bmo_model & model, bmo_context & ctx) {
               << (model.temporal_text_emb ? " temporal_text_emb=present" : " temporal_text_emb=MISSING")
               << (model.out_norm_weight ? " out_norm=present" : " out_norm=MISSING")
               << (model.text_linear_bias ? " text_linear_bias=present" : " text_linear_bias=MISSING")
+              << " audio_heads=" << std::count_if(
+                       model.audio_heads.begin(), model.audio_heads.end(),
+                       [](ggml_tensor * t) { return t != nullptr; })
+              << "/" << model.audio_heads.size()
               << "\n";
     std::cout << "[bmo_load_model] Total weight bytes: " << (double) total_bytes / (1024.0 * 1024.0) << " MB\n";
+
+    // Diagnostic: dump the exact ggml type and shape of the head tensors so we
+    // can detect a transposed/quantized text_linear or a missing out_norm gamma
+    // (both manifest as ~uniform clustered text logits after Phase 4.4).
+    auto ttype = [](ggml_tensor * t) -> const char * {
+        if (!t) return "NULL";
+        return ggml_type_name(t->type);
+    };
+    auto tshape = [](ggml_tensor * t) -> std::string {
+        if (!t) return "NULL";
+        return std::to_string(t->ne[0]) + "x" + std::to_string(t->ne[1])
+            + "x" + std::to_string(t->ne[2]) + "x" + std::to_string(t->ne[3]);
+    };
+    int n_norm1 = 0, n_norm2 = 0;
+    for (auto & L : model.temporal_layers) {
+        if (L.norm1_weight) ++n_norm1;
+        if (L.norm2_weight) ++n_norm2;
+    }
+    std::cout << "[bmo_load_model] per-layer norm gammas: norm1=" << n_norm1
+              << "/" << model.temporal_layers.size()
+              << " norm2=" << n_norm2 << "/" << model.temporal_layers.size() << "\n";
+
+    std::cout << "[bmo_load_model] head tensors:"
+              << " text_linear=" << ttype(model.text_linear)
+              << "[" << tshape(model.text_linear) << "]"
+              << " out_norm_weight=" << ttype(model.out_norm_weight)
+              << "[" << tshape(model.out_norm_weight) << "]"
+              << " temporal_text_emb=" << ttype(model.temporal_text_emb)
+              << "[" << tshape(model.temporal_text_emb) << "]"
+              << "\n";
+    if (model.out_norm_weight && model.out_norm_weight->type == GGML_TYPE_F32 && model.out_norm_weight->data) {
+        const float * w = (const float *) model.out_norm_weight->data;
+        const int64_t n = ggml_nelements(model.out_norm_weight);
+        double s = 0, smax = -1e30, smin = 1e30;
+        for (int64_t i = 0; i < n; ++i) { s += w[i]; if (w[i] > smax) smax = w[i]; if (w[i] < smin) smin = w[i]; }
+        std::cout << "[bmo_load_model] out_norm_weight stats: n=" << n
+                  << " mean=" << (s / (double) n) << " min=" << smin << " max=" << smax << "\n";
+    }
 }
 
 void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
@@ -827,9 +915,19 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
     }
 
 #ifdef BMO_JETSON
-    if (n_ctx > 128) {
-        std::cout << "[bmo_jetson] Overriding n_ctx from " << n_ctx << " to 128 to prevent OOM\n";
-        n_ctx = 128;
+    // KV cache scales linearly: at n_ctx=128 we measured ~64 MB total
+    // (~0.5 MB/slot across all 32 layers, k+v in fp16). On the 8 GB
+    // Orin Nano with ~1 GB free after model load, n_ctx=1024 (≈512 MB)
+    // is the safe ceiling. The earlier cap of 128 was overly defensive
+    // and broke voice-prompt prefill (a 5-10 s voice prompt alone is
+    // 60-125 frames before any generation slots are consumed). Callers
+    // can shrink to 128 explicitly via --n-ctx; raising further than
+    // 1024 risks pushing RSS past 8 GB during sampling.
+    constexpr int BMO_JETSON_KV_MAX = 1024;
+    if (n_ctx > BMO_JETSON_KV_MAX) {
+        std::cout << "[bmo_jetson] Capping n_ctx from " << n_ctx << " to "
+                  << BMO_JETSON_KV_MAX << " (KV cache budget on Orin Nano)\n";
+        n_ctx = BMO_JETSON_KV_MAX;
     }
 #endif
     ctx.n_ctx = n_ctx;
@@ -868,6 +966,62 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
 
     std::cout << "[bmo_init_kv_cache] Allocated KV cache: " << (double) ctx.kv_bytes / (1024.0 * 1024.0) << " MB\n";
     std::cout << "[bmo_init_kv_cache] per-layer estimate: " << (double) bytes_per_layer / (1024.0 * 1024.0) << " MB\n";
+
+    // Allocate the depth-transformer KV cache. Dimensions are fixed by the
+    // Moshi/PersonaPlex depformer: 1024 hidden / 16 heads / 64 head_dim / 6
+    // layers, with up to dep_q codebook positions (capped at 16). The cache
+    // is tiny (a few hundred KB) so it lives in plain host memory.
+    {
+        if (ctx.depth_kv_ctx) {
+            ggml_free(ctx.depth_kv_ctx);
+            ctx.depth_kv_ctx = nullptr;
+        }
+        ctx.depth_kv_mem.reset();
+
+        ctx.depth_n_heads    = 16;
+        ctx.depth_head_dim   = 64;
+        ctx.depth_hidden_dim = ctx.depth_n_heads * ctx.depth_head_dim; // 1024
+        ctx.depth_n_layers   = 6;
+        const int32_t requested_dep_ctx = (ctx.dep_q > 0) ? ctx.dep_q : 16;
+        ctx.depth_n_ctx      = (requested_dep_ctx > 16) ? 16 : requested_dep_ctx;
+
+        const int64_t depth_elems_per_layer =
+            (int64_t) ctx.depth_n_ctx * (int64_t) ctx.depth_n_heads * (int64_t) ctx.depth_head_dim;
+        const size_t depth_bytes_per_layer =
+            (size_t) depth_elems_per_layer * sizeof(ggml_fp16_t) * 2; // k + v
+        const size_t depth_total_bytes = depth_bytes_per_layer * (size_t) ctx.depth_n_layers;
+        const size_t depth_alloc_size  = depth_total_bytes + (1 << 16); // small overhead for ggml metadata
+
+        ctx.depth_kv_mem.reset(new uint8_t[depth_alloc_size]);
+        ggml_init_params depth_iparams = {
+            /*.mem_size   =*/ depth_alloc_size,
+            /*.mem_buffer =*/ ctx.depth_kv_mem.get(),
+            /*.no_alloc   =*/ false,
+        };
+        ctx.depth_kv_ctx = ggml_init(depth_iparams);
+        if (!ctx.depth_kv_ctx) throw std::runtime_error("Failed to initialize depth KV ggml_context");
+
+        ctx.depth_k_cache = ggml_new_tensor_4d(
+            ctx.depth_kv_ctx, GGML_TYPE_F16,
+            ctx.depth_head_dim, ctx.depth_n_ctx, ctx.depth_n_heads, ctx.depth_n_layers);
+        ctx.depth_v_cache = ggml_new_tensor_4d(
+            ctx.depth_kv_ctx, GGML_TYPE_F16,
+            ctx.depth_head_dim, ctx.depth_n_ctx, ctx.depth_n_heads, ctx.depth_n_layers);
+        if (!ctx.depth_k_cache || !ctx.depth_v_cache) {
+            throw std::runtime_error("Failed to create depth KV tensors");
+        }
+
+        ctx.depth_kv_bytes =
+            (size_t) ggml_nbytes(ctx.depth_k_cache) + (size_t) ggml_nbytes(ctx.depth_v_cache);
+        bmo_reset_depth_kv(ctx);
+
+        std::cout << "[bmo_init_kv_cache] Allocated depth KV cache: "
+                  << (double) ctx.depth_kv_bytes / 1024.0 << " KB"
+                  << " (dep_ctx=" << ctx.depth_n_ctx
+                  << " heads=" << ctx.depth_n_heads
+                  << " head_dim=" << ctx.depth_head_dim
+                  << " layers=" << ctx.depth_n_layers << ")\n";
+    }
 
 #ifdef BMO_JETSON
     // Allocate the generic GPU staging pool used by the fused-op interceptors
@@ -913,4 +1067,13 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
                   << " KB pinned mapped\n";
     }
 #endif
+}
+
+void bmo_reset_depth_kv(bmo_context & ctx) {
+    if (ctx.depth_k_cache && ctx.depth_k_cache->data) {
+        std::memset(ctx.depth_k_cache->data, 0, (size_t) ggml_nbytes(ctx.depth_k_cache));
+    }
+    if (ctx.depth_v_cache && ctx.depth_v_cache->data) {
+        std::memset(ctx.depth_v_cache->data, 0, (size_t) ggml_nbytes(ctx.depth_v_cache));
+    }
 }

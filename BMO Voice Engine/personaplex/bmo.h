@@ -107,6 +107,9 @@ struct bmo_model {
     // projections. These are consumed exclusively by bmo_build_depth_graph.
     std::vector<ggml_tensor *> audio_embs;        // depformer_emb.{k}.weight (1024-dim)
     std::vector<ggml_tensor *> depformer_in;      // depformer_in.{k}.weight
+    // Per-codebook output heads: audio_logits = linears[cb_index] @ depth_out
+    // Each tensor is (audio_vocab, depth_hidden_dim) -- usually (2049, 1024).
+    std::vector<ggml_tensor *> audio_heads;       // linears.{k}.weight
 
     ggml_tensor * text_emb = nullptr;             // depformer_text_emb.weight (1024-dim)
     ggml_tensor * text_linear = nullptr;          // shared temporal text head
@@ -214,6 +217,27 @@ struct bmo_context {
     ggml_tensor * v_cache = nullptr;
     std::unique_ptr<uint8_t[]> kv_mem;
 
+    // Depth-transformer KV cache.
+    //
+    // The depth transformer is autoregressive across the codebook dimension:
+    // for cb_index = k it attends to the K/V written by previous calls
+    // cb_index = 0..k-1 (all within the SAME temporal frame). The cache is
+    // therefore tiny (max 16 codebooks) and gets reset between temporal
+    // frames via bmo_reset_depth_kv() at cb_index == 0.
+    //
+    // Layout matches the temporal cache: [head_dim, n_ctx, n_heads, n_layers]
+    // FP16, with n_ctx = depth_n_ctx, n_heads = depth_n_heads, n_layers = 6.
+    ggml_context * depth_kv_ctx = nullptr;
+    ggml_tensor *  depth_k_cache = nullptr;
+    ggml_tensor *  depth_v_cache = nullptr;
+    std::unique_ptr<uint8_t[]> depth_kv_mem;
+    int32_t depth_n_ctx     = 0;   // = max codebook count (typically 16 = dep_q)
+    int32_t depth_n_heads   = 0;   // = 16 in Moshi/PersonaPlex depformer
+    int32_t depth_head_dim  = 0;   // = 64
+    int32_t depth_n_layers  = 0;   // = 6
+    int32_t depth_hidden_dim = 0;  // = depth_n_heads * depth_head_dim = 1024
+    size_t  depth_kv_bytes = 0;
+
     // Track memory usage
     size_t weights_bytes = 0;
     size_t kv_bytes = 0;
@@ -235,6 +259,10 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx);
 void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx);
 void bmo_free_cuda_resources(bmo_context & ctx);
 void bmo_print_mem_diag(const std::string & phase);
+// Zeroes the depth-transformer KV cache. Called at cb_index == 0 of every
+// new temporal frame so the depth transformer's cross-codebook attention
+// starts from a clean slate.
+void bmo_reset_depth_kv(bmo_context & ctx);
 
 // Compute graph builder
 struct ggml_cgraph * bmo_build_temporal_graph(

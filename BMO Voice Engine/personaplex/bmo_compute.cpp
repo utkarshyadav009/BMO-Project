@@ -417,6 +417,30 @@ static ggml_tensor * apply_attention_eager_decode(
     const size_t per_layer = (size_t) head_dim * (size_t) n_ctx * (size_t) ctx.n_heads;
     const size_t per_head  = (size_t) head_dim * (size_t) n_ctx;
 
+    // Diagnostic for the KV-not-felt bug: layer 0, head 0, dump the K cache
+    // contents at slot 0 (history) and slot n_past (current write target)
+    // BEFORE the write. Then dump again AFTER. This tells us whether previous
+    // frames' writes survived to the current call.
+    const bool kv_log = (getenv("BMO_LOG_KV") != nullptr) && layer == 0;
+    auto dump_k = [&](const char * tag, int slot) {
+        const size_t off = (size_t) layer * per_layer + 0 * per_head + (size_t) slot * (size_t) head_dim;
+        const ggml_fp16_t * p = k_cache_data + off;
+        fprintf(stderr,
+                "[bmo_kv] %s layer=%d head=0 slot=%d off=%zu k=[%.4f %.4f %.4f %.4f]\n",
+                tag, layer, slot, off,
+                ggml_fp16_to_fp32(p[0]), ggml_fp16_to_fp32(p[1]),
+                ggml_fp16_to_fp32(p[2]), ggml_fp16_to_fp32(p[3]));
+    };
+    if (kv_log) {
+        fprintf(stderr, "[bmo_kv] --- enter layer=%d n_past=%d kv_len=%d ---\n", layer, n_past, kv_len);
+        dump_k("BEFORE_WRITE slot0", 0);
+        if (n_past > 0) dump_k("BEFORE_WRITE slotN", n_past);
+        // also dump the K we are about to write (head 0 of k_src)
+        fprintf(stderr,
+                "[bmo_kv] k_src[head0,0..4]=[%.4f %.4f %.4f %.4f]\n",
+                k_src[0], k_src[1], k_src[2], k_src[3]);
+    }
+
     // Step 1: write current K, V (FP32) into the FP16 cache at position n_past.
     for (int h = 0; h < n_kv_heads; ++h) {
         const size_t cache_offset =
@@ -429,6 +453,11 @@ static ggml_tensor * apply_attention_eager_decode(
             k_cache_data[cache_offset + (size_t) d] = ggml_fp32_to_fp16(k_h[d]);
             v_cache_data[cache_offset + (size_t) d] = ggml_fp32_to_fp16(v_h[d]);
         }
+    }
+
+    if (kv_log) {
+        dump_k("AFTER_WRITE  slot0", 0);
+        if (n_past > 0) dump_k("AFTER_WRITE  slotN", n_past);
     }
 
     // Step 2: allocate output [head_dim, n_heads, 1] in work_ctx.
@@ -476,6 +505,152 @@ static ggml_tensor * apply_attention_eager_decode(
         for (int t = 0; t < kv_len; ++t) scores[(size_t) t] *= inv_sum;
 
         // attn_h = sum_t scores_t * V_t.
+        float * const out_h = attn_data + (size_t) h * (size_t) head_dim;
+        for (int d = 0; d < head_dim; ++d) out_h[d] = 0.0f;
+        for (int t = 0; t < kv_len; ++t) {
+            const ggml_fp16_t * v_t = v_cache_data + kv_head_base + (size_t) t * (size_t) head_dim;
+            const float w = scores[(size_t) t];
+            for (int d = 0; d < head_dim; ++d) {
+                out_h[d] += w * ggml_fp16_to_fp32(v_t[d]);
+            }
+        }
+    }
+
+    return attn_out;
+}
+
+// Depth-tier counterpart of apply_attention_eager_decode. Currently unused:
+// the depth qkv tensor is produced by a lazy ggml_mul_mat (its ->data is
+// only valid post-graph-compute), so we keep the depth attention chain
+// fully lazy and rely on a depth KV cache wired via ggml_cpy/ggml_view +
+// ggml_flash_attn_ext. This helper is kept as a reference for a future
+// eager-qkv refactor; suppressing the unused-function warning so the
+// production build stays warning-clean.
+//
+// The depth transformer is autoregressive across the codebook dimension: at
+// codebook step k it must attend to the K/V written by previous steps 0..k-1
+// in the SAME temporal frame. The depth KV cache is reset between temporal
+// frames (bmo_reset_depth_kv) and grows from cb_index=0 up to dep_q-1.
+//
+// Layout matches the temporal helper but uses ctx.depth_k_cache /
+// ctx.depth_v_cache, ctx.depth_n_ctx, ctx.depth_n_heads, ctx.depth_head_dim,
+// and ctx.depth_n_layers. n_heads == n_kv_heads (no GQA on the depformer).
+[[maybe_unused]] static ggml_tensor * apply_depth_attention_eager(
+    bmo_context & ctx,
+    ggml_context * wctx,
+    ggml_tensor * q,        // F32 [head_dim, n_heads, 1] in staging slot (post RoPE)
+    ggml_tensor * k,        // F32 [head_dim, n_heads, 1] in staging slot (post RoPE)
+    ggml_tensor * v,        // F32 [head_dim, n_heads, 1] view into qkv slot
+    int cb_index,
+    int layer) {
+    if (!q || !k || !v || !q->data || !k->data || !v->data) {
+        throw std::runtime_error("apply_depth_attention_eager: null tensor data");
+    }
+    if (q->type != GGML_TYPE_F32 || k->type != GGML_TYPE_F32 || v->type != GGML_TYPE_F32) {
+        throw std::runtime_error("apply_depth_attention_eager: requires F32 q/k/v");
+    }
+    if (!ctx.depth_k_cache || !ctx.depth_v_cache ||
+        !ctx.depth_k_cache->data || !ctx.depth_v_cache->data) {
+        throw std::runtime_error("apply_depth_attention_eager: depth KV cache not initialised");
+    }
+    if (ctx.depth_k_cache->type != GGML_TYPE_F16 || ctx.depth_v_cache->type != GGML_TYPE_F16) {
+        throw std::runtime_error("apply_depth_attention_eager: expected FP16 depth KV cache");
+    }
+
+    const int head_dim = (int) q->ne[0];
+    const int n_heads  = (int) q->ne[1];
+    const int n_token  = (int) q->ne[2];
+    const int n_ctx    = ctx.depth_n_ctx;
+    const int kv_len   = cb_index + n_token;
+
+    if (n_token != 1) {
+        throw std::runtime_error("apply_depth_attention_eager: only n_token==1 supported");
+    }
+    if (cb_index < 0 || kv_len > n_ctx) {
+        throw std::runtime_error(
+            "apply_depth_attention_eager: kv_len " + std::to_string(kv_len)
+            + " exceeds depth_n_ctx " + std::to_string(n_ctx));
+    }
+    if (head_dim != ctx.depth_head_dim || n_heads != ctx.depth_n_heads) {
+        throw std::runtime_error(
+            "apply_depth_attention_eager: shape mismatch q.head_dim="
+            + std::to_string(head_dim) + " ctx.depth_head_dim="
+            + std::to_string(ctx.depth_head_dim) + " q.n_heads="
+            + std::to_string(n_heads) + " ctx.depth_n_heads="
+            + std::to_string(ctx.depth_n_heads));
+    }
+
+    {
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true)) {
+            std::fprintf(stderr,
+                         "[bmo_depth_attn_eager] active: head_dim=%d n_heads=%d "
+                         "n_ctx=%d kv_len=%d layer=%d\n",
+                         head_dim, n_heads, n_ctx, kv_len, layer);
+        }
+    }
+
+    ggml_fp16_t * const k_cache_data = (ggml_fp16_t *) ctx.depth_k_cache->data;
+    ggml_fp16_t * const v_cache_data = (ggml_fp16_t *) ctx.depth_v_cache->data;
+    const float * const k_src = (const float *) k->data;
+    const float * const v_src = (const float *) v->data;
+
+    const size_t per_layer = (size_t) head_dim * (size_t) n_ctx * (size_t) n_heads;
+    const size_t per_head  = (size_t) head_dim * (size_t) n_ctx;
+
+    // Step 1: write current K/V into the depth cache at position cb_index.
+    for (int h = 0; h < n_heads; ++h) {
+        const size_t cache_offset =
+            (size_t) layer * per_layer +
+            (size_t) h * per_head +
+            (size_t) cb_index * (size_t) head_dim;
+        const float * k_h = k_src + (size_t) h * (size_t) head_dim;
+        const float * v_h = v_src + (size_t) h * (size_t) head_dim;
+        for (int d = 0; d < head_dim; ++d) {
+            k_cache_data[cache_offset + (size_t) d] = ggml_fp32_to_fp16(k_h[d]);
+            v_cache_data[cache_offset + (size_t) d] = ggml_fp32_to_fp16(v_h[d]);
+        }
+    }
+
+    // Step 2: allocate output [head_dim, n_heads, 1] in work_ctx.
+    ggml_tensor * attn_out = ggml_new_tensor_3d(wctx, GGML_TYPE_F32, head_dim, n_heads, 1);
+    if (!attn_out || !attn_out->data) {
+        throw std::runtime_error("apply_depth_attention_eager: failed to allocate attn_out");
+    }
+    float * const attn_data = (float *) attn_out->data;
+
+    const float * const q_src = (const float *) q->data;
+    const float scale = 1.0f / std::sqrt((float) head_dim);
+
+    std::vector<float> scores((size_t) kv_len);
+    for (int h = 0; h < n_heads; ++h) {
+        const float * q_h = q_src + (size_t) h * (size_t) head_dim;
+        const size_t kv_head_base =
+            (size_t) layer * per_layer +
+            (size_t) h * per_head;
+
+        for (int t = 0; t < kv_len; ++t) {
+            const ggml_fp16_t * k_t = k_cache_data + kv_head_base + (size_t) t * (size_t) head_dim;
+            float dot = 0.0f;
+            for (int d = 0; d < head_dim; ++d) {
+                dot += q_h[d] * ggml_fp16_to_fp32(k_t[d]);
+            }
+            scores[(size_t) t] = dot * scale;
+        }
+
+        float max_score = scores[0];
+        for (int t = 1; t < kv_len; ++t) {
+            if (scores[(size_t) t] > max_score) max_score = scores[(size_t) t];
+        }
+        float sum = 0.0f;
+        for (int t = 0; t < kv_len; ++t) {
+            const float e = std::exp(scores[(size_t) t] - max_score);
+            scores[(size_t) t] = e;
+            sum += e;
+        }
+        const float inv_sum = (sum > 0.0f) ? (1.0f / sum) : 0.0f;
+        for (int t = 0; t < kv_len; ++t) scores[(size_t) t] *= inv_sum;
+
         float * const out_h = attn_data + (size_t) h * (size_t) head_dim;
         for (int d = 0; d < head_dim; ++d) out_h[d] = 0.0f;
         for (int t = 0; t < kv_len; ++t) {
@@ -1239,6 +1414,47 @@ ggml_tensor * bmo_embed_input_tokens(
         add_row(model.temporal_audio_embs[(size_t) audio_idx], input_tokens[k], k);
     }
 
+    // Diagnostic: confirm the embedding sum is non-zero. With token text=PAD=3
+    // plus audio=0 across all 16 codebooks, the sum should NOT be all zeros.
+    if (getenv("BMO_LOG_EMBED")) {
+        double s2 = 0;
+        float vmin = acc[0], vmax = acc[0];
+        for (int64_t i = 0; i < n_embd; ++i) {
+            s2 += (double) acc[i] * (double) acc[i];
+            if (acc[i] < vmin) vmin = acc[i];
+            if (acc[i] > vmax) vmax = acc[i];
+        }
+        const float rms = (float) std::sqrt(s2 / (double) n_embd);
+        fprintf(stderr,
+                "[bmo_embed] tokens=[%d %d %d %d ...] num_cb=%d n_embd=%lld out[0..3]=%.4f %.4f %.4f %.4f rms=%.4f min=%.4f max=%.4f\n",
+                (int) input_tokens[0],
+                num_codebooks > 1 ? (int) input_tokens[1] : -1,
+                num_codebooks > 2 ? (int) input_tokens[2] : -1,
+                num_codebooks > 3 ? (int) input_tokens[3] : -1,
+                num_codebooks, (long long) n_embd,
+                acc[0], acc[1], acc[2], acc[3], rms, vmin, vmax);
+        // also peek the text emb for the requested token directly to verify it
+        // even has non-zero content
+        if (model.temporal_text_emb && model.temporal_text_emb->data
+            && input_tokens[0] >= 0 && input_tokens[0] < model.temporal_text_emb->ne[1]) {
+            const auto * t = model.temporal_text_emb;
+            const uint8_t * row = (const uint8_t *) t->data + (size_t) input_tokens[0] * t->nb[1];
+            float r0=0, r1=0, r2=0, r3=0;
+            if (t->type == GGML_TYPE_F16) {
+                const ggml_fp16_t * h = (const ggml_fp16_t *) row;
+                r0 = ggml_fp16_to_fp32(h[0]); r1 = ggml_fp16_to_fp32(h[1]);
+                r2 = ggml_fp16_to_fp32(h[2]); r3 = ggml_fp16_to_fp32(h[3]);
+            } else if (t->type == GGML_TYPE_F32) {
+                const float * f = (const float *) row;
+                r0 = f[0]; r1 = f[1]; r2 = f[2]; r3 = f[3];
+            }
+            fprintf(stderr,
+                    "[bmo_embed]   text_emb_row[%d][0..3]=%.4f %.4f %.4f %.4f (type=%s nb1=%zu data=%p)\n",
+                    (int) input_tokens[0], r0, r1, r2, r3,
+                    ggml_type_name(t->type), t->nb[1], t->data);
+        }
+    }
+
     return out;
 }
 
@@ -1358,6 +1574,37 @@ ggml_cgraph * bmo_build_temporal_graph(
                 base + "_self_attn_in_proj_weight",
                 base + "_self_attn_in_proj",
             });
+
+        // Diagnostic for the K=0 bug (Phase 4.4): on layer 0, print the input
+        // (x_norm) and the QKV output to pinpoint whether zeros come from the
+        // input, the linear matmul, or somewhere downstream.
+        if (layer == 0 && getenv("BMO_LOG_LIN")) {
+#ifdef BMO_JETSON
+            cudaStreamSynchronize(0);
+#endif
+            auto rms = [](const float * p, int n) {
+                if (!p) return -1.0f;
+                double s = 0.0;
+                for (int i = 0; i < n; ++i) s += (double) p[i] * (double) p[i];
+                return (float) std::sqrt(s / (double) n);
+            };
+            const float * xn = x_norm && x_norm->data ? (const float *) x_norm->data : nullptr;
+            const float * qv = qkv && qkv->data ? (const float *) qkv->data : nullptr;
+            const int q_off = (int) (ctx.n_heads * ctx.head_dim); // 4096
+            const int kv_off = q_off + (int) ((qkv ? (int) qkv->ne[0] : 0) - q_off) / 2; // start of V
+            fprintf(stderr,
+                    "[bmo_lin] L0 x_norm[0..3]=%.4f %.4f %.4f %.4f rms=%.4f\n",
+                    xn ? xn[0] : 0.f, xn ? xn[1] : 0.f, xn ? xn[2] : 0.f, xn ? xn[3] : 0.f,
+                    rms(xn, ctx.n_embd));
+            if (qv) {
+                fprintf(stderr,
+                        "[bmo_lin] L0 qkv qw=%lld Q[0..3]=%.4f %.4f %.4f %.4f rms_Q=%.4f K[0..3]=%.4f %.4f %.4f %.4f rms_K=%.4f V[0..3]=%.4f %.4f %.4f %.4f rms_V=%.4f\n",
+                        (long long) qkv->ne[0],
+                        qv[0], qv[1], qv[2], qv[3], rms(qv, q_off),
+                        qv[q_off+0], qv[q_off+1], qv[q_off+2], qv[q_off+3], rms(qv + q_off, kv_off - q_off),
+                        qv[kv_off+0], qv[kv_off+1], qv[kv_off+2], qv[kv_off+3], rms(qv + kv_off, kv_off - q_off));
+            }
+        }
 
             const int64_t q_dim = (int64_t) ctx.n_heads * ctx.head_dim;
             const int64_t qkv_w = qkv->ne[0];
@@ -1743,13 +1990,15 @@ ggml_cgraph * bmo_build_depth_graph(
         if (!model.depth_layers[(size_t) i].norm1_weight) {
             throw std::runtime_error("bmo_build_depth_graph: missing norm1_weight for depth layer " + std::to_string(i));
         }
-#ifdef BMO_JETSON
-        ggml_tensor * x_norm = apply_rmsnorm_gpu(
-            ctx, wctx, x, model.depth_layers[(size_t) i].norm1_weight, 1e-5f);
-#else
+        // Stay on the LAZY GGML RMSNorm path even on Jetson: the depth path's
+        // x feeding this norm is itself lazy (ggml_add of z_s + last_tok at
+        // i==0, ggml_add of residual + attn_out for i>0), so apply_rmsnorm_gpu
+        // would memcpy uninitialised x->data at graph-build time. Letting
+        // graph_compute order this with the upstream adds is correct and the
+        // depth tier is small enough that the GPU detour wouldn't help much
+        // anyway.
         ggml_tensor * x_norm = ggml_rms_norm(wctx, x, 1e-5f);
         x_norm = ggml_mul(wctx, x_norm, model.depth_layers[(size_t) i].norm1_weight);
-#endif
         if (debug_step0 && i == 0) {
             ggml_set_name(x_norm, "depth_x_norm");
             ggml_build_forward_expand(gf, x_norm);
@@ -1803,26 +2052,89 @@ ggml_cgraph * bmo_build_depth_graph(
         }
         stage_tensor_upload(ctx, pos, pos_host.data(), (size_t) n_token * sizeof(int32_t));
 
-#ifdef BMO_JETSON
-        ggml_tensor * q_rope = apply_rope_gpu_interleaved(ctx, wctx, q_raw, pos);
-        ggml_tensor * k_rope = apply_rope_gpu_interleaved(ctx, wctx, k_raw, pos);
-#else
+        // RoPE is intentionally kept on the LAZY ggml_rope path here, even on
+        // Jetson. The depth qkv tensor is produced by a lazy ggml_mul_mat
+        // whose ->data is only populated by ggml_graph_compute, so we must
+        // not consume q_raw/k_raw via the eager apply_rope_gpu_interleaved
+        // helper (which reads ->data at graph-build time and would see
+        // garbage / stale data). Letting the whole attention chain run in
+        // graph-compute order keeps everything consistent.
         ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
         ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, (int) head_dim, GGML_ROPE_TYPE_NORMAL);
-#endif
 
+        // Permute (head_dim, n_heads, n_token) -> (head_dim, n_token, n_heads)
+        // so the layout matches the depth KV cache view (ne[0]=head_dim,
+        // ne[1]=n_token-or-cb_position, ne[2]=n_heads).
         ggml_tensor * q_trans = ggml_permute(wctx, q_rope, 0, 2, 1, 3);
         ggml_tensor * k_trans = ggml_permute(wctx, k_rope, 0, 2, 1, 3);
         ggml_tensor * v_trans = ggml_permute(wctx, v_raw,  0, 2, 1, 3);
 
-#ifdef BMO_JETSON
-        cudaStreamSynchronize(0); // Sync before CPU Attention
-#endif
+        // Cross-codebook depth KV cache. Written at slot codebook_step on
+        // every call; reset to zero at codebook_step==0 by bmo_reset_depth_kv.
+        // Layout matches the temporal cache: [head_dim, depth_n_ctx, n_heads,
+        // depth_n_layers] FP16. We slice the per-layer 3-D view, then the
+        // single-position write slot, and finally a [0..cb_index+1) history
+        // view for the lazy flash_attn.
+        if (!ctx.depth_k_cache || !ctx.depth_v_cache) {
+            throw std::runtime_error("bmo_build_depth_graph: depth KV cache is not allocated");
+        }
+        if (i >= ctx.depth_n_layers) {
+            throw std::runtime_error("bmo_build_depth_graph: depth layer index exceeds depth_n_layers");
+        }
+        if (codebook_step + n_token > ctx.depth_n_ctx) {
+            throw std::runtime_error(
+                "bmo_build_depth_graph: codebook_step+n_token "
+                + std::to_string(codebook_step + (int) n_token)
+                + " exceeds depth_n_ctx " + std::to_string(ctx.depth_n_ctx));
+        }
+
+        ggml_tensor * k_layer_view = ggml_view_3d(
+            wctx, ctx.depth_k_cache,
+            (int64_t) ctx.depth_head_dim, (int64_t) ctx.depth_n_ctx, (int64_t) n_kv_heads,
+            ctx.depth_k_cache->nb[1], ctx.depth_k_cache->nb[2],
+            (size_t) i * ctx.depth_k_cache->nb[3]);
+        ggml_tensor * v_layer_view = ggml_view_3d(
+            wctx, ctx.depth_v_cache,
+            (int64_t) ctx.depth_head_dim, (int64_t) ctx.depth_n_ctx, (int64_t) n_kv_heads,
+            ctx.depth_v_cache->nb[1], ctx.depth_v_cache->nb[2],
+            (size_t) i * ctx.depth_v_cache->nb[3]);
+
+        // Write slot for THIS step (n_token slots starting at codebook_step).
+        ggml_tensor * k_slot = ggml_view_3d(
+            wctx, k_layer_view,
+            (int64_t) ctx.depth_head_dim, (int64_t) n_token, (int64_t) n_kv_heads,
+            k_layer_view->nb[1], k_layer_view->nb[2],
+            (size_t) codebook_step * k_layer_view->nb[1]);
+        ggml_tensor * v_slot = ggml_view_3d(
+            wctx, v_layer_view,
+            (int64_t) ctx.depth_head_dim, (int64_t) n_token, (int64_t) n_kv_heads,
+            v_layer_view->nb[1], v_layer_view->nb[2],
+            (size_t) codebook_step * v_layer_view->nb[1]);
+
+        // F32 -> F16 conversion happens inside ggml_cpy.
+        ggml_tensor * k_write = ggml_cpy(wctx, k_trans, k_slot);
+        ggml_tensor * v_write = ggml_cpy(wctx, v_trans, v_slot);
+        ggml_build_forward_expand(gf, k_write);
+        ggml_build_forward_expand(gf, v_write);
+
+        // Read history: positions [0, codebook_step + n_token) covers all
+        // cached K/V from this and previous codebook steps in the same
+        // temporal frame.
+        const int64_t kv_len = (int64_t) codebook_step + (int64_t) n_token;
+        ggml_tensor * k_hist = ggml_view_3d(
+            wctx, k_layer_view,
+            (int64_t) ctx.depth_head_dim, kv_len, (int64_t) n_kv_heads,
+            k_layer_view->nb[1], k_layer_view->nb[2], 0);
+        ggml_tensor * v_hist = ggml_view_3d(
+            wctx, v_layer_view,
+            (int64_t) ctx.depth_head_dim, kv_len, (int64_t) n_kv_heads,
+            v_layer_view->nb[1], v_layer_view->nb[2], 0);
+
         ggml_tensor * attn_heads = ggml_flash_attn_ext(
             wctx,
             q_trans,
-            k_trans,
-            v_trans,
+            k_hist,
+            v_hist,
             nullptr,
             1.0f / std::sqrt((float) head_dim),
             0.0f,
@@ -1841,31 +2153,21 @@ ggml_cgraph * bmo_build_depth_graph(
             ggml_build_forward_expand(gf, attn_dbg);
         }
 
-#ifdef BMO_JETSON
-        x = apply_residual_gpu(ctx, wctx, residual, attn_out);
-#else
+        // Lazy residual add (see norm1 comment for the rationale).
         x = ggml_add(wctx, residual, attn_out);
-#endif
         if (debug_step0 && i == 0) {
             ggml_set_name(x, "depth_attn_x");
         }
 
-        // Step-specific FFN block.
+        // Step-specific FFN block. Same lazy-only treatment as the attention
+        // block above -- x at this point is a lazy ggml_add, so we cannot
+        // route it through apply_rmsnorm_gpu without reading uninitialised
+        // data at graph-build time.
         ggml_tensor * ff_residual = x;
-#ifdef BMO_JETSON
-        ggml_tensor * ff_norm;
-        if (model.depth_layers[(size_t) i].norm2_weight) {
-            ff_norm = apply_rmsnorm_gpu(
-                ctx, wctx, x, model.depth_layers[(size_t) i].norm2_weight, 1e-5f);
-        } else {
-            ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
-        }
-#else
         ggml_tensor * ff_norm = ggml_rms_norm(wctx, x, 1e-5f);
         if (model.depth_layers[(size_t) i].norm2_weight) {
             ff_norm = ggml_mul(wctx, ff_norm, model.depth_layers[(size_t) i].norm2_weight);
         }
-#endif
 
         ggml_tensor * ff_in = apply_linear_with_transient_unpack(
             ctx,
@@ -1885,15 +2187,15 @@ ggml_cgraph * bmo_build_depth_graph(
         }
 
         const int64_t ff_hidden = ff_in->ne[0] / 2;
-#ifdef BMO_JETSON
-        // SwiGLU fused on the GPU; no host sync is needed here.
-        ggml_tensor * ff_act = apply_swiglu_gpu(ctx, wctx, ff_in);
-        (void) ff_hidden;
-#else
+        // Lazy SwiGLU: ff_in here is itself a lazy ggml_mul_mat (the depth
+        // gating weights are dense F16, so apply_linear_with_transient_unpack
+        // already returned a lazy node). Routing through apply_swiglu_gpu
+        // would read uninitialised ff_in->data at sync time. The view+silu+mul
+        // chain stays inside graph_compute and is consistent with the rest
+        // of the depth path.
         ggml_tensor * ff_gate = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], 0);
         ggml_tensor * ff_up   = ggml_view_2d(wctx, ff_in, ff_hidden, ff_in->ne[1], ff_in->nb[1], ff_hidden * ggml_type_size(ff_in->type));
         ggml_tensor * ff_act  = ggml_mul(wctx, ggml_silu(wctx, ff_gate), ff_up);
-#endif
 
         ggml_tensor * ff_out = apply_linear_with_transient_unpack(
             ctx,
@@ -1916,11 +2218,8 @@ ggml_cgraph * bmo_build_depth_graph(
             );
         }
 
-#ifdef BMO_JETSON
-        x = apply_residual_gpu(ctx, wctx, ff_residual, ff_out);
-#else
+        // Lazy FFN residual (see norm1 comment for the rationale).
         x = ggml_add(wctx, ff_residual, ff_out);
-#endif
 
 #ifdef BMO_JETSON
         // Reclaim all transient pinned slots used during this depth layer.
@@ -1931,5 +2230,37 @@ ggml_cgraph * bmo_build_depth_graph(
     const std::string out_name = "depth_out_step_" + std::to_string(codebook_step);
     ggml_set_name(x, out_name.c_str());
     ggml_build_forward_expand(gf, x);
+
+    // Audio-logits head for this codebook step. Built only when the model
+    // actually carries the per-codebook output projection (linears.{k}.weight)
+    // -- when it doesn't, callers can still read depth_out_step_{k} for
+    // cascade-style validation runs.
+    if ((size_t) codebook_step < model.audio_heads.size() && model.audio_heads[(size_t) codebook_step]) {
+        ggml_tensor * head_w = model.audio_heads[(size_t) codebook_step];
+        // Defensive shape check: head_w is (audio_vocab, hidden_dim) which
+        // ggml stores as ne[0]=hidden_dim, ne[1]=audio_vocab.
+        if (head_w->ne[0] != hidden_dim) {
+            throw std::runtime_error(
+                "bmo_build_depth_graph: audio_heads[" + std::to_string(codebook_step)
+                + "] inner dim " + std::to_string((long long) head_w->ne[0])
+                + " mismatches depth hidden_dim " + std::to_string((long long) hidden_dim));
+        }
+        // Normalise x to 2D [hidden_dim, n_token]. On Jetson, the residual
+        // helpers may have returned a 1D tensor with hidden_dim elements;
+        // on the lazy path, x is already 2D [hidden_dim, n_token]. A reshape
+        // with matching nelements is just a cheap view-rewrite either way.
+        if (ggml_nelements(x) != hidden_dim * n_token) {
+            throw std::runtime_error(
+                "bmo_build_depth_graph: depth_out element count "
+                + std::to_string((long long) ggml_nelements(x))
+                + " mismatches hidden_dim*n_token "
+                + std::to_string((long long) (hidden_dim * n_token)));
+        }
+        ggml_tensor * depth_out_2d = ggml_reshape_2d(wctx, x, hidden_dim, n_token);
+        ggml_tensor * audio_logits = ggml_mul_mat(wctx, S(head_w), S(depth_out_2d));
+        ggml_set_name(audio_logits, "audio_logits");
+        ggml_build_forward_expand(gf, audio_logits);
+    }
+
     return gf;
 }
