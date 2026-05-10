@@ -14,6 +14,11 @@ Three modes, designed to be run *in order* so each stage isolates failures:
     smoke   forward_temporal stress test, all-zero tokens, no I/O.
             Validates: ctypes binding, libbmo.so load, KV alloc, kernel chain.
 
+    harness Layer-0 numerical harness: one ``forward_temporal`` call with the
+            K-vector from ``--harness-input`` (same JSON as ``dump_pt_tensors.py``).
+            No voice/text prefill, no delay shifting — apples-to-apples with PT
+            when paired with ``BMO_DUMP_LAYER0=1 BMO_DUMP_LAYER0_EXIT=1``.
+
     text    Text-only autoregressive generation. Dummy moshi/user audio = 0.
             Validates: tokenizer wiring, KV cache across steps, text head.
 
@@ -27,6 +32,12 @@ Examples (all from the personaplex root, with libbmo.so already built):
     # Pure forward-temporal stress, no audio.
     PYTHONPATH=./moshi BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
         python bmo_inference.py smoke --gguf $PWD/bmo_septq_v3.gguf
+
+    # Deterministic harness (matches dump_pt_tensors harness_input.json).
+    PYTHONPATH=./moshi BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
+        BMO_DUMP_LAYER0=1 BMO_DUMP_LAYER0_EXIT=1 \\
+        python bmo_inference.py harness --gguf $PWD/bmo_septq_v3.gguf \\
+            --harness-input harness_input.json
 
     # Text-only generation (no audio output, validates the temporal head).
     PYTHONPATH=./moshi BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
@@ -441,6 +452,41 @@ def rss_mb() -> float:
 # ---------------------------------------------------------------------------
 # Modes
 # ---------------------------------------------------------------------------
+
+def mode_harness(args) -> int:
+    """Single-frame temporal forward using shared ``harness_input.json`` ids.
+
+    Intended for ``BMO_DUMP_LAYER0`` / ``compare_divergence.py`` parity with
+    ``dump_pt_tensors.py``: same ``input_ids`` list, no streaming prefill,
+    ``n_past=0`` (fresh KV after ``engine.reset()``).
+    """
+    import json
+
+    BMOEngine = _load_engine_class()
+    hj = Path(args.harness_input)
+    if not hj.is_file():
+        raise RuntimeError(f"harness mode: {hj} not found (create via dump_pt_tensors.py --emit-input-only or run PT dump once).")
+
+    with hj.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    ids = payload.get("input_ids")
+    if not isinstance(ids, list):
+        raise RuntimeError(f"{hj}: expected JSON object with 'input_ids' list, got {type(ids).__name__}")
+
+    engine = BMOEngine(args.gguf, n_ctx=args.n_ctx)
+    K = engine.n_codebooks
+    if len(ids) != K:
+        raise RuntimeError(
+            f"{hj}: input_ids length {len(ids)} != engine.n_codebooks ({K}). "
+            "Regenerate harness JSON for this checkpoint or fix the file."
+        )
+
+    tokens = np.asarray([int(x) for x in ids], dtype=np.int32)
+    engine.reset()
+    _z, _lt = engine.forward_temporal(tokens)
+    print(f"[harness] ok: one forward_temporal step with {hj} ({K} ids), n_ctx={args.n_ctx}")
+    return 0
+
 
 def mode_smoke(args) -> int:
     BMOEngine = _load_engine_class()
@@ -1094,7 +1140,7 @@ def parse_args() -> argparse.Namespace:
         prog="bmo_inference",
         description="Hybrid Python/C++ BMO inference driver (Phase 4.2).",
     )
-    p.add_argument("mode", choices=("smoke", "text", "stream"),
+    p.add_argument("mode", choices=("smoke", "text", "stream", "harness"),
                    help="which validation mode to run")
     p.add_argument("--gguf", default=os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf"),
                    help="path to the BMO GGUF (env: BMO_GGUF)")
@@ -1106,6 +1152,14 @@ def parse_args() -> argparse.Namespace:
     # smoke
     p.add_argument("--n-steps", type=int, default=100,
                    help="(smoke) number of forward_temporal calls")
+
+    # harness (layer-0 dump parity vs dump_pt_tensors.py)
+    p.add_argument(
+        "--harness-input",
+        type=str,
+        default="harness_input.json",
+        help="(harness) JSON with input_ids[K] (default: harness_input.json)",
+    )
 
     # text
     p.add_argument("--tokenizer", default=os.environ.get("BMO_TOKENIZER"),
@@ -1186,6 +1240,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.mode == "harness":
+        return mode_harness(args)
     if args.mode == "smoke":
         return mode_smoke(args)
     if args.mode == "text":

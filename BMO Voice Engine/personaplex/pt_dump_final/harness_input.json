@@ -1,0 +1,23 @@
+{
+  "input_ids": [
+    3,
+    948,
+    243,
+    1178,
+    546,
+    1736,
+    1030,
+    1978,
+    2008,
+    948,
+    243,
+    1178,
+    546,
+    1736,
+    1030,
+    1978,
+    2008
+  ],
+  "num_codebooks": 17,
+  "notes": "TEXT_PAD_ID=3 + SILENCE_TOKENS x2 (moshi lm.py); shared with C++ run."
+}

@@ -6,7 +6,7 @@
 //
 // Architecture mirrors production JIT streaming:
 //   1. memcpy packed_weights, packed_mask, fp16_values into stream buffer
-//   2. JIT compute block_offset table into stream buffer
+//   2. JIT compute per-row tier bases (row_c2/c4/c8) into stream buffer
 //   3. Launch fused kernel: <<<rows, 256>>>
 //      - One block per output row
 //      - 256 threads cooperate on dot product
@@ -202,14 +202,17 @@ int main(int argc, char ** argv) {
     const float zp_int4    = read_scalar_f32(model.wctx, base + ".zp_int4",    7.5f);
     const float zp_int8    = read_scalar_f32(model.wctx, base + ".zp_int8",  127.5f);
 
-    if (rows <= 0 || cols <= 0 || block_size != 32) {
+    const int64_t total          = (int64_t) rows * cols;
+    const int64_t n_blocks       = (total + block_size - 1) / block_size;
+    const int32_t blocks_per_row = cols / block_size;
+
+    if (rows <= 0 || cols <= 0 || block_size != 32 || blocks_per_row <= 0 ||
+        (int64_t) rows * (int64_t) blocks_per_row != n_blocks) {
         std::cerr << "Bad dims: rows=" << rows << " cols=" << cols
-                  << " block_size=" << block_size << " (must be 32)\n";
+                  << " block_size=" << block_size << " blocks_per_row=" << blocks_per_row
+                  << " n_blocks=" << n_blocks << " (must be 32 and row-aligned)\n";
         return 4;
     }
-
-    const int64_t total    = (int64_t) rows * cols;
-    const int64_t n_blocks = (total + block_size - 1) / block_size;
 
     std::cout << "[fused_test] base=" << base
               << " rows=" << rows << " cols=" << cols
@@ -226,9 +229,10 @@ int main(int argc, char ** argv) {
     const size_t pm_size = ggml_nbytes(pm_t);
     const size_t fv_size = ggml_nbytes(fv_t);
 
-    // Stream buffer layout (same shape as production):
-    //   [pw][pm][fv][pad-to-4][block_offset]
-    const size_t bo_size = (size_t) n_blocks * sizeof(int32_t);
+    // Stream buffer layout:
+    //   [pw][pm][fv][pad-to-4][row_c2][row_c4][row_c8]
+    const size_t row_tbl_elems = (size_t) rows * sizeof(int32_t);
+    const size_t bo_size = row_tbl_elems * 3;
     size_t pre_bo_size = pw_size + pm_size + fv_size;
     pre_bo_size = (pre_bo_size + 3) & ~size_t(3);
     const size_t stream_bytes = pre_bo_size + bo_size;
@@ -266,12 +270,17 @@ int main(int argc, char ** argv) {
     uint8_t * d_pw_in_sb = sb_host;
     uint8_t * d_pm_in_sb = sb_host + pw_size;
     ggml_fp16_t * d_fv_in_sb = reinterpret_cast<ggml_fp16_t *>(sb_host + pw_size + pm_size);
-    int32_t * d_bo = reinterpret_cast<int32_t *>(sb_host + pre_bo_size);
+    int32_t * h_row_c2 = reinterpret_cast<int32_t *>(sb_host + pre_bo_size);
+    int32_t * h_row_c4 = h_row_c2 + rows;
+    int32_t * h_row_c8 = h_row_c4 + rows;
 
     // Device pointers for kernel execution
     uint8_t * dev_pw = sb_dev;
     uint8_t * dev_pm = sb_dev + pw_size;
     const __half * dev_fv = reinterpret_cast<const __half *>(sb_dev + pw_size + pm_size);
+    const int32_t * dev_row_c2 = reinterpret_cast<const int32_t *>(sb_dev + pre_bo_size);
+    const int32_t * dev_row_c4 = dev_row_c2 + rows;
+    const int32_t * dev_row_c8 = dev_row_c4 + rows;
 
     float * h_y = reinterpret_cast<float *>(vec_raw);
     float * h_x =
@@ -307,17 +316,30 @@ int main(int argc, char ** argv) {
         std::memcpy(d_fv_in_sb, h_fv, fv_size);
         auto mcpy_t1 = std::chrono::steady_clock::now();
 
-        // 2. JIT compute block_offset
+        // 2. JIT per-row tier bases (matches bmo_prepare_device_packed_tensors)
         auto jit_t0 = std::chrono::steady_clock::now();
         {
             int32_t c2 = 0, c4 = 0, c8 = 0, c16 = 0;
             for (int b = 0; b < (int) n_blocks; ++b) {
+                if ((b % blocks_per_row) == 0) {
+                    const int r = b / blocks_per_row;
+                    if (r >= 0 && r < rows) {
+                        h_row_c2[r] = c2;
+                        h_row_c4[r] = c4;
+                        h_row_c8[r] = c8;
+                    }
+                }
                 const uint8_t mbyte = d_pm_in_sb[b >> 2];
-                const uint8_t tier  = (mbyte >> ((b & 3) * 2)) & 0x3;
-                if (tier == 0)      { d_bo[b] = c16; c16 += block_size; }
-                else if (tier == 1) { d_bo[b] = c8;  c8  += block_size; }
-                else if (tier == 2) { d_bo[b] = c4;  c4  += block_size; }
-                else                { d_bo[b] = c2;  c2  += block_size; }
+                const uint8_t tier = (mbyte >> ((b & 3) * 2)) & 0x3;
+                if (tier == 0) {
+                    c16 += block_size;
+                } else if (tier == 1) {
+                    c8 += block_size;
+                } else if (tier == 2) {
+                    c4 += block_size;
+                } else {
+                    c2 += block_size;
+                }
             }
         }
         auto jit_t1 = std::chrono::steady_clock::now();
@@ -328,6 +350,9 @@ int main(int argc, char ** argv) {
             dev_pw,
             dev_pm,
             dev_fv,
+            dev_row_c2,
+            dev_row_c4,
+            dev_row_c8,
             rows,
             cols,
             block_size,

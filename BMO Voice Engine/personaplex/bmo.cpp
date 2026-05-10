@@ -1,4 +1,5 @@
 // bmo.cpp - model loader and KV cache allocator
+// Jetson prepare uploads per-row tier bases (row_c2/c4/c8) for fused matvec.
 
 #include "bmo.h"
 
@@ -125,6 +126,18 @@ static float read_scalar_f32_gguf(ggml_context * ctx, const std::string & name, 
 
 static void free_device_packed_owned_buffers(device_packed_t & dp) {
 #ifdef BMO_JETSON
+    if (dp.row_c2) {
+        cudaFree(dp.row_c2);
+        dp.row_c2 = nullptr;
+    }
+    if (dp.row_c4) {
+        cudaFree(dp.row_c4);
+        dp.row_c4 = nullptr;
+    }
+    if (dp.row_c8) {
+        cudaFree(dp.row_c8);
+        dp.row_c8 = nullptr;
+    }
     // canonical_base_host is freed in bmo_free_cuda_resources (needs access to ctx).
 #endif
 #ifndef BMO_JETSON
@@ -600,8 +613,17 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
         };
 
         for (const std::string & base : matrices) {
+            if (getenv("BMO_LOG_INIT")) {
+                std::cout << "[bmo_prepare_device_packed_tensors] packing candidate base=" << base << "\n";
+            }
             ggml_tensor * pw = ggml_get_tensor(model.wctx, (base + ".packed_weights").c_str());
-            if (!pw) continue; // Not packed for this matrix
+            if (!pw) {
+                if (getenv("BMO_LOG_INIT")) {
+                    std::cout << "[bmo_prepare_device_packed_tensors] skip " << base
+                              << ": no .packed_weights tensor\n";
+                }
+                continue; // Not packed for this matrix
+            }
 
             ggml_tensor * pm = ggml_get_tensor(model.wctx, (base + ".packed_mask").c_str());
             ggml_tensor * fv = ggml_get_tensor(model.wctx, (base + ".fp16_values").c_str());
@@ -729,6 +751,93 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                           << " pm=" << cudaGetErrorString(pm_map)
                           << " fv=" << cudaGetErrorString(fv_map) << "\n";
                 dp.preloaded = false;
+            }
+
+            {
+                const uint8_t * pm_host_bo = reinterpret_cast<const uint8_t *>(pm->data);
+                const int32_t blocks_per_row = cols / block_size;
+                if (blocks_per_row <= 0 || (int64_t) rows * (int64_t) blocks_per_row != (int64_t) n_blocks) {
+                    std::cerr << "[bmo_prepare_device_packed_tensors] row/block geometry mismatch for " << base
+                              << " rows=" << rows << " cols=" << cols << " block_size=" << block_size
+                              << " n_blocks=" << n_blocks << "\n";
+                    continue;
+                }
+
+                std::vector<int32_t> row_c2_host((size_t) rows, 0);
+                std::vector<int32_t> row_c4_host((size_t) rows, 0);
+                std::vector<int32_t> row_c8_host((size_t) rows, 0);
+
+                int32_t c2_bo = 0;
+                int32_t c4_bo = 0;
+                int32_t c8_bo = 0;
+
+                for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
+                    if (blocks_per_row > 0 && (block_idx % blocks_per_row) == 0) {
+                        const int32_t r = block_idx / blocks_per_row;
+                        if (r >= 0 && r < rows) {
+                            row_c2_host[(size_t) r] = c2_bo;
+                            row_c4_host[(size_t) r] = c4_bo;
+                            row_c8_host[(size_t) r] = c8_bo;
+                        }
+                    }
+
+                    const uint8_t mbyte = pm_host_bo[(size_t) block_idx / 4];
+                    const uint8_t tier_bo = unpack_u2_le(mbyte, block_idx % 4);
+                    if (tier_bo == 1) {
+                        c8_bo += block_size;
+                    } else if (tier_bo == 2) {
+                        c4_bo += block_size;
+                    } else if (tier_bo == 3) {
+                        c2_bo += block_size;
+                    }
+                }
+
+                const size_t row_tbl_bytes = (size_t) rows * sizeof(int32_t);
+                int32_t * d_c2 = nullptr;
+                int32_t * d_c4 = nullptr;
+                int32_t * d_c8 = nullptr;
+
+                cudaError_t r2_err = cudaMalloc(reinterpret_cast<void **>(&d_c2), row_tbl_bytes);
+                if (r2_err != cudaSuccess) {
+                    std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc row_c2 failed for " << base
+                              << ": " << cudaGetErrorString(r2_err) << "\n";
+                    continue;
+                }
+                cudaError_t r4_err = cudaMalloc(reinterpret_cast<void **>(&d_c4), row_tbl_bytes);
+                if (r4_err != cudaSuccess) {
+                    cudaFree(d_c2);
+                    std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc row_c4 failed for " << base
+                              << ": " << cudaGetErrorString(r4_err) << "\n";
+                    continue;
+                }
+                cudaError_t r8_err = cudaMalloc(reinterpret_cast<void **>(&d_c8), row_tbl_bytes);
+                if (r8_err != cudaSuccess) {
+                    cudaFree(d_c2);
+                    cudaFree(d_c4);
+                    std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc row_c8 failed for " << base
+                              << ": " << cudaGetErrorString(r8_err) << "\n";
+                    continue;
+                }
+
+                r2_err = cudaMemcpy(d_c2, row_c2_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
+                r4_err = cudaMemcpy(d_c4, row_c4_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
+                r8_err = cudaMemcpy(d_c8, row_c8_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
+                if (r2_err != cudaSuccess || r4_err != cudaSuccess || r8_err != cudaSuccess) {
+                    cudaFree(d_c2);
+                    cudaFree(d_c4);
+                    cudaFree(d_c8);
+                    std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy row tier bases failed for "
+                              << base << ": "
+                              << cudaGetErrorString(r2_err != cudaSuccess ? r2_err
+                                                       : r4_err != cudaSuccess ? r4_err
+                                                                               : r8_err)
+                              << "\n";
+                    continue;
+                }
+
+                dp.row_c2 = d_c2;
+                dp.row_c4 = d_c4;
+                dp.row_c8 = d_c8;
             }
 #else
             err = cudaMalloc(&dp.packed_weights, pw_bytes);

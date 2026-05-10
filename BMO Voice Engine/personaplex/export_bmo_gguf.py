@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import struct
 import sys
 from typing import Any, Dict, Tuple
@@ -39,6 +40,25 @@ BLOCK_SIZE = 32
 DEFAULT_RATIO_FP16 = 0.02
 DEFAULT_RATIO_INT8 = 0.12
 DEFAULT_RATIO_INT4 = 0.36
+
+
+def canonical_transformer_multitier_gguf_base(underscore_base: str) -> str:
+    """SEPTQ multitier stores paths like ``transformer.inner.layers.N.*``.
+
+    Those become ``transformer_inner_layers_N_*`` when dots are replaced with underscores,
+    but ``bmo.cpp`` only loads the canonical ``transformer_layers_N_*`` tensor names.
+    Rewrite the prefix so packed tensors remain discoverable on-device.
+    """
+    return re.sub(r"^transformer_inner_layers_(\d+)_", r"transformer_layers_\1_", underscore_base)
+
+
+def pick_transformer_param_key(state_dict: Dict[str, Any], layer_idx: int, dotted_suffix: str) -> str | None:
+    """Prefer ``transformer.layers`` checkpoints; fall back to ``transformer.inner.layers``."""
+    for pref in ("transformer.layers", "transformer.inner.layers"):
+        k = f"{pref}.{layer_idx}.{dotted_suffix}"
+        if k in state_dict:
+            return k
+    return None
 
 
 def unpack_tier_mask_uint2(packed: torch.Tensor, target_shape: Tuple[int, int]) -> torch.Tensor:
@@ -526,7 +546,7 @@ def main() -> None:
         )
 
         # Store into blobs under user-specified naming
-        base = layer_name.replace('.', '_')
+        base = canonical_transformer_multitier_gguf_base(layer_name.replace('.', '_'))
         orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
         packed_bytes = add_packed_blobs(base, blobs_for_layer)
         total_orig_bytes += orig_bytes
@@ -541,8 +561,8 @@ def main() -> None:
     # C++ loader finds them via ggml_get_tensor(ctx, prefix + "_norm1_weight").
     for i in range(32):
         for norm_idx in [1, 2]:
-            alpha_key = f"transformer.layers.{i}.norm{norm_idx}.alpha"
-            if alpha_key in state_dict:
+            alpha_key = pick_transformer_param_key(state_dict, i, f"norm{norm_idx}.alpha")
+            if alpha_key is not None:
                 val = state_dict[alpha_key]
                 # alpha is [1,1,dim] — flatten to [dim] for ggml broadcast
                 arr = val.detach().cpu().float().numpy().reshape(-1)
@@ -609,31 +629,34 @@ def main() -> None:
     # Temporal attention output projection.
     # SEPTQ v3 block-packs out_proj as well; v1 skipped it for quality.
     for i in range(32):
-        weight_key = f"transformer.layers.{i}.self_attn.out_proj.weight"
-        bias_key = f"transformer.layers.{i}.self_attn.out_proj.bias"
+        weight_key = pick_transformer_param_key(state_dict, i, "self_attn.out_proj.weight")
+        bias_key = pick_transformer_param_key(state_dict, i, "self_attn.out_proj.bias")
         dst_key = f"transformer_layers_{i}_self_attn_out_proj_weight"
+        if weight_key is None:
+            continue
         if not pack_temporal_tensor(weight_key, dst_key, bias_key=bias_key):
             export_dense_tensor(weight_key, dst_key, preserve_half=True)
-            export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
+            if bias_key is not None:
+                export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
 
     # Generalized fallback for quantizable temporal tensors; this intentionally
     # includes layer 31 even when the source SEPTQ v1 run skipped it.
     for i in range(32):
-        in_proj_key = f"transformer.layers.{i}.self_attn.in_proj_weight"
-        gating_in_key = f"transformer.layers.{i}.gating.linear_in.weight"
-        gating_out_key = f"transformer.layers.{i}.gating.linear_out.weight"
-        
-        if in_proj_key in state_dict:
+        in_proj_key = pick_transformer_param_key(state_dict, i, "self_attn.in_proj_weight")
+        gating_in_key = pick_transformer_param_key(state_dict, i, "gating.linear_in.weight")
+        gating_out_key = pick_transformer_param_key(state_dict, i, "gating.linear_out.weight")
+
+        if in_proj_key is not None:
             dst_key = f"transformer_layers_{i}_self_attn_in_proj_weight"
             if f"{dst_key}.packed_weights" not in blobs:
                 pack_temporal_tensor(in_proj_key, dst_key)
-        
-        if gating_in_key in state_dict:
+
+        if gating_in_key is not None:
             dst_key = f"transformer_layers_{i}_gating_linear_in_weight"
             if f"{dst_key}.packed_weights" not in blobs:
                 pack_temporal_tensor(gating_in_key, dst_key)
-        
-        if gating_out_key in state_dict:
+
+        if gating_out_key is not None:
             dst_key = f"transformer_layers_{i}_gating_linear_out_weight"
             if f"{dst_key}.packed_weights" not in blobs:
                 pack_temporal_tensor(gating_out_key, dst_key)
@@ -707,8 +730,8 @@ def main() -> None:
     missing_tensors = []
     for layer_idx in range(32):
         for pattern in expected_tensor_patterns:
-            src_key = f"transformer.layers.{layer_idx}.{pattern}"
-            if src_key not in state_dict:
+            src_key = pick_transformer_param_key(state_dict, layer_idx, pattern)
+            if src_key is None:
                 continue  # Tensor doesn't exist in checkpoint; skip it
             # Map to expected GGUF naming convention. Norm keys use `_weight` in GGUF.
             if pattern == "norm1.alpha":

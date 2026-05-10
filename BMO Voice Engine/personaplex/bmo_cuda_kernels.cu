@@ -1,3 +1,4 @@
+// Fused matvec: per-row tier bases + shared-memory in-row prefix scan (matches global block_offset layout).
 #include "bmo.h"
 
 #include <cuda_runtime.h>
@@ -76,6 +77,9 @@ __global__ void fused_dequant_matvec_kernel_v2(
     const uint8_t * __restrict__ pw,
     const uint8_t * __restrict__ pm,
     const __half * __restrict__ fp16_vals,
+    const int32_t * __restrict__ row_c2_g,
+    const int32_t * __restrict__ row_c4_g,
+    const int32_t * __restrict__ row_c8_g,
     int rows, int cols, int block_size,
     int n_2bit_bytes, int n_4bit_bytes,
     float scale_low, float scale_int4, float scale_int8,
@@ -94,11 +98,14 @@ __global__ void fused_dequant_matvec_kernel_v2(
     const int blocks_per_row = cols / block_size; // assumes cols % 32 == 0
 
     extern __shared__ uint8_t smem_raw[];
-    uint8_t * s_tier_all = smem_raw;
-    int * s_off_all = reinterpret_cast<int *>(s_tier_all + ROWS_PER_BLOCK * blocks_per_row);
+    const size_t tier_bytes = (size_t) ROWS_PER_BLOCK * (size_t) blocks_per_row;
+    const size_t tier_pad = (4 - (tier_bytes % 4)) % 4;
+    uint8_t * tiers_base = smem_raw;
+    int32_t * offs_base =
+        reinterpret_cast<int32_t *>(tiers_base + tier_bytes + tier_pad);
 
-    uint8_t * s_tier = s_tier_all + row_in_block * blocks_per_row;
-    int * s_off = s_off_all + row_in_block * blocks_per_row;
+    uint8_t * s_tier = tiers_base + (size_t) row_in_block * (size_t) blocks_per_row;
+    int32_t * s_off = offs_base + (size_t) row_in_block * (size_t) blocks_per_row;
 
     // ---- Load tiers for this row (32 threads cooperate, stride 32) ----
     for (int b = lane; b < blocks_per_row; b += 32) {
@@ -108,27 +115,39 @@ __global__ void fused_dequant_matvec_kernel_v2(
     }
     __syncthreads();
 
-    // ---- Prefix scan: lane 0 of each row, sequential ----
+    // Per-row tier bases + in-row prefix scan (matches global unpack_layer_to_f32_blockwise).
     if (lane == 0) {
-        int c2 = 0, c4 = 0, c8 = 0, c16 = 0;
-        for (int i = 0; i < blocks_per_row; ++i) {
-            const uint8_t t = s_tier[i];
-            if (t == 0) {
-                s_off[i] = c16;
-                c16 += block_size;
-            } else if (t == 1) {
-                s_off[i] = c8;
-                c8 += block_size;
-            } else if (t == 2) {
-                s_off[i] = c4;
-                c4 += block_size;
+        const int32_t rb2 = row_c2_g[row];
+        const int32_t rb4 = row_c4_g[row];
+        const int32_t rb8 = row_c8_g[row];
+        const int32_t blocks_before = row * blocks_per_row;
+        const int32_t rb16 = (blocks_before - rb2 / block_size - rb4 / block_size - rb8 / block_size) *
+                             block_size;
+
+        int32_t o2 = rb2;
+        int32_t o4 = rb4;
+        int32_t o8 = rb8;
+        int32_t o16 = rb16;
+        for (int b = 0; b < blocks_per_row; ++b) {
+            const uint8_t tier = s_tier[b];
+            int32_t off;
+            if (tier == 0) {
+                off = o16;
+                o16 += block_size;
+            } else if (tier == 1) {
+                off = o8;
+                o8 += block_size;
+            } else if (tier == 2) {
+                off = o4;
+                o4 += block_size;
             } else {
-                s_off[i] = c2;
-                c2 += block_size;
+                off = o2;
+                o2 += block_size;
             }
+            s_off[b] = off;
         }
     }
-    __syncwarp();
+    __syncthreads();
 
     // ---- Matvec: 32 threads stride through cols ----
     const uint8_t * stream8 = pw + n_2bit_bytes + n_4bit_bytes;
@@ -361,6 +380,9 @@ void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
     const void * fp16_vals,
+    const int32_t * row_c2,
+    const int32_t * row_c4,
+    const int32_t * row_c8,
     int rows,
     int cols,
     int block_size,
@@ -377,9 +399,10 @@ void launch_fused_dequant_matvec(
     void * stream) {
     constexpr int ROWS_PER_BLOCK = 8;
     const int blocks_per_row = cols / block_size;
-    const size_t smem_bytes =
-        (size_t) ROWS_PER_BLOCK * blocks_per_row * sizeof(uint8_t)
-        + (size_t) ROWS_PER_BLOCK * blocks_per_row * sizeof(int);
+    const size_t tier_region = (size_t) ROWS_PER_BLOCK * (size_t) blocks_per_row;
+    const size_t tier_pad = (4 - (tier_region % 4)) % 4;
+    const size_t off_region = (size_t) ROWS_PER_BLOCK * (size_t) blocks_per_row * sizeof(int32_t);
+    const size_t smem_bytes = tier_region + tier_pad + off_region;
 
     const int n_blocks = (rows + ROWS_PER_BLOCK - 1) / ROWS_PER_BLOCK;
     cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
@@ -388,6 +411,9 @@ void launch_fused_dequant_matvec(
         reinterpret_cast<const uint8_t *>(pw),
         reinterpret_cast<const uint8_t *>(pm),
         reinterpret_cast<const __half *>(fp16_vals),
+        row_c2,
+        row_c4,
+        row_c8,
         rows,
         cols,
         block_size,

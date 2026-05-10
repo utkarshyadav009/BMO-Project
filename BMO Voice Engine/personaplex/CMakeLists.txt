@@ -24,13 +24,22 @@ if(BMO_ENABLE_CUDA)
     if(BMO_TARGET_JETSON)
         add_compile_definitions(BMO_TARGET_JETSON)
         add_compile_definitions(BMO_JETSON)
-        set(CMAKE_CUDA_ARCHITECTURES "87" CACHE STRING "CUDA Architecture for Jetson Orin Nano" FORCE)
-        add_compile_options(
-            "$<$<COMPILE_LANGUAGE:C,CXX>:-O3>"
-            "$<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8.2-a>"
-        )
+        # Default to sm_87 for actual Jetson Orin builds, but allow overriding from
+        # the CLI (e.g. `-DCMAKE_CUDA_ARCHITECTURES=90` on a non-Jetson box used to
+        # debug the Jetson code path). Drop FORCE so user values win.
+        if(NOT CMAKE_CUDA_ARCHITECTURES)
+            set(CMAKE_CUDA_ARCHITECTURES "87" CACHE STRING "CUDA Architecture for Jetson Orin Nano")
+        endif()
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+            add_compile_options(
+                "$<$<COMPILE_LANGUAGE:C,CXX>:-O3>"
+                "$<$<COMPILE_LANGUAGE:C,CXX>:-march=armv8.2-a>"
+            )
+        endif()
     else()
-        set(CMAKE_CUDA_ARCHITECTURES "90;87" CACHE STRING "CUDA Architectures" FORCE)
+        if(NOT CMAKE_CUDA_ARCHITECTURES)
+            set(CMAKE_CUDA_ARCHITECTURES "90;87" CACHE STRING "CUDA Architectures")
+        endif()
     endif()
 endif()
 

@@ -1,4 +1,5 @@
-﻿#include "bmo.h"
+﻿// Jetson fused linear passes per-row tier bases into fused matvec kernel.
+#include "bmo.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -28,6 +29,45 @@ static inline struct ggml_tensor * bmo_safe(struct ggml_tensor * t, const char *
 #ifdef BMO_JETSON
 #include <sys/mman.h>
 #endif
+
+enum class bmo_dump_kind : uint8_t {
+    Layer0, // BMO_DUMP_LAYER0
+    Deep,   // BMO_DUMP_DEEP (mid-stack residual, post_out_norm, final_logits)
+};
+
+// Numerical harness (opt-in): float32 little-endian dumps when BMO_DUMP_LAYER0 or
+// BMO_DUMP_DEEP is set according to `kind`. No effect otherwise.
+static void bmo_dump_tensor_f32(struct ggml_tensor * t, const char * name, bmo_dump_kind kind = bmo_dump_kind::Layer0) {
+    const bool want_layer0 = getenv("BMO_DUMP_LAYER0") != nullptr;
+    const bool want_deep   = getenv("BMO_DUMP_DEEP") != nullptr;
+    const bool ok =
+        (kind == bmo_dump_kind::Layer0 && want_layer0) || (kind == bmo_dump_kind::Deep && want_deep);
+    if (!ok || !name || !t || ggml_nelements(t) <= 0 || !t->data) {
+        return;
+    }
+#ifdef BMO_ENABLE_CUDA
+    cudaStreamSynchronize(0);
+#endif
+    if (t->type != GGML_TYPE_F32) {
+        fprintf(stderr,
+                "[bmo_dump_tensor] skip %s: expected F32, got type=%s\n",
+                name,
+                ggml_type_name(t->type));
+        return;
+    }
+    const std::string fname = std::string("cpp_") + name + ".bin";
+    FILE * f = fopen(fname.c_str(), "wb");
+    if (!f) {
+        fprintf(stderr, "[bmo_dump_tensor] fopen failed for %s\n", fname.c_str());
+        return;
+    }
+    const size_t n = (size_t) ggml_nelements(t);
+    const size_t nw = fwrite(t->data, sizeof(float), n, f);
+    fclose(f);
+    if (nw != n) {
+        fprintf(stderr, "[bmo_dump_tensor] short write %s (%zu/%zu floats)\n", fname.c_str(), nw, n);
+    }
+}
 
 #ifdef BMO_ENABLE_CUDA
 #ifndef BMO_JETSON
@@ -997,6 +1037,10 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     throw std::runtime_error("Jetson fused: preloaded canonical fv missing for "
                                              + linear.base);
                 }
+                if (!dp_ref.row_c2 || !dp_ref.row_c4 || !dp_ref.row_c8) {
+                    throw std::runtime_error("Jetson fused: row tier-base device buffers missing for "
+                                             + linear.base);
+                }
 
                 const size_t row_out_bytes = (size_t) rows * sizeof(float);
                 if (row_out_bytes > ctx.cuda_fused_output_buffer_bytes) {
@@ -1048,6 +1092,9 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         kern_pw,
                         kern_pm,
                         kern_fv,
+                        dp_ref.row_c2,
+                        dp_ref.row_c4,
+                        dp_ref.row_c8,
                         rows,
                         cols,
                         block_size_eff,
@@ -1106,6 +1153,9 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         kern_pw,
                         kern_pm,
                         kern_fv,
+                        dp_ref.row_c2,
+                        dp_ref.row_c4,
+                        dp_ref.row_c8,
                         rows,
                         cols,
                         block_size_eff,
@@ -1568,6 +1618,20 @@ void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<te
     if (status != GGML_STATUS_SUCCESS) {
         throw std::runtime_error("ggml_graph_compute_with_ctx failed");
     }
+
+    // text_logits is produced by ggml_mul_mat during graph compute; dump after compute so ->data is valid.
+    if (getenv("BMO_DUMP_DEEP")) {
+#ifdef BMO_ENABLE_CUDA
+        cudaStreamSynchronize(0);
+#endif
+        ggml_tensor * tl = ggml_graph_get_tensor(gf, "text_logits");
+        if (tl) {
+            bmo_dump_tensor_f32(tl, "final_logits", bmo_dump_kind::Deep);
+            if (getenv("BMO_DUMP_DEEP_EXIT")) {
+                std::exit(0);
+            }
+        }
+    }
 }
 
 ggml_cgraph * bmo_build_temporal_graph(
@@ -1638,8 +1702,26 @@ ggml_cgraph * bmo_build_temporal_graph(
         const std::string base = "transformer_layers_" + std::to_string(layer);
         const bool is_final_layer = (layer == end - 1);
 
+        static const int dump_deep_layers[] = {0, 1, 8, 15, 23, 31};
+        const bool dump_deep_env = getenv("BMO_DUMP_DEEP") != nullptr;
+        bool dump_this_layer = false;
+        if (dump_deep_env) {
+            for (int dl : dump_deep_layers) {
+                if (dl == layer) {
+                    dump_this_layer = true;
+                    break;
+                }
+            }
+        }
+
         // -------- Attention block --------
         ggml_tensor * residual = x;
+        if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+            bmo_dump_tensor_f32(residual, "embed_sum");
+        }
+        if (dump_this_layer) {
+            bmo_dump_tensor_f32(residual, ("layer" + std::to_string(layer) + "_x_in").c_str(), bmo_dump_kind::Deep);
+        }
 #ifdef BMO_JETSON
         ggml_tensor * x_norm;
         if (model.temporal_layers[layer].norm1_weight) {
@@ -1653,6 +1735,9 @@ ggml_cgraph * bmo_build_temporal_graph(
             x_norm = ggml_mul(wctx, x_norm, model.temporal_layers[layer].norm1_weight);
         }
 #endif
+        if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+            bmo_dump_tensor_f32(x_norm, "layer0_post_norm1");
+        }
         ggml_tensor * qkv = apply_linear_with_transient_unpack(
             ctx,
             model,
@@ -1691,6 +1776,20 @@ ggml_cgraph * bmo_build_temporal_graph(
                         qv[0], qv[1], qv[2], qv[3], rms(qv, q_off),
                         qv[q_off+0], qv[q_off+1], qv[q_off+2], qv[q_off+3], rms(qv + q_off, kv_off - q_off),
                         qv[kv_off+0], qv[kv_off+1], qv[kv_off+2], qv[kv_off+3], rms(qv + kv_off, kv_off - q_off));
+                auto mean_abs = [](const float * p, int n) -> float {
+                    if (!p || n <= 0) return -1.0f;
+                    double s = 0.0;
+                    for (int i = 0; i < n; ++i) s += (double) std::fabs((double) p[i]);
+                    return (float) (s / (double) n);
+                };
+                const float ma_q = mean_abs(qv, q_off);
+                const float ma_x = mean_abs(xn, ctx.n_embd);
+                if (ma_x > 1e-8f && ma_q < 0.5f * ma_x) {
+                    fprintf(stderr,
+                            "[bmo_lin] WARNING: Q slice mean|.| suspiciously low vs x_norm (mean|Q|=%.6f "
+                            "mean|x_norm|=%.6f); check fused matvec / packed weights path.\n",
+                            ma_q, ma_x);
+                }
             }
         }
 
@@ -1716,6 +1815,12 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * k_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) q_dim * e);
             ggml_tensor * v_raw = ggml_view_3d(wctx, qkv, ctx.head_dim, n_kv_heads, n_token, nb1_q, nb2_qkv, (size_t) (q_dim + kv_dim) * e);
 
+            if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+                bmo_dump_tensor_f32(q_raw, "layer0_q_pre_rope");
+                bmo_dump_tensor_f32(k_raw, "layer0_k_pre_rope");
+                bmo_dump_tensor_f32(v_raw, "layer0_v");
+            }
+
 #ifdef BMO_JETSON
             ggml_tensor * q_rope = apply_rope_gpu_interleaved(ctx, wctx, q_raw, pos);
             ggml_tensor * k_rope = apply_rope_gpu_interleaved(ctx, wctx, k_raw, pos);
@@ -1723,6 +1828,11 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * q_rope = ggml_rope(wctx, q_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
             ggml_tensor * k_rope = ggml_rope(wctx, k_raw, pos, ctx.head_dim, GGML_ROPE_TYPE_NORMAL);
 #endif
+
+            if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+                bmo_dump_tensor_f32(q_rope, "layer0_q_post_rope");
+                bmo_dump_tensor_f32(k_rope, "layer0_k_post_rope");
+            }
 
             ggml_tensor * attn_2d = nullptr;
 #ifdef BMO_JETSON
@@ -1794,11 +1904,27 @@ ggml_cgraph * bmo_build_temporal_graph(
                     base + "_self_attn_out_proj",
                 });
 
+            if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+                bmo_dump_tensor_f32(attn_out, "layer0_post_attn");
+            }
+            if (dump_this_layer) {
+                bmo_dump_tensor_f32(
+                    attn_out,
+                    ("layer" + std::to_string(layer) + "_post_attn").c_str(),
+                    bmo_dump_kind::Deep);
+            }
+
 #ifdef BMO_JETSON
             x = apply_residual_gpu(ctx, wctx, S(residual), S(attn_out));
 #else
             x = ggml_add(wctx, S(residual), S(attn_out));
 #endif
+            if (dump_this_layer) {
+                bmo_dump_tensor_f32(
+                    x,
+                    ("layer" + std::to_string(layer) + "_post_attn_residual").c_str(),
+                    bmo_dump_kind::Deep);
+            }
 
         // -------- Feed-forward block --------
         ggml_tensor * ff_residual = x;
@@ -1815,6 +1941,9 @@ ggml_cgraph * bmo_build_temporal_graph(
             ff_norm = ggml_mul(wctx, ff_norm, model.temporal_layers[layer].norm2_weight);
         }
 #endif
+        if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+            bmo_dump_tensor_f32(ff_norm, "layer0_post_norm2");
+        }
         ggml_tensor * ff_in = apply_linear_with_transient_unpack(
             ctx,
             model,
@@ -1851,6 +1980,16 @@ ggml_cgraph * bmo_build_temporal_graph(
                     base + "_gating_linear_out",
                 });
 
+            if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+                bmo_dump_tensor_f32(ff_out, "layer0_post_ffn");
+            }
+            if (dump_this_layer) {
+                bmo_dump_tensor_f32(
+                    ff_out,
+                    ("layer" + std::to_string(layer) + "_post_ffn").c_str(),
+                    bmo_dump_kind::Deep);
+            }
+
             if (ggml_nelements(ff_out) != ggml_nelements(ff_residual)) {
                 throw std::runtime_error(
                     "layer=" + std::to_string(layer) +
@@ -1864,6 +2003,19 @@ ggml_cgraph * bmo_build_temporal_graph(
                 x = ggml_add(wctx, S(ff_residual), S(ff_out));
 #endif
             }
+        }
+
+        if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
+            bmo_dump_tensor_f32(x, "layer0_residual_out");
+            if (getenv("BMO_DUMP_LAYER0_EXIT")) {
+                std::exit(0);
+            }
+        }
+        if (dump_this_layer) {
+            bmo_dump_tensor_f32(
+                x,
+                ("layer" + std::to_string(layer) + "_residual_out").c_str(),
+                bmo_dump_kind::Deep);
         }
 
         const std::string out_name = "out_layer_" + std::to_string(layer);
@@ -1976,6 +2128,10 @@ ggml_cgraph * bmo_build_temporal_graph(
         ggml_tensor * transformer_out = ggml_view_1d(wctx, final_x, ggml_nelements(final_x), 0);
         ggml_set_name(transformer_out, "transformer_out");
         ggml_build_forward_expand(gf, transformer_out);
+
+        if (getenv("BMO_DUMP_DEEP") && end == ctx.n_layers && model.out_norm_weight) {
+            bmo_dump_tensor_f32(transformer_out, "post_out_norm", bmo_dump_kind::Deep);
+        }
 
         if (end == ctx.n_layers && model.text_linear) {
             ggml_tensor * text_logits = ggml_mul_mat(wctx, model.text_linear, final_x);

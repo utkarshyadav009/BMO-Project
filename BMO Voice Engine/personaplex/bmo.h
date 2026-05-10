@@ -1,5 +1,7 @@
 // bmo.h - core data structures for BMO model runtime
 #pragma once
+// Jetson fused matvec: per-row tier-stream bases (row_c2/c4/c8) plus an in-kernel
+// in-row prefix scan; fp16 base is derived from row * blocks_per_row minus other tiers.
 
 #include <memory>
 #include <string>
@@ -39,6 +41,10 @@ struct device_packed_t {
     void * canonical_pm_dev = nullptr;
     void * canonical_fv_dev = nullptr;
     bool preloaded = false;
+    // Device: tier-stream offsets at start of each row (global walk); fp16 base derived in kernel.
+    int32_t * row_c2 = nullptr;
+    int32_t * row_c4 = nullptr;
+    int32_t * row_c8 = nullptr;
 #else
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
     void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
@@ -312,6 +318,9 @@ void launch_fused_dequant_matvec(
     const void * pw,
     const void * pm,
     const void * fp16_vals,
+    const int32_t * row_c2,
+    const int32_t * row_c4,
+    const int32_t * row_c8,
     int rows,
     int cols,
     int block_size,
