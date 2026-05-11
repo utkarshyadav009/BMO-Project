@@ -21,10 +21,12 @@ Usage: pip install gguf torch numpy
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import struct
 import sys
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import numpy as np
@@ -119,6 +121,125 @@ def _affine_params_for_values(values: np.ndarray, qmax: int, fallback_zp: float)
     return float(scale), zp
 
 
+def _resolve_path_for_ckpt(base_dir: Path, p: str | Path) -> Path:
+    path = Path(p)
+    if path.is_absolute():
+        return path.resolve()
+    cand = path.resolve()
+    if cand.exists():
+        return cand
+    return (base_dir / path).resolve()
+
+
+def _tier_masks_from_ckpt(ckpt: Dict[str, Any]) -> Dict[str, Any]:
+    raw = ckpt.get("tier_masks_uint2")
+    if not isinstance(raw, dict) or not raw:
+        sm = ckpt.get("septq_meta")
+        if isinstance(sm, dict):
+            raw = sm.get("tier_masks_uint2")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _septq_meta_from_ckpt(ckpt: Dict[str, Any]) -> Dict[str, Any] | None:
+    sm = ckpt.get("septq_meta")
+    return sm if isinstance(sm, dict) else None
+
+
+def resolve_stats_source_ckpt(
+    qat_ckpt: Dict[str, Any],
+    qat_path: Path,
+    septq_ckpt_path: str | Path | None,
+) -> Dict[str, Any]:
+    """Checkpoint whose ``septq_meta.per_layer_stats`` holds PTQ-era quant scales (QAT may omit them).
+
+    Same resolution rules as ``compare_fakequant_vs_gguf_weights.resolve_quant_checkpoint``.
+    """
+    if septq_ckpt_path is not None and str(septq_ckpt_path).strip():
+        src_path = _resolve_path_for_ckpt(qat_path.parent, septq_ckpt_path)
+        if not src_path.is_file():
+            raise FileNotFoundError(f"--septq-ckpt not found: {src_path}")
+        src = torch.load(str(src_path), map_location="cpu")
+        if not isinstance(src, dict):
+            raise ValueError(f"SEPTQ checkpoint must be a dict, got {type(src)}")
+        sm = _septq_meta_from_ckpt(src)
+        if not sm or not isinstance(sm.get("per_layer_stats"), list):
+            raise ValueError(f"{src_path}: missing septq_meta.per_layer_stats")
+        return src
+
+    tier = _tier_masks_from_ckpt(qat_ckpt)
+    sm = _septq_meta_from_ckpt(qat_ckpt)
+    if tier and sm and isinstance(sm.get("per_layer_stats"), list) and len(sm["per_layer_stats"]) > 0:
+        return qat_ckpt
+
+    qm = qat_ckpt.get("qat_meta")
+    rel = None
+    if isinstance(qm, dict):
+        rel = qm.get("source_student_quant_meta")
+    if not isinstance(rel, str) or not rel.strip():
+        raise ValueError(
+            "qat_meta.source_student_quant_meta is missing or empty; pass --septq-ckpt to the multitier PTQ .pt "
+            "that contains septq_meta.per_layer_stats."
+        )
+    src_path = _resolve_path_for_ckpt(qat_path.parent, rel)
+    if not src_path.is_file():
+        raise FileNotFoundError(f"source_student_quant_meta path not found: {src_path}")
+    src = torch.load(str(src_path), map_location="cpu")
+    if not isinstance(src, dict):
+        raise ValueError(f"Source quant file must be a dict, got {type(src)}")
+    sm2 = _septq_meta_from_ckpt(src)
+    if not sm2 or not isinstance(sm2.get("per_layer_stats"), list):
+        raise ValueError(f"{src_path}: missing septq_meta.per_layer_stats")
+    return src
+
+
+def _module_stat_name(mod: Dict[str, Any]) -> str | None:
+    name = mod.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    for k in ("module_name", "module"):
+        v = mod.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _canonical_module_name_aliases(full_name: str) -> list[str]:
+    """State dict may use ``transformer.layers`` while stats use ``transformer.inner.layers`` (or vice versa)."""
+    names = [full_name]
+    if "transformer.inner.layers." in full_name:
+        names.append(full_name.replace("transformer.inner.layers.", "transformer.layers.", 1))
+    elif full_name.startswith("transformer.layers."):
+        names.append(full_name.replace("transformer.layers.", "transformer.inner.layers.", 1))
+    return list(dict.fromkeys(names))
+
+
+def build_module_meta_lookup(stats_ckpt: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Map full module / state_dict weight names -> per-module PTQ stats dict (from ``per_layer_stats``)."""
+    septq_meta = stats_ckpt.get("septq_meta", {})
+    if not isinstance(septq_meta, dict):
+        return {}
+    per_layer_stats = septq_meta.get("per_layer_stats", [])
+    if not isinstance(per_layer_stats, list):
+        return {}
+
+    module_meta_lookup: Dict[str, Dict[str, Any]] = {}
+    for layer in per_layer_stats:
+        if not isinstance(layer, dict):
+            continue
+        modules = layer.get("modules")
+        if not isinstance(modules, list):
+            continue
+        for mod in modules:
+            if not isinstance(mod, dict):
+                continue
+            name = _module_stat_name(mod)
+            if not name:
+                continue
+            for alias in _canonical_module_name_aliases(name):
+                module_meta_lookup[alias] = mod
+    return module_meta_lookup
+
+
 def _ratio_counts(n_blocks: int, ratio_fp16: float, ratio_int8: float, ratio_int4: float) -> tuple[int, int, int]:
     n_fp16 = int(round(float(ratio_fp16) * n_blocks))
     n_int8 = int(round(float(ratio_int8) * n_blocks))
@@ -140,6 +261,8 @@ def create_packed_layer(
     ratio_fp16: float = DEFAULT_RATIO_FP16,
     ratio_int8: float = DEFAULT_RATIO_INT8,
     ratio_int4: float = DEFAULT_RATIO_INT4,
+    export_gguf_base: str | None = None,
+    require_ptq_scales: bool = False,
 ) -> Dict[str, Any]:
     """Return block-wise SEPTQ v3 packed artifacts for this layer.
 
@@ -167,19 +290,6 @@ def create_packed_layer(
     else:
         fw_padded = fw
     blocks = fw_padded.reshape(n_blocks, block_size)
-
-    # Extract scales and zero points (similar to profile_jetson._module_meta_float)
-    def _get_meta(key: str, fallback: str | None = None, default: float | None = None) -> float:
-        v = module_meta.get(key, None)
-        if v is None and fallback is not None:
-            v = module_meta.get(fallback, None)
-        if v is None:
-            if default is not None:
-                return float(default)
-            raise RuntimeError(f"Missing quant metadata '{key}' for {layer_name}")
-        if torch.is_tensor(v):
-            return float(v.detach().item())
-        return float(v)
 
     block_max = np.max(np.abs(blocks), axis=1)
 
@@ -234,12 +344,69 @@ def create_packed_layer(
     fallback_int4 = _affine_params_for_values(values_int4, 15, 7.5)
     fallback_int8 = _affine_params_for_values(values_int8, 255, 127.5)
 
-    scale_low = _get_meta("quant_scale_low", "quant_scale", fallback_low[0])
-    zp_low = _get_meta("quant_zero_point_low", "quant_zero_point", fallback_low[1])
-    scale_int4 = _get_meta("quant_scale_int4", default=fallback_int4[0])
-    zp_int4 = _get_meta("quant_zero_point_int4", default=fallback_int4[1])
-    scale_int8 = _get_meta("quant_scale_int8", default=fallback_int8[0])
-    zp_int8 = _get_meta("quant_zero_point_int8", default=fallback_int8[1])
+    def _meta_float(key: str) -> float | None:
+        v = module_meta.get(key)
+        if v is None:
+            return None
+        if torch.is_tensor(v):
+            return float(v.detach().item())
+        return float(v)
+
+    low_s = _meta_float("quant_scale_low")
+    if low_s is None:
+        low_s = _meta_float("quant_scale")
+    low_z = _meta_float("quant_zero_point_low")
+    if low_z is None:
+        low_z = _meta_float("quant_zero_point")
+    if low_s is not None and low_z is not None:
+        scale_low, zp_low = low_s, low_z
+        low_ptq = True
+    else:
+        scale_low, zp_low = float(fallback_low[0]), float(fallback_low[1])
+        low_ptq = False
+
+    s4, z4 = _meta_float("quant_scale_int4"), _meta_float("quant_zero_point_int4")
+    if s4 is not None and z4 is not None:
+        scale_int4, zp_int4 = s4, z4
+        int4_ptq = True
+    else:
+        scale_int4, zp_int4 = float(fallback_int4[0]), float(fallback_int4[1])
+        int4_ptq = False
+
+    s8, z8 = _meta_float("quant_scale_int8"), _meta_float("quant_zero_point_int8")
+    if s8 is not None and z8 is not None:
+        scale_int8, zp_int8 = s8, z8
+        int8_ptq = True
+    else:
+        scale_int8, zp_int8 = float(fallback_int8[0]), float(fallback_int8[1])
+        int8_ptq = False
+
+    full_ptq = low_ptq and int4_ptq and int8_ptq
+    if require_ptq_scales and not full_ptq:
+        log_name = export_gguf_base or layer_name
+        raise ValueError(
+            f"--require-ptq-scales: expected full PTQ quant_scale_* / quant_zero_point_* in per_layer_stats for "
+            f"{layer_name!r} (GGUF base {log_name!r}); got low_ptq={low_ptq} int4_ptq={int4_ptq} int8_ptq={int8_ptq}. "
+            f"Ensure export resolves the student PTQ checkpoint (qat_meta.source_student_quant_meta or --septq-ckpt)."
+        )
+
+    for tag, sc in (("scale_low", scale_low), ("scale_int4", scale_int4), ("scale_int8", scale_int8)):
+        if not math.isfinite(sc) or sc <= 0.0:
+            raise ValueError(f"Invalid {tag}={sc!r} for {layer_name!r} (must be finite and > 0)")
+    if not (0.0 <= zp_low <= 3.0):
+        raise ValueError(f"Invalid zp_low={zp_low!r} for {layer_name!r} (expected in [0, 3])")
+    if not (0.0 <= zp_int4 <= 15.0):
+        raise ValueError(f"Invalid zp_int4={zp_int4!r} for {layer_name!r} (expected in [0, 15])")
+    if not (0.0 <= zp_int8 <= 255.0):
+        raise ValueError(f"Invalid zp_int8={zp_int8!r} for {layer_name!r} (expected in [0, 255])")
+
+    log_label = export_gguf_base or layer_name
+    tag = "PTQ" if full_ptq else "FALLBACK"
+    print(
+        f"[export] {log_label}: scales ({tag}): low={scale_low:g} int4={scale_int4:g} int8={scale_int8:g}  "
+        f"zp: low={zp_low:g} int4={zp_int4:g} int8={zp_int8:g}",
+        file=sys.stderr,
+    )
 
     q3_vals = np.clip(np.round(values_int2 / scale_low + zp_low), 0, 3).astype(np.uint8)
     q2_vals = np.clip(np.round(values_int4 / scale_int4 + zp_int4), 0, 15).astype(np.uint8)
@@ -277,6 +444,7 @@ def create_packed_layer(
     out["rows"] = np.int32(rows)
     out["cols"] = np.int32(cols)
 
+    out["_scale_source"] = "ptq" if full_ptq else "fallback"
     return out
 
 
@@ -381,6 +549,16 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("ckpt", help="Path to bmo_jetson_ready.pt checkpoint")
     p.add_argument("out", help="Output path (gguf recommended, .npz fallback)")
+    p.add_argument(
+        "--septq-ckpt",
+        default=None,
+        help="Optional multitier PTQ .pt with septq_meta.per_layer_stats (default: resolve via qat_meta.source_student_quant_meta).",
+    )
+    p.add_argument(
+        "--require-ptq-scales",
+        action="store_true",
+        help="Fail export if any packed tensor lacks full PTQ quant_scale_* / quant_zero_point_* in per_layer_stats.",
+    )
     args = p.parse_args()
 
     ckpt_path = args.ckpt
@@ -393,28 +571,27 @@ def main() -> None:
     ckpt = torch.load(ckpt_path, map_location="cpu")
     state_dict = ckpt.get("state_dict") or ckpt
     septq_meta = ckpt.get("septq_meta", {})
-    per_layer_stats = septq_meta.get("per_layer_stats", [])
+    if not isinstance(septq_meta, dict):
+        septq_meta = {}
 
-    # Build module meta lookup similar to profile_jetson._build_module_meta_lookup
-    module_meta_lookup: Dict[str, Dict[str, Any]] = {}
-    for layer in per_layer_stats:
-        if not isinstance(layer, dict):
-            continue
-        modules = layer.get("modules")
-        if not isinstance(modules, list):
-            continue
-        for mod in modules:
-            if not isinstance(mod, dict):
-                continue
-            name = mod.get("name")
-            if isinstance(name, str) and name:
-                module_meta_lookup[name] = mod
+    qat_path = Path(ckpt_path).resolve()
+    stats_source = resolve_stats_source_ckpt(ckpt, qat_path, args.septq_ckpt)
+    module_meta_lookup = build_module_meta_lookup(stats_source)
+    print(f"[EXPORT] module_meta lookup: {len(module_meta_lookup)} entries from PTQ per_layer_stats (resolved source).")
 
     # Collect blobs to write
     blobs: Dict[str, Any] = {}
 
     total_orig_bytes = 0
     total_packed_bytes = 0
+    packed_scale_stats = {"ptq": 0, "fallback": 0}
+
+    def _count_scale_source(blobs_for_layer: Dict[str, Any]) -> None:
+        src = str(blobs_for_layer.pop("_scale_source", "fallback"))
+        if src == "ptq":
+            packed_scale_stats["ptq"] += 1
+        else:
+            packed_scale_stats["fallback"] += 1
     ratio_fp16 = float(septq_meta.get("ratio_fp16", DEFAULT_RATIO_FP16)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_FP16
     ratio_int8 = float(septq_meta.get("ratio_int8", DEFAULT_RATIO_INT8)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_INT8
     ratio_int4 = float(septq_meta.get("ratio_int4", DEFAULT_RATIO_INT4)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_INT4
@@ -476,7 +653,10 @@ def main() -> None:
             ratio_fp16=ratio_fp16,
             ratio_int8=ratio_int8,
             ratio_int4=ratio_int4,
+            export_gguf_base=dst_key,
+            require_ptq_scales=bool(args.require_ptq_scales),
         )
+        _count_scale_source(blobs_for_layer)
         orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
         total_orig_bytes += orig_bytes
         packed_bytes = add_packed_blobs(dst_key, blobs_for_layer)
@@ -534,6 +714,7 @@ def main() -> None:
         module_meta = module_meta_lookup.get(layer_name, {})
         bias = state_dict.get(f"{layer_name}.bias", None)
 
+        base = canonical_transformer_multitier_gguf_base(layer_name.replace('.', '_'))
         blobs_for_layer = create_packed_layer(
             layer_name,
             dense_tensor,
@@ -543,10 +724,12 @@ def main() -> None:
             ratio_fp16=ratio_fp16,
             ratio_int8=ratio_int8,
             ratio_int4=ratio_int4,
+            export_gguf_base=base,
+            require_ptq_scales=bool(args.require_ptq_scales),
         )
+        _count_scale_source(blobs_for_layer)
 
         # Store into blobs under user-specified naming
-        base = canonical_transformer_multitier_gguf_base(layer_name.replace('.', '_'))
         orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
         packed_bytes = add_packed_blobs(base, blobs_for_layer)
         total_orig_bytes += orig_bytes
@@ -824,6 +1007,11 @@ def main() -> None:
     print("[EXPORT] Done.")
     print(f"[EXPORT] Total original size: {total_orig_bytes/1e9:.4f} GB")
     print(f"[EXPORT] Total packed size:   {total_packed_bytes/1e9:.4f} GB")
+    print(
+        f"[export] tensors with PTQ scales:  {packed_scale_stats['ptq']}\n"
+        f"[export] tensors with fallback scales: {packed_scale_stats['fallback']}",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":
