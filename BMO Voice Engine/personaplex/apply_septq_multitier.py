@@ -818,6 +818,125 @@ def pack_tier_mask_uint2(tier: torch.Tensor) -> tuple[torch.Tensor, int]:
     return packed.to(device="cpu").contiguous(), int(original_numel)
 
 
+def build_block_aligned_mask(
+    weight: torch.Tensor,
+    weight_rtn: torch.Tensor,
+    h_inv: torch.Tensor,
+    ratio_fp16: float,
+    ratio_int8: float,
+    ratio_int4: float,
+    block_size: int,
+    aggregate: str = "sum",
+) -> tuple[torch.Tensor, Dict[str, int]]:
+    """Assign tier codes per block_size-wide column block; expand to per-element uint8 mask."""
+    if block_size <= 0:
+        raise ValueError("block_size must be > 0")
+
+    agg = str(aggregate).strip().lower()
+    if agg not in {"sum", "max", "mean"}:
+        raise ValueError(f"aggregate must be one of sum, max, mean; got {aggregate!r}")
+
+    w = weight.detach().to(dtype=torch.float32).contiguous()
+    wq = weight_rtn.detach().to(device=w.device, dtype=torch.float32).contiguous()
+    out_dim, in_dim = int(w.shape[0]), int(w.shape[1])
+
+    diag = torch.diag(h_inv.to(device=w.device, dtype=w.dtype)).abs().clamp_min(1e-12)
+    if int(diag.numel()) != in_dim:
+        raise ValueError(
+            f"H^-1 diag size mismatch: got {int(diag.numel())}, expected {in_dim}"
+        )
+
+    scores = (w - wq).pow(2) / (2.0 * diag.unsqueeze(0))
+
+    n_blocks = (in_dim + block_size - 1) // block_size
+    padded_cols = n_blocks * block_size
+    pad_cols = padded_cols - in_dim
+
+    if pad_cols > 0:
+        if agg == "max":
+            pad = torch.full(
+                (out_dim, pad_cols),
+                float("-inf"),
+                dtype=scores.dtype,
+                device=scores.device,
+            )
+        else:
+            pad = torch.zeros((out_dim, pad_cols), dtype=scores.dtype, device=scores.device)
+        scores_pad = torch.cat([scores, pad], dim=1)
+    else:
+        scores_pad = scores
+
+    blocks = scores_pad.view(out_dim, n_blocks, block_size)
+
+    if pad_cols > 0:
+        valid = torch.ones((out_dim, n_blocks, block_size), dtype=torch.bool, device=w.device)
+        rem = in_dim % block_size
+        if rem != 0:
+            valid[:, -1, rem:] = False
+    else:
+        valid = torch.ones((out_dim, n_blocks, block_size), dtype=torch.bool, device=w.device)
+
+    if agg == "sum":
+        block_scores = (blocks * valid.to(dtype=blocks.dtype)).sum(dim=-1)
+    elif agg == "max":
+        block_scores = blocks.masked_fill(~valid, float("-inf")).amax(dim=-1)
+    else:
+        denom = valid.sum(dim=-1).clamp_min(1).to(dtype=blocks.dtype)
+        block_scores = (blocks * valid.to(dtype=blocks.dtype)).sum(dim=-1) / denom
+
+    n_total = out_dim * in_dim
+    n_blocks_total = out_dim * n_blocks
+
+    n_fp16_target = int(float(ratio_fp16) * n_total)
+    n_int8_target = int(float(ratio_int8) * n_total)
+    n_int4_target = int(float(ratio_int4) * n_total)
+
+    n_fp16_b = int(round(n_fp16_target / float(block_size)))
+    n_int8_b = int(round(n_int8_target / float(block_size)))
+    n_int4_b = int(round(n_int4_target / float(block_size)))
+
+    n_fp16_b = max(0, min(n_blocks_total, n_fp16_b))
+    n_int8_b = max(0, min(n_blocks_total - n_fp16_b, n_int8_b))
+    n_int4_b = max(0, min(n_blocks_total - n_fp16_b - n_int8_b, n_int4_b))
+
+    flat = block_scores.reshape(-1)
+    n_flat = int(flat.numel())
+    if n_flat != n_blocks_total:
+        raise RuntimeError("internal block score flat size mismatch")
+
+    sorted_indices = torch.argsort(flat, descending=True)
+    tier_blocks = torch.full((n_flat,), 3, dtype=torch.uint8, device=flat.device)
+    if n_fp16_b > 0:
+        tier_blocks[sorted_indices[:n_fp16_b]] = 0
+    if n_int8_b > 0:
+        tier_blocks[sorted_indices[n_fp16_b : n_fp16_b + n_int8_b]] = 1
+    if n_int4_b > 0:
+        start = n_fp16_b + n_int8_b
+        tier_blocks[sorted_indices[start : start + n_int4_b]] = 2
+
+    block_tier = tier_blocks.view(out_dim, n_blocks)
+    tier = (
+        block_tier.unsqueeze(-1)
+        .expand(out_dim, n_blocks, block_size)
+        .reshape(out_dim, padded_cols)[:, :in_dim]
+        .contiguous()
+        .to(dtype=torch.uint8)
+    )
+
+    fp16_elements = int((tier == 0).sum().item())
+    int8_elements = int((tier == 1).sum().item())
+    int4_elements = int((tier == 2).sum().item())
+    lowbit_elements = int((tier == 3).sum().item())
+
+    return tier, {
+        "fp16_elements": fp16_elements,
+        "int8_elements": int8_elements,
+        "int4_elements": int4_elements,
+        "lowbit_elements": lowbit_elements,
+        "total_elements": int(n_total),
+    }
+
+
 def build_static_global_mask(
     weight: torch.Tensor,
     weight_rtn: torch.Tensor,
@@ -872,6 +991,9 @@ def septq_quantize_weight(
     quant_min_range: float,
     log_per_column_stats: bool,
     device: str | torch.device | None = None,
+    mask_mode: str = "per-element",
+    block_mask_aggregate: str = "sum",
+    module_name: str = "",
 ) -> tuple[torch.Tensor, torch.Tensor, Dict[str, float | int]]:
     if device is None:
         quant_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -922,14 +1044,30 @@ def septq_quantize_weight(
     col_diff = (w_rtn - w).abs().max(dim=0).values
     unquantized_cols = int((col_diff <= 1e-12).sum().item())
 
-    tier_mask, tier_counts = build_static_global_mask(
-        weight=w,
-        weight_rtn=w_rtn,
-        h_inv=h_inv,
-        ratio_fp16=ratio_fp16,
-        ratio_int8=ratio_int8,
-        ratio_int4=ratio_int4,
-    )
+    mode = str(mask_mode).strip().lower()
+    if mode == "block-aligned":
+        tier_mask, tier_counts = build_block_aligned_mask(
+            weight=w,
+            weight_rtn=w_rtn,
+            h_inv=h_inv,
+            ratio_fp16=ratio_fp16,
+            ratio_int8=ratio_int8,
+            ratio_int4=ratio_int4,
+            block_size=block_size,
+            aggregate=block_mask_aggregate,
+        )
+    elif mode == "per-element":
+        tier_mask, tier_counts = build_static_global_mask(
+            weight=w,
+            weight_rtn=w_rtn,
+            h_inv=h_inv,
+            ratio_fp16=ratio_fp16,
+            ratio_int8=ratio_int8,
+            ratio_int4=ratio_int4,
+        )
+    else:
+        raise ValueError(f"mask_mode must be 'per-element' or 'block-aligned'; got {mask_mode!r}")
+
     tier_packed, tier_numel = pack_tier_mask_uint2(tier_mask)
 
     q = torch.zeros_like(w)
@@ -1053,6 +1191,22 @@ def septq_quantize_weight(
     if log_per_column_stats:
         out["col_range_median"] = float(col_ranges.median().item()) if col_ranges.numel() > 0 else 0.0
         out["col_range_max"] = float(col_ranges.max().item()) if col_ranges.numel() > 0 else 0.0
+
+    out["mask_mode"] = mode
+    out["block_mask_aggregate"] = (
+        str(block_mask_aggregate) if mode == "block-aligned" else None
+    )
+
+    agg_log = str(block_mask_aggregate) if mode == "block-aligned" else "-"
+    label = module_name if str(module_name).strip() else "<unknown>"
+    print(
+        f"[septq] mask_mode={mode} agg={agg_log} module={label} "
+        f"fp16={fp16_elements}/INT8={int8_elements}/INT4={int4_elements}/INT2={lowbit_elements} "
+        f"cos={cos:.6f}",
+        file=sys.stderr,
+        flush=True,
+    )
+
     return q.to(device="cpu").contiguous(), tier_packed, out
 
 
@@ -1125,6 +1279,8 @@ def sanitize_layer_stats(layer_stats: List[Dict[str, Any]]) -> List[Dict[str, An
                     "col_range_median": float(m.get("col_range_median", 0.0)),
                     "col_range_max": float(m.get("col_range_max", 0.0)),
                     "calibration_samples": int(m.get("calibration_samples", 0)),
+                    "mask_mode": str(m.get("mask_mode", "per-element")),
+                    "block_mask_aggregate": m.get("block_mask_aggregate"),
                 }
             )
         sanitized.append(clean)
@@ -1169,6 +1325,22 @@ def main() -> None:
         help="Fraction of next-highest saliency weights quantized as INT4.",
     )
     parser.add_argument("--block-size", type=int, default=128)
+    parser.add_argument(
+        "--mask-mode",
+        choices=["per-element", "block-aligned"],
+        default="per-element",
+        help=(
+            "How tier saliency is assigned: global per-element (legacy), or per "
+            "column block of width --block-size (aligns with GGUF/kernel block tiers)."
+        ),
+    )
+    parser.add_argument(
+        "--block-mask-aggregate",
+        dest="block_mask_aggregate",
+        choices=["sum", "max", "mean"],
+        default="sum",
+        help="When --mask-mode block-aligned, how per-element scores are pooled per block.",
+    )
     parser.add_argument(
         "--hessian-damp",
         type=float,
@@ -1290,7 +1462,8 @@ def main() -> None:
     print(
         f"[INFO] low_bits={args.bits} ratio_fp16={args.ratio_fp16} "
         f"ratio_int8={args.ratio_int8} ratio_int4={args.ratio_int4} ratio_lowbit={low_ratio:.6f} "
-        f"block_size={args.block_size}"
+        f"block_size={args.block_size} mask_mode={args.mask_mode} "
+        f"block_mask_aggregate={args.block_mask_aggregate}"
     )
     print(
         f"[INFO] max_clips={args.max_clips} max_steps_per_clip={args.max_steps_per_clip} "
@@ -1511,6 +1684,9 @@ def main() -> None:
                 quant_min_range=float(args.quant_min_range),
                 log_per_column_stats=bool(args.log_per_column_stats),
                 device=str(args.device),
+                mask_mode=str(args.mask_mode),
+                block_mask_aggregate=str(args.block_mask_aggregate),
+                module_name=name,
             )
             module_elapsed = time.perf_counter() - module_t0
 
@@ -1579,6 +1755,8 @@ def main() -> None:
                 "col_range_median": float(stats.get("col_range_median", 0.0)),
                 "col_range_max": float(stats.get("col_range_max", 0.0)),
                 "calibration_samples": int(x.shape[0]),
+                "mask_mode": str(stats.get("mask_mode", args.mask_mode)),
+                "block_mask_aggregate": stats.get("block_mask_aggregate"),
             }
             module_stats.append(mod)
             quantized_modules += 1
@@ -1646,6 +1824,12 @@ def main() -> None:
         "septq_meta": {
             "source_checkpoint": str(input_path),
             "quant_scheme": "septq_multitier_per_weight",
+            "mask_mode": str(args.mask_mode),
+            "block_mask_aggregate": (
+                str(args.block_mask_aggregate)
+                if str(args.mask_mode).strip().lower() == "block-aligned"
+                else None
+            ),
             "low_bits": int(args.bits),
             "ratio_fp16": float(args.ratio_fp16),
             "ratio_int8": float(args.ratio_int8),

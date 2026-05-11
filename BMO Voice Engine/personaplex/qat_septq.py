@@ -3,6 +3,7 @@ import gc
 import json
 import math
 import random
+import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -523,10 +524,12 @@ def register_fake_quant_for_entries(
             raise RuntimeError(f"Cannot register fake quant: missing tensor param {state_key}")
 
         if state_key not in tier_masks_uint2:
-            raise RuntimeError(
-                "Missing packed tier mask for target module: "
-                f"{state_key}. Expected ckpt['tier_masks_uint2'][target_name] at root payload."
+            print(
+                f"[register_fake_quant] skipping {state_key}: no packed tier mask "
+                f"in checkpoint (layer was excluded by PTQ); leaving as FP16",
+                file=sys.stderr,
             )
+            continue
         packed_mask = tier_masks_uint2[state_key]
         if not torch.is_tensor(packed_mask):
             raise RuntimeError(f"Packed tier mask is not a tensor for {state_key}")
