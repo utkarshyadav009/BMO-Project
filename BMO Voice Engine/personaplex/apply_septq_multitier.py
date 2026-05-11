@@ -937,6 +937,87 @@ def build_block_aligned_mask(
     }
 
 
+def build_block_max_tier_mask(
+    weight: torch.Tensor,
+    weight_rtn: torch.Tensor,
+    h_inv: torch.Tensor,
+    ratio_fp16: float,
+    ratio_int8: float,
+    ratio_int4: float,
+    block_size: int,
+) -> tuple[torch.Tensor, torch.Tensor, Dict[str, int]]:
+    """Assign per-element tiers, then collapse each row/block to max precision tier."""
+    if block_size <= 0:
+        raise ValueError("block_size must be > 0")
+
+    w = weight.detach().to(dtype=torch.float32).contiguous()
+    wq = weight_rtn.detach().to(device=w.device, dtype=torch.float32).contiguous()
+    out_dim, in_dim = int(w.shape[0]), int(w.shape[1])
+
+    diag = torch.diag(h_inv.to(device=w.device, dtype=w.dtype)).abs().clamp_min(1e-12)
+    if int(diag.numel()) != in_dim:
+        raise ValueError(
+            f"H^-1 diag size mismatch: got {int(diag.numel())}, expected {in_dim}"
+        )
+
+    scores = (w - wq).pow(2) / (2.0 * diag.unsqueeze(0))
+    element_tier = build_tier_mask(
+        scores,
+        ratio_fp16=ratio_fp16,
+        ratio_int8=ratio_int8,
+        ratio_int4=ratio_int4,
+    ).to(dtype=torch.uint8)
+
+    n_blocks = (in_dim + block_size - 1) // block_size
+    padded_cols = n_blocks * block_size
+    pad_cols = padded_cols - in_dim
+    if pad_cols > 0:
+        # Tier encoding in build_tier_mask is 0=FP16,1=INT8,2=INT4,3=INT2.
+        # Canonical block map uses 0=INT2..3=FP16, so pad with INT2 rank.
+        pad = torch.full((out_dim, pad_cols), 3, dtype=torch.uint8, device=w.device)
+        element_tier_pad = torch.cat([element_tier, pad], dim=1)
+    else:
+        element_tier_pad = element_tier
+
+    element_blocks = element_tier_pad.view(out_dim, n_blocks, block_size)
+    rem = in_dim % block_size
+    valid = torch.ones((out_dim, n_blocks, block_size), dtype=torch.bool, device=w.device)
+    if rem != 0:
+        valid[:, -1, rem:] = False
+
+    # Canonical rank: 0=INT2,1=INT4,2=INT8,3=FP16.
+    element_rank = (3 - element_blocks).to(dtype=torch.uint8)
+    element_rank = torch.where(
+        valid,
+        element_rank,
+        torch.zeros_like(element_rank),
+    )
+    block_rank = element_rank.amax(dim=-1).to(dtype=torch.uint8)
+
+    collapsed_tier = (
+        (3 - block_rank)
+        .unsqueeze(-1)
+        .expand(out_dim, n_blocks, block_size)
+        .reshape(out_dim, padded_cols)[:, :in_dim]
+        .contiguous()
+        .to(dtype=torch.uint8)
+    )
+
+    fp16_elements = int((collapsed_tier == 0).sum().item())
+    int8_elements = int((collapsed_tier == 1).sum().item())
+    int4_elements = int((collapsed_tier == 2).sum().item())
+    lowbit_elements = int((collapsed_tier == 3).sum().item())
+    total_elements = int(out_dim * in_dim)
+
+    return collapsed_tier, block_rank.to(device="cpu").contiguous(), {
+        "fp16_elements": fp16_elements,
+        "int8_elements": int8_elements,
+        "int4_elements": int4_elements,
+        "lowbit_elements": lowbit_elements,
+        "total_elements": total_elements,
+    }
+
+
 def build_static_global_mask(
     weight: torch.Tensor,
     weight_rtn: torch.Tensor,
@@ -1045,6 +1126,7 @@ def septq_quantize_weight(
     unquantized_cols = int((col_diff <= 1e-12).sum().item())
 
     mode = str(mask_mode).strip().lower()
+    block_tier_map_cpu = None
     if mode == "block-aligned":
         tier_mask, tier_counts = build_block_aligned_mask(
             weight=w,
@@ -1056,6 +1138,16 @@ def septq_quantize_weight(
             block_size=block_size,
             aggregate=block_mask_aggregate,
         )
+    elif mode == "block-max-tier":
+        tier_mask, block_tier_map_cpu, tier_counts = build_block_max_tier_mask(
+            weight=w,
+            weight_rtn=w_rtn,
+            h_inv=h_inv,
+            ratio_fp16=ratio_fp16,
+            ratio_int8=ratio_int8,
+            ratio_int4=ratio_int4,
+            block_size=block_size,
+        )
     elif mode == "per-element":
         tier_mask, tier_counts = build_static_global_mask(
             weight=w,
@@ -1066,7 +1158,10 @@ def septq_quantize_weight(
             ratio_int4=ratio_int4,
         )
     else:
-        raise ValueError(f"mask_mode must be 'per-element' or 'block-aligned'; got {mask_mode!r}")
+        raise ValueError(
+            "mask_mode must be 'per-element', 'block-aligned', or 'block-max-tier'; "
+            f"got {mask_mode!r}"
+        )
 
     tier_packed, tier_numel = pack_tier_mask_uint2(tier_mask)
 
@@ -1196,6 +1291,7 @@ def septq_quantize_weight(
     out["block_mask_aggregate"] = (
         str(block_mask_aggregate) if mode == "block-aligned" else None
     )
+    out["has_block_tier_map"] = bool(block_tier_map_cpu is not None)
 
     agg_log = str(block_mask_aggregate) if mode == "block-aligned" else "-"
     label = module_name if str(module_name).strip() else "<unknown>"
@@ -1206,6 +1302,9 @@ def septq_quantize_weight(
         file=sys.stderr,
         flush=True,
     )
+
+    if block_tier_map_cpu is not None:
+        out["block_tier_map"] = block_tier_map_cpu
 
     return q.to(device="cpu").contiguous(), tier_packed, out
 
@@ -1327,11 +1426,12 @@ def main() -> None:
     parser.add_argument("--block-size", type=int, default=128)
     parser.add_argument(
         "--mask-mode",
-        choices=["per-element", "block-aligned"],
+        choices=["per-element", "block-aligned", "block-max-tier"],
         default="per-element",
         help=(
             "How tier saliency is assigned: global per-element (legacy), or per "
-            "column block of width --block-size (aligns with GGUF/kernel block tiers)."
+            "column block of width --block-size (aligns with GGUF/kernel block tiers), "
+            "or per-element then collapsed by block max-tier."
         ),
     )
     parser.add_argument(
@@ -1582,6 +1682,7 @@ def main() -> None:
     skipped_modules: List[str] = []
     excluded_modules: List[str] = []
     tier_masks_uint2: Dict[str, torch.Tensor] = {}
+    block_tier_map: Dict[str, torch.Tensor] = {}
     tier_masks_meta: Dict[str, Dict[str, Any]] = {}
     agg_total_elements = 0
     agg_fp16_elements = 0
@@ -1704,6 +1805,8 @@ def main() -> None:
             assign_entry_weight(entry, q_weight)
 
             tier_masks_uint2[name] = tier_mask_packed
+            if "block_tier_map" in stats and torch.is_tensor(stats["block_tier_map"]):
+                block_tier_map[name] = stats["block_tier_map"].to(dtype=torch.uint8, device="cpu").contiguous()
             tier_masks_meta[name] = {
                 "shape": [int(weight.shape[0]), int(weight.shape[1])],
                 "numel": int(stats.get("tier_numel", weight.numel())),
@@ -1818,6 +1921,7 @@ def main() -> None:
         "state_dict": export_sd,
         "tier_masks_uint2": tier_masks_uint2,
         "tier_masks_meta": tier_masks_meta,
+        "block_tier_map": block_tier_map,
         "config_override": source_cfg,
         "model_mode": "septq_multitier_dense",
         "force_dense": True,

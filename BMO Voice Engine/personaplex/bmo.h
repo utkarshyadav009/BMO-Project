@@ -45,9 +45,11 @@ struct device_packed_t {
     int32_t * row_c2 = nullptr;
     int32_t * row_c4 = nullptr;
     int32_t * row_c8 = nullptr;
+    // v5 (per-element mask): cumulative FP16 stream element offset at each row start (tier==0).
+    int32_t * row_c16 = nullptr;
 #else
     void * packed_weights = nullptr;      // device ptr to packed 2/4/8 streams
-    void * packed_mask = nullptr;         // device ptr to tier mask (v2: one uint2 per block)
+    void * packed_mask = nullptr;         // device ptr to tier mask (v4: uint2 per block; v5: per element)
     void * fp16_indices = nullptr;        // legacy v1 fp16 index array
     void * fp16_values = nullptr;         // device ptr to fp16 block values / legacy overrides
     int32_t * block_offset = nullptr;     // v3: per-block element offset into that block's tier stream
@@ -57,6 +59,7 @@ struct device_packed_t {
     int32_t block_size = 0;
     int32_t n_blocks = 0;
     int64_t n_fp16 = 0;                   // v2: fp16 values count; legacy: override count
+    int32_t packing_version = 3;          // GGUF packing_version scalar (5 = per-element mask)
     bool is_blockwise = false;
     bool is_valid = false;                // flag indicating successful allocation
 };

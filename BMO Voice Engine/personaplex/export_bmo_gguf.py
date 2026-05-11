@@ -140,6 +140,42 @@ def _tier_masks_from_ckpt(ckpt: Dict[str, Any]) -> Dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def _merged_tier_masks_uint2(qat_ckpt: Dict[str, Any], stats_ckpt: Dict[str, Any]) -> Dict[str, Any]:
+    """PTQ-output checkpoints usually carry ``tier_masks_uint2``; QAT checkpoints (e.g. ``qat_best.pt``) often do not.
+
+    Merge stats-source (PTQ) masks first, then apply any masks present on the QAT checkpoint (QAT wins on key
+    collision). Used by the legacy ``pack_temporal_tensor`` path so ``create_packed_layer`` receives per-element
+    bytes without requiring the multi-tier ``candidate_layers`` discovery loop to fire.
+    """
+    a = _tier_masks_from_ckpt(stats_ckpt)
+    b = _tier_masks_from_ckpt(qat_ckpt)
+    out: Dict[str, Any] = {}
+    if isinstance(a, dict):
+        out.update(a)
+    if isinstance(b, dict):
+        out.update(b)
+    return out
+
+
+def _lookup_tier_mask_uint2_for_weight_key(tier_masks: Dict[str, Any], weight_state_key: str) -> torch.Tensor | None:
+    """Resolve ``tier_masks_uint2[module]`` from a ``state_dict`` weight key like ``....in_proj.weight``."""
+    if not tier_masks or not isinstance(weight_state_key, str) or not weight_state_key.strip():
+        return None
+    candidates: list[str] = [weight_state_key]
+    for suf in (".weight", ".q_weight"):
+        if weight_state_key.endswith(suf):
+            base = weight_state_key[: -len(suf)]
+            if base and base not in candidates:
+                candidates.append(base)
+            break
+    for cand in candidates:
+        for name in _canonical_module_name_aliases(cand):
+            t = tier_masks.get(name)
+            if torch.is_tensor(t):
+                return t
+    return None
+
+
 def _septq_meta_from_ckpt(ckpt: Dict[str, Any]) -> Dict[str, Any] | None:
     sm = ckpt.get("septq_meta")
     return sm if isinstance(sm, dict) else None
@@ -250,6 +286,20 @@ def _ratio_counts(n_blocks: int, ratio_fp16: float, ratio_int8: float, ratio_int
     return n_fp16, n_int8, n_int4
 
 
+# Conservative hard limit for a single GGUF tensor payload (many writers use uint32 sizes).
+_GGUF_SINGLE_TENSOR_MAX_BYTES = (1 << 31) - 1
+
+
+def _assert_single_tensor_payload_fits(tensor_label: str, nbytes: int) -> None:
+    if nbytes < 0:
+        raise ValueError(f"{tensor_label}: invalid negative nbytes={nbytes}")
+    if nbytes > _GGUF_SINGLE_TENSOR_MAX_BYTES:
+        raise RuntimeError(
+            f"{tensor_label}: tensor payload is {nbytes} bytes, which exceeds the exporter's "
+            f"hard limit ({_GGUF_SINGLE_TENSOR_MAX_BYTES} bytes). Refusing to write a likely-truncated GGUF."
+        )
+
+
 def create_packed_layer(
     layer_name: str,
     dense_weight: torch.Tensor,
@@ -261,17 +311,26 @@ def create_packed_layer(
     ratio_fp16: float = DEFAULT_RATIO_FP16,
     ratio_int8: float = DEFAULT_RATIO_INT8,
     ratio_int4: float = DEFAULT_RATIO_INT4,
+    block_tier_map_tensor: torch.Tensor | None = None,
     export_gguf_base: str | None = None,
     require_ptq_scales: bool = False,
 ) -> Dict[str, Any]:
-    """Return block-wise SEPTQ v3 packed artifacts for this layer.
+    """Return SEPTQ packed artifacts for this layer.
+
+    Mask layouts:
+      - v4 (``packing_version=3``): ``packed_mask`` stores 2 bits per **32-element block**
+        (4 blocks per uint8), matching legacy CUDA v2 expectations.
+      - v5 (``packing_version=5``): ``packed_mask`` stores 2 bits per **element** over the
+        padded weight grid (``rows * padded_cols`` elems, 4 elems/byte). When
+        ``packed_mask_tensor`` matches the per-element byte length, the exporter **serializes
+        those bytes verbatim** (no max(abs), no majority vote, no re-tiering).
 
     The returned dict contains at minimum:
-      - packed_mask: uint8 bytes (4 uint2 block tags per byte)
+      - packed_mask: uint8 bytes (uint2 tiers packed 4-per-byte, little-endian lanes)
       - packed_weights: concatenated [2bit_bytes | 4bit_bytes | 8bit_bytes]
       - n_2bit_bytes, n_4bit_bytes, n_8bit_bytes: int sizes
       - scale_low, scale_int4, scale_int8 (float32)
-      - fp16_values (float16), with full tier-0 blocks stored sequentially
+      - fp16_values (float16)
       - bias (float32) if provided
     """
     if block_size != 32:
@@ -279,19 +338,53 @@ def create_packed_layer(
 
     w = dense_weight.detach().cpu().float()
     rows, cols = int(w.shape[0]), int(w.shape[1])
-    flat_w = w.reshape(-1)
-    total = int(flat_w.numel())
-    n_blocks = (total + block_size - 1) // block_size
-    padded_total = n_blocks * block_size
-    fw = flat_w.numpy().astype(np.float32, copy=False)
-    if padded_total != total:
-        fw_padded = np.zeros(padded_total, dtype=np.float32)
-        fw_padded[:total] = fw
+    n_blocks_per_row = (cols + block_size - 1) // block_size
+    n_blocks = rows * n_blocks_per_row
+    padded_cols = n_blocks_per_row * block_size
+    total = rows * cols
+    if padded_cols != cols:
+        w_padded = torch.zeros((rows, padded_cols), dtype=torch.float32)
+        w_padded[:, :cols] = w
     else:
-        fw_padded = fw
-    blocks = fw_padded.reshape(n_blocks, block_size)
-
+        w_padded = w
+    blocks = (
+        w_padded.reshape(rows, n_blocks_per_row, block_size)
+        .numpy()
+        .astype(np.float32, copy=False)
+        .reshape(n_blocks, block_size)
+    )
     block_max = np.max(np.abs(blocks), axis=1)
+
+    per_element_v5 = False
+    packed_mask_bytes: np.ndarray | None = None
+    tier_flat: np.ndarray | None = None
+    if packed_mask_tensor is not None:
+        pm_flat = packed_mask_tensor.detach().cpu().contiguous().view(-1)
+        if pm_flat.dtype != torch.uint8:
+            pm_flat = pm_flat.to(torch.uint8)
+        need_elem_b = (rows * padded_cols + 3) // 4
+        need_block_b = (n_blocks + 3) // 4
+        n_pm = int(pm_flat.numel())
+        if n_pm == need_elem_b:
+            per_element_v5 = True
+            _assert_single_tensor_payload_fits(f"{layer_name}.packed_mask", int(need_elem_b))
+            mask_np = pm_flat.numpy().astype(np.uint8, copy=False)
+            packed_mask_bytes = np.ascontiguousarray(mask_np)
+            idx = np.arange(rows * padded_cols, dtype=np.int64)
+            byte_ix = idx // 4
+            shift = (idx % 4) * 2
+            tier_flat = ((packed_mask_bytes[byte_ix] >> shift) & 3).astype(np.uint8, copy=False)
+            w_flat_chk = w_padded.contiguous().reshape(-1).numpy().astype(np.float32, copy=False)
+            if int(tier_flat.shape[0]) != int(w_flat_chk.shape[0]):
+                raise RuntimeError(
+                    f"{layer_name}: internal shape mismatch tiers={tier_flat.shape} weights={w_flat_chk.shape}"
+                )
+        elif n_pm != need_block_b:
+            raise ValueError(
+                f"{layer_name}: packed_mask has {n_pm} bytes; expected {need_elem_b} (per-element v5) "
+                f"or {need_block_b} (per-block v4) for rows={rows} cols={cols} padded_cols={padded_cols} "
+                f"n_blocks={n_blocks}"
+            )
 
     def _maybe_meta_float(*keys: str) -> float | None:
         for key in keys:
@@ -306,39 +399,106 @@ def create_packed_layer(
     threshold_8bit = _maybe_meta_float("threshold_8bit", "septq_threshold_8bit")
     threshold_4bit = _maybe_meta_float("threshold_4bit", "septq_threshold_4bit")
     threshold_2bit = _maybe_meta_float("threshold_2bit", "septq_threshold_2bit")
-    block_tiers = np.full(n_blocks, 3, dtype=np.uint8)
-    if threshold_8bit is not None and threshold_4bit is not None and threshold_2bit is not None:
-        block_tiers[block_max > threshold_2bit] = 2
-        block_tiers[block_max > threshold_4bit] = 1
-        block_tiers[block_max > threshold_8bit] = 0
-    else:
-        # The existing SEPTQ v1 checkpoint stores ratios rather than explicit
-        # thresholds. Derive block thresholds by ranking max-abs block scores.
-        order = np.argsort(-block_max, kind="stable")
-        n_fp16_blocks, n_int8_blocks, n_int4_blocks = _ratio_counts(
-            n_blocks,
-            float(module_meta.get("fp16_ratio_real", ratio_fp16)),
-            float(module_meta.get("int8_ratio_real", ratio_int8)),
-            float(module_meta.get("int4_ratio_real", ratio_int4)),
+    used_block_tier_map = False
+    if per_element_v5:
+        if block_tier_map_tensor is not None:
+            print(
+                f"[export] {export_gguf_base or layer_name}: ignoring block_tier_map for {layer_name}: "
+                "per-element packed_mask bytes are authoritative (v5).",
+                file=sys.stderr,
+            )
+        used_block_tier_map = False
+        threshold_8bit = float("nan")
+        threshold_4bit = float("nan")
+        threshold_2bit = float("nan")
+        assert tier_flat is not None
+        block_tiers = np.zeros(0, dtype=np.uint8)  # unused in v5 path
+    elif block_tier_map_tensor is not None:
+        block_tier_map = block_tier_map_tensor.detach().to(device="cpu", dtype=torch.uint8).contiguous()
+        expected_shape = (rows, n_blocks_per_row)
+        if tuple(block_tier_map.shape) != expected_shape:
+            raise ValueError(
+                f"{layer_name}: block_tier_map shape mismatch: got {tuple(block_tier_map.shape)} expected {expected_shape}"
+            )
+        block_tier_map_np = block_tier_map.numpy()
+        if np.any(block_tier_map_np > 3):
+            raise ValueError(f"{layer_name}: block_tier_map contains values outside [0, 3]")
+
+        if packed_mask_tensor is not None:
+            unpacked = unpack_tier_mask_uint2(
+                packed_mask_tensor.detach().to(device="cpu", dtype=torch.uint8).contiguous(),
+                (rows, cols),
+            ).numpy()
+            for r in range(rows):
+                for b in range(n_blocks_per_row):
+                    start = b * block_size
+                    end = min(cols, start + block_size)
+                    if end <= start:
+                        continue
+                    vals = unpacked[r, start:end]
+                    unique_vals = np.unique(vals)
+                    if unique_vals.size != 1:
+                        raise ValueError(
+                            f"{layer_name}: non-uniform tier in row={r} block={b}; values={unique_vals.tolist()}"
+                        )
+                    canonical_from_mask = np.uint8(3 - int(unique_vals[0]))
+                    if canonical_from_mask != block_tier_map_np[r, b]:
+                        raise ValueError(
+                            f"{layer_name}: block_tier_map mismatch at row={r} block={b}: "
+                            f"mask={int(canonical_from_mask)} map={int(block_tier_map_np[r, b])}"
+                        )
+
+        # Internal encoding remains 0=FP16,1=INT8,2=INT4,3=INT2.
+        block_tiers = (3 - block_tier_map_np).reshape(-1).astype(np.uint8, copy=False)
+        used_block_tier_map = True
+        threshold_8bit = float("nan")
+        threshold_4bit = float("nan")
+        threshold_2bit = float("nan")
+    elif not per_element_v5:
+        sys.stderr.write(
+            f"[WARN] {export_gguf_base or layer_name}: block_tier_map missing in checkpoint; "
+            "falling back to max(abs)-based block tier selection.\n"
         )
-        block_tiers[order[:n_fp16_blocks]] = 0
-        block_tiers[order[n_fp16_blocks:n_fp16_blocks + n_int8_blocks]] = 1
-        block_tiers[order[n_fp16_blocks + n_int8_blocks:n_fp16_blocks + n_int8_blocks + n_int4_blocks]] = 2
+        block_tiers = np.full(n_blocks, 3, dtype=np.uint8)
+        if threshold_8bit is not None and threshold_4bit is not None and threshold_2bit is not None:
+            block_tiers[block_max > threshold_2bit] = 2
+            block_tiers[block_max > threshold_4bit] = 1
+            block_tiers[block_max > threshold_8bit] = 0
+        else:
+            # The existing SEPTQ v1 checkpoint stores ratios rather than explicit
+            # thresholds. Derive block thresholds by ranking max-abs block scores.
+            order = np.argsort(-block_max, kind="stable")
+            n_fp16_blocks, n_int8_blocks, n_int4_blocks = _ratio_counts(
+                n_blocks,
+                float(module_meta.get("fp16_ratio_real", ratio_fp16)),
+                float(module_meta.get("int8_ratio_real", ratio_int8)),
+                float(module_meta.get("int4_ratio_real", ratio_int4)),
+            )
+            block_tiers[order[:n_fp16_blocks]] = 0
+            block_tiers[order[n_fp16_blocks:n_fp16_blocks + n_int8_blocks]] = 1
+            block_tiers[order[n_fp16_blocks + n_int8_blocks:n_fp16_blocks + n_int8_blocks + n_int4_blocks]] = 2
 
-        def _boundary(count: int) -> float:
-            if count <= 0:
-                return float("inf")
-            if count >= n_blocks:
-                return float("-inf")
-            return float(np.nextafter(block_max[order[count - 1]], -np.inf))
+            def _boundary(count: int) -> float:
+                if count <= 0:
+                    return float("inf")
+                if count >= n_blocks:
+                    return float("-inf")
+                return float(np.nextafter(block_max[order[count - 1]], -np.inf))
 
-        threshold_8bit = _boundary(n_fp16_blocks)
-        threshold_4bit = _boundary(n_fp16_blocks + n_int8_blocks)
-        threshold_2bit = _boundary(n_fp16_blocks + n_int8_blocks + n_int4_blocks)
+            threshold_8bit = _boundary(n_fp16_blocks)
+            threshold_4bit = _boundary(n_fp16_blocks + n_int8_blocks)
+            threshold_2bit = _boundary(n_fp16_blocks + n_int8_blocks + n_int4_blocks)
 
-    values_int2 = blocks[block_tiers == 3].reshape(-1)
-    values_int4 = blocks[block_tiers == 2].reshape(-1)
-    values_int8 = blocks[block_tiers == 1].reshape(-1)
+    if per_element_v5:
+        assert tier_flat is not None
+        w_flat_f32 = w_padded.contiguous().reshape(-1).numpy().astype(np.float32, copy=False)
+        values_int2 = w_flat_f32[tier_flat == 3]
+        values_int4 = w_flat_f32[tier_flat == 2]
+        values_int8 = w_flat_f32[tier_flat == 1]
+    else:
+        values_int2 = blocks[block_tiers == 3].reshape(-1)
+        values_int4 = blocks[block_tiers == 2].reshape(-1)
+        values_int8 = blocks[block_tiers == 1].reshape(-1)
 
     fallback_low = _affine_params_for_values(values_int2, 3, 1.5)
     fallback_int4 = _affine_params_for_values(values_int4, 15, 7.5)
@@ -411,7 +571,11 @@ def create_packed_layer(
     q3_vals = np.clip(np.round(values_int2 / scale_low + zp_low), 0, 3).astype(np.uint8)
     q2_vals = np.clip(np.round(values_int4 / scale_int4 + zp_int4), 0, 15).astype(np.uint8)
     q1_vals = np.clip(np.round(values_int8 / scale_int8 + zp_int8), 0, 255).astype(np.uint8)
-    fp16_values = blocks[block_tiers == 0].reshape(-1).astype(np.float16)
+    if per_element_v5:
+        assert tier_flat is not None
+        fp16_values = w_flat_f32[tier_flat == 0].astype(np.float16)
+    else:
+        fp16_values = blocks[block_tiers == 0].reshape(-1).astype(np.float16)
 
     packed_2 = pack_2bit_values_le(q3_vals) if q3_vals.size else np.zeros(0, dtype=np.uint8)
     packed_4 = pack_4bit_values_le(q2_vals) if q2_vals.size else np.zeros(0, dtype=np.uint8)
@@ -419,7 +583,16 @@ def create_packed_layer(
     packed_weights = np.concatenate([packed_2, packed_4, packed_8])
 
     out: Dict[str, Any] = {}
-    out["packed_mask"] = pack_uint2_mask_le(block_tiers)
+    if per_element_v5:
+        assert packed_mask_bytes is not None
+        out["packed_mask"] = packed_mask_bytes
+        if int(np.sum(tier_flat == 0)) != int(fp16_values.size):
+            raise ValueError(
+                f"{layer_name}: fp16_values length {int(fp16_values.size)} does not match tier==0 count "
+                f"{int(np.sum(tier_flat == 0))} in per-element mask"
+            )
+    else:
+        out["packed_mask"] = pack_uint2_mask_le(block_tiers)
     out["packed_weights"] = packed_weights
     out["n_2bit_bytes"] = np.int32(packed_2.size)
     out["n_4bit_bytes"] = np.int32(packed_4.size)
@@ -436,7 +609,7 @@ def create_packed_layer(
     out["threshold_4bit"] = np.float32(threshold_4bit)
     out["threshold_2bit"] = np.float32(threshold_2bit)
     out["fp16_values"] = fp16_values
-    out["packing_version"] = np.int32(3)
+    out["packing_version"] = np.int32(5 if per_element_v5 else 3)
     if bias is not None:
         out["bias"] = bias.detach().cpu().numpy().astype(np.float32)
 
@@ -445,6 +618,47 @@ def create_packed_layer(
     out["cols"] = np.int32(cols)
 
     out["_scale_source"] = "ptq" if full_ptq else "fallback"
+    if per_element_v5:
+        assert tier_flat is not None
+        n_elems = int(rows * padded_cols)
+        n_fp16_blocks = int(np.sum(tier_flat == 0))
+        n_int8_blocks = int(np.sum(tier_flat == 1))
+        n_int4_blocks = int(np.sum(tier_flat == 2))
+        n_int2_blocks = int(np.sum(tier_flat == 3))
+        frac_fp16 = float(n_fp16_blocks / max(1, n_elems))
+        frac_int8 = float(n_int8_blocks / max(1, n_elems))
+        frac_int4 = float(n_int4_blocks / max(1, n_elems))
+        frac_int2 = float(n_int2_blocks / max(1, n_elems))
+    else:
+        n_fp16_blocks = int(np.sum(block_tiers == 0))
+        n_int8_blocks = int(np.sum(block_tiers == 1))
+        n_int4_blocks = int(np.sum(block_tiers == 2))
+        n_int2_blocks = int(np.sum(block_tiers == 3))
+        frac_fp16 = float(n_fp16_blocks / max(1, n_blocks))
+        frac_int8 = float(n_int8_blocks / max(1, n_blocks))
+        frac_int4 = float(n_int4_blocks / max(1, n_blocks))
+        frac_int2 = float(n_int2_blocks / max(1, n_blocks))
+    effective_bits = (
+        16.0 * frac_fp16
+        + 8.0 * frac_int8
+        + 4.0 * frac_int4
+        + 2.0 * frac_int2
+    )
+    packed_bytes = int(
+        packed_2.size + packed_4.size + packed_8.size + out["packed_mask"].nbytes + fp16_values.nbytes
+    )
+    out["_tier_summary"] = {
+        "module_name": str(layer_name),
+        "n_blocks": int(n_blocks),
+        "frac_fp16": float(frac_fp16),
+        "frac_int8": float(frac_int8),
+        "frac_int4": float(frac_int4),
+        "frac_int2": float(frac_int2),
+        "effective_bits_per_weight": float(effective_bits),
+        "packed_mb": float(packed_bytes / (1024.0 * 1024.0)),
+        "used_block_tier_map": bool(used_block_tier_map),
+        "per_element_mask": bool(per_element_v5),
+    }
     return out
 
 
@@ -510,6 +724,8 @@ def write_with_gguf(out_path: str, blobs: Dict[str, Any]) -> None:
                 continue
         if arr.ndim == 0:
             arr = arr.reshape(1)
+        if isinstance(arr, np.ndarray) and arr.size > 0:
+            _assert_single_tensor_payload_fits(str(name), int(arr.nbytes))
         if hasattr(arr, 'dtype') and arr.dtype.kind == 'u':
             mapping = {1: np.int8, 2: np.int16, 4: np.int32, 8: np.int64}
             arr = arr.view(mapping.get(arr.dtype.itemsize, np.int8))
@@ -579,12 +795,21 @@ def main() -> None:
     module_meta_lookup = build_module_meta_lookup(stats_source)
     print(f"[EXPORT] module_meta lookup: {len(module_meta_lookup)} entries from PTQ per_layer_stats (resolved source).")
 
+    tier_masks_resolved = _merged_tier_masks_uint2(ckpt, stats_source)
+    if tier_masks_resolved:
+        print(
+            f"[EXPORT] tier_masks_uint2 resolved: {len(tier_masks_resolved)} module(s) "
+            f"(merged QAT checkpoint + PTQ stats source for legacy block-pack path).",
+            file=sys.stderr,
+        )
+
     # Collect blobs to write
     blobs: Dict[str, Any] = {}
 
     total_orig_bytes = 0
     total_packed_bytes = 0
     packed_scale_stats = {"ptq": 0, "fallback": 0}
+    tier_summaries: list[Dict[str, Any]] = []
 
     def _count_scale_source(blobs_for_layer: Dict[str, Any]) -> None:
         src = str(blobs_for_layer.pop("_scale_source", "fallback"))
@@ -592,6 +817,9 @@ def main() -> None:
             packed_scale_stats["ptq"] += 1
         else:
             packed_scale_stats["fallback"] += 1
+        summary = blobs_for_layer.pop("_tier_summary", None)
+        if isinstance(summary, dict):
+            tier_summaries.append(summary)
     ratio_fp16 = float(septq_meta.get("ratio_fp16", DEFAULT_RATIO_FP16)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_FP16
     ratio_int8 = float(septq_meta.get("ratio_int8", DEFAULT_RATIO_INT8)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_INT8
     ratio_int4 = float(septq_meta.get("ratio_int4", DEFAULT_RATIO_INT4)) if isinstance(septq_meta, dict) else DEFAULT_RATIO_INT4
@@ -644,15 +872,17 @@ def main() -> None:
             return False
         module_meta = module_meta_lookup.get(src_key, {})
         bias = state_dict.get(bias_key) if bias_key else None
+        packed_mask_tensor = _lookup_tier_mask_uint2_for_weight_key(tier_masks_resolved, src_key)
         blobs_for_layer = create_packed_layer(
             src_key,
             dense_tensor,
-            None,
+            packed_mask_tensor,
             module_meta,
             bias=bias,
             ratio_fp16=ratio_fp16,
             ratio_int8=ratio_int8,
             ratio_int4=ratio_int4,
+            block_tier_map_tensor=block_tier_map.get(src_key),
             export_gguf_base=dst_key,
             require_ptq_scales=bool(args.require_ptq_scales),
         )
@@ -660,7 +890,8 @@ def main() -> None:
         orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
         total_orig_bytes += orig_bytes
         packed_bytes = add_packed_blobs(dst_key, blobs_for_layer)
-        print(f"[EXPORT]   block-pack {src_key} -> {dst_key} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
+        tag = "septq-pack" if int(blobs_for_layer.get("packing_version", 3)) >= 5 else "block-pack"
+        print(f"[EXPORT]   {tag} {src_key} -> {dst_key} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
         return True
 
     # Iterate through state_dict and find layers that match MultiTier naming
@@ -668,6 +899,9 @@ def main() -> None:
     tier_masks_uint2 = ckpt.get("tier_masks_uint2", {})
     if not tier_masks_uint2:
         tier_masks_uint2 = septq_meta.get("tier_masks_uint2", {})
+    block_tier_map = ckpt.get("block_tier_map", {})
+    if not isinstance(block_tier_map, dict):
+        block_tier_map = {}
 
     candidate_layers = []
     if tier_masks_uint2:
@@ -724,6 +958,7 @@ def main() -> None:
             ratio_fp16=ratio_fp16,
             ratio_int8=ratio_int8,
             ratio_int4=ratio_int4,
+            block_tier_map_tensor=block_tier_map.get(layer_name),
             export_gguf_base=base,
             require_ptq_scales=bool(args.require_ptq_scales),
         )
@@ -1012,6 +1247,19 @@ def main() -> None:
         f"[export] tensors with fallback scales: {packed_scale_stats['fallback']}",
         file=sys.stderr,
     )
+    if tier_summaries:
+        print("[EXPORT] Per-tensor block tier mix:")
+        print(
+            f"{'module_name':80s} {'n_blocks':>10s} {'frac_FP16':>10s} {'frac_INT8':>10s} "
+            f"{'frac_INT4':>10s} {'frac_INT2':>10s} {'eff_bpw':>10s} {'packed_MB':>10s}"
+        )
+        for s in tier_summaries:
+            print(
+                f"{str(s['module_name'])[:80]:80s} {int(s['n_blocks']):10d} "
+                f"{float(s['frac_fp16']):10.4f} {float(s['frac_int8']):10.4f} "
+                f"{float(s['frac_int4']):10.4f} {float(s['frac_int2']):10.4f} "
+                f"{float(s['effective_bits_per_weight']):10.4f} {float(s['packed_mb']):10.3f}"
+            )
 
 
 if __name__ == "__main__":

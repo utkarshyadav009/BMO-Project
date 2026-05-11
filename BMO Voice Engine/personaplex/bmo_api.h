@@ -74,6 +74,22 @@ BMO_API int bmo_forward_temporal(
     float * out_transformer,
     float * out_text_logits);
 
+// Same as bmo_forward_temporal, plus optional capture of post-layer hidden states
+// (graph tensors named out_layer_{L}, shape [n_embd] for single-token decode).
+// If n_capture_layers > 0, capture_layers must point to n_capture_layers int32
+// layer indices and capture_out must hold n_capture_layers * n_embd floats.
+// If n_capture_layers == 0, capture_layers and capture_out may be NULL.
+BMO_API int bmo_forward_temporal2(
+    bmo_handle_t * h,
+    const int32_t * input_tokens,
+    int num_codebooks,
+    int pos,
+    float * out_transformer,
+    float * out_text_logits,
+    const int32_t * capture_layers,
+    int n_capture_layers,
+    float * capture_out);
+
 // Runs the depformer (depth) transformer for a single codebook step.
 //
 // cb_index         : depformer codebook index in [0, dep_q).

@@ -1,4 +1,4 @@
-﻿// Jetson fused linear passes per-row tier bases into fused matvec kernel.
+// Jetson fused linear passes per-row tier bases into fused matvec kernel.
 #include "bmo.h"
 
 #include <stdlib.h>
@@ -69,6 +69,181 @@ static void bmo_dump_tensor_f32(struct ggml_tensor * t, const char * name, bmo_d
     }
 }
 
+// Path B Diagnostic 2: optional first-8 + L2 taps. Enable with: BMO_H3_TAPS=1
+//  - T1,T3,T4,T5,T6: L in {0, 1, 4, 8}.
+//  - T2 (residual_out): L in {0,1,4,8,16,24,31}.
+//  - T7 (post_out_norm), T8 (final_logits): head path, no layer index.
+#ifdef BMO_JETSON
+static bool bmo_h3_in_t1_t6_layer_set(int layer) {
+    static const int k_t1_t6_layers[] = {0, 1, 4, 8};
+    for (int tl : k_t1_t6_layers) {
+        if (tl == layer) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool bmo_h3_tap_allow_layer_for_tag(const char * tap_id, int layer) {
+    if (std::strcmp(tap_id, "T2") == 0) {
+        static const int k_t2_layers[] = {0, 1, 4, 8, 16, 24, 31};
+        for (int tl : k_t2_layers) {
+            if (tl == layer) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return bmo_h3_in_t1_t6_layer_set(layer);
+}
+
+// Full float32 residual row at T2 (device-side tap), for offline cos vs PT.
+// Set BMO_H3_DUMP_RESIDUAL_BINS=1; optional BMO_H3_RESIDUAL_BIN_DIR=/abs/path (default cwd).
+static void bmo_h3_tap_maybe_dump_t2_residual_bin(int layer, const float * p, int64_t n) {
+    if (!getenv("BMO_H3_DUMP_RESIDUAL_BINS")) {
+        return;
+    }
+    if (!bmo_h3_tap_allow_layer_for_tag("T2", layer)) {
+        return;
+    }
+    char path[1024];
+    int nc;
+    const char * dir = getenv("BMO_H3_RESIDUAL_BIN_DIR");
+    if (dir && dir[0]) {
+        nc = snprintf(path, sizeof path, "%s/cpp_residual_L%d.bin", dir, layer);
+    } else {
+        nc = snprintf(path, sizeof path, "cpp_residual_L%d.bin", layer);
+    }
+    if (nc < 0 || (size_t) nc >= sizeof path) {
+        fprintf(stderr, "[h3_dump] path too long or snprintf error (layer %d)\n", layer);
+        return;
+    }
+    FILE * fp = fopen(path, "wb");
+    if (!fp) {
+        fprintf(stderr, "[h3_dump] fopen failed %s\n", path);
+        return;
+    }
+    const size_t nw = fwrite(p, sizeof(float), (size_t) n, fp);
+    fclose(fp);
+    if (nw != (size_t) n) {
+        fprintf(stderr, "[h3_dump] short write %s (%zu/%lld floats)\n", path, nw, (long long) n);
+    }
+}
+
+// Optional full-vector dumps for offline cos vs PT (BMO_H3_DUMP_TAP_BINS=1).
+// Directory: BMO_H3_TAP_BIN_DIR, else BMO_H3_RESIDUAL_BIN_DIR, else cwd.
+// Skips T2 (use cpp_residual_L{L}.bin from BMO_H3_DUMP_RESIDUAL_BINS).
+static void bmo_h3_tap_maybe_dump_tap_bin(const char * tap_id, int layer, const float * p, int64_t n) {
+    if (!getenv("BMO_H3_DUMP_TAP_BINS")) {
+        return;
+    }
+    if (std::strcmp(tap_id, "T2") == 0) {
+        return;
+    }
+    if (!bmo_h3_in_t1_t6_layer_set(layer)) {
+        return;
+    }
+    const char * dir = getenv("BMO_H3_TAP_BIN_DIR");
+    if (!dir || !dir[0]) {
+        dir = getenv("BMO_H3_RESIDUAL_BIN_DIR");
+    }
+    char path[1024];
+    int nc;
+    if (dir && dir[0]) {
+        nc = snprintf(path, sizeof path, "%s/cpp_h3_%s_L%d.bin", dir, tap_id, layer);
+    } else {
+        nc = snprintf(path, sizeof path, "cpp_h3_%s_L%d.bin", tap_id, layer);
+    }
+    if (nc < 0 || (size_t) nc >= sizeof path) {
+        fprintf(stderr, "[h3_tap_dump] path error (layer %d %s)\n", layer, tap_id);
+        return;
+    }
+    FILE * fp = fopen(path, "wb");
+    if (!fp) {
+        fprintf(stderr, "[h3_tap_dump] fopen failed %s\n", path);
+        return;
+    }
+    const size_t nw = fwrite(p, sizeof(float), (size_t) n, fp);
+    fclose(fp);
+    if (nw != (size_t) n) {
+        fprintf(stderr, "[h3_tap_dump] short write %s (%zu/%lld)\n", path, nw, (long long) n);
+    }
+}
+
+static void bmo_h3_tap(int layer, const char * tap_id, ggml_tensor * t) {
+    const bool want_print = getenv("BMO_H3_TAPS") != nullptr;
+    const bool want_t2_bin =
+        getenv("BMO_H3_DUMP_RESIDUAL_BINS") != nullptr && std::strcmp(tap_id, "T2") == 0 &&
+        bmo_h3_tap_allow_layer_for_tag("T2", layer);
+    const bool want_tap_bin = getenv("BMO_H3_DUMP_TAP_BINS") != nullptr;
+    const bool tap_bin_eligible =
+        want_tap_bin && std::strcmp(tap_id, "T2") != 0 && bmo_h3_in_t1_t6_layer_set(layer);
+    if (!want_print && !want_t2_bin && !tap_bin_eligible) {
+        return;
+    }
+    if (want_print && !bmo_h3_tap_allow_layer_for_tag(tap_id, layer)) {
+        return;
+    }
+    if (!t || t->type != GGML_TYPE_F32 || !t->data) {
+        if (want_print) {
+            fprintf(stderr, "[h3_tap_%s] L=%d <null or non-f32>\n", tap_id, layer);
+        }
+        return;
+    }
+    cudaStreamSynchronize(0);
+    (void) cudaGetLastError();
+    const int64_t n = ggml_nelements(t);
+    const float * p = (const float *) t->data;
+    if (want_t2_bin) {
+        bmo_h3_tap_maybe_dump_t2_residual_bin(layer, p, n);
+    }
+    bmo_h3_tap_maybe_dump_tap_bin(tap_id, layer, p, n);
+    if (!want_print) {
+        return;
+    }
+    double s2 = 0.0;
+    for (int64_t i = 0; i < n; ++i) {
+        s2 += (double) p[i] * (double) p[i];
+    }
+    const float l2 = (float) std::sqrt(s2);
+    const int k = (int) std::min<int64_t>(8, n);
+    fprintf(stderr, "[h3_tap_%s] L=%d n=%lld l2=%.6f first8=", tap_id, layer, (long long) n, l2);
+    for (int i = 0; i < k; ++i) {
+        fprintf(stderr, "%s%.6f", (i > 0) ? "," : "", p[i]);
+    }
+    fprintf(stderr, "\n");
+}
+
+// e.g. [h3_tap_T7] post_out_norm n=... l2=... first8=...
+static void bmo_h3_tap_head(const char * tag, const char * sublabel, ggml_tensor * t) {
+    if (!getenv("BMO_H3_TAPS")) {
+        return;
+    }
+    if (!t || t->type != GGML_TYPE_F32 || !t->data) {
+        fprintf(stderr, "[h3_tap_%s] %s <null or non-f32>\n", tag, sublabel);
+        return;
+    }
+    cudaStreamSynchronize(0);
+    (void) cudaGetLastError();
+    const int64_t n = ggml_nelements(t);
+    const float * p = (const float *) t->data;
+    double s2 = 0.0;
+    for (int64_t i = 0; i < n; ++i) {
+        s2 += (double) p[i] * (double) p[i];
+    }
+    const float l2 = (float) std::sqrt(s2);
+    const int k = (int) std::min<int64_t>(8, n);
+    fprintf(stderr, "[h3_tap_%s] %s n=%lld l2=%.6f first8=", tag, sublabel, (long long) n, l2);
+    for (int i = 0; i < k; ++i) {
+        fprintf(stderr, "%s%.6f", (i > 0) ? "," : "", p[i]);
+    }
+    fprintf(stderr, "\n");
+}
+#else
+static inline void bmo_h3_tap(int /*layer*/, const char * /*tap_id*/, ggml_tensor * /*t*/) {}
+static inline void bmo_h3_tap_head(const char * /*tag*/, const char * /*sublabel*/, ggml_tensor * /*t*/) {}
+#endif
+
 #ifdef BMO_ENABLE_CUDA
 #ifndef BMO_JETSON
 void launch_unpack_kernel(
@@ -89,6 +264,8 @@ void launch_unpack_kernel(
 #endif
 
 #ifdef BMO_JETSON
+#include "bmo_proto_kernels.h"
+
 // ---------- GPU staging pool: borrow/release ----------
 
 struct staging_slot {
@@ -97,6 +274,91 @@ struct staging_slot {
     int                 idx  = -1;
     gpu_staging_pool *  pool = nullptr;
 };
+
+// Path B: packing_version >= 5 uses per-element mask + proto kernel; v4 uses v2 + shared-memory prefix.
+static void launch_fused_dequant_matvec_jetson(
+    const device_packed_t & dp,
+    const char *            tensor_base,
+    const void *            kern_pw,
+    const void *            kern_pm,
+    const void *            kern_fv,
+    int                       rows,
+    int                       cols,
+    int                       block_size_eff,
+    const float *           x_dev,
+    float *                 y_dev,
+    void *                  stream) {
+    cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
+
+    // H2 diagnostic: log every fused dequant->matvec dispatch (register pointers are expected to be distinct per-layer).
+    std::fprintf(stderr,
+                 "[h2_diag_matvec] tensor=%s pv=%d valid=%d "
+                 "in_dev=%p out_dev=%p "
+                 "row_c2=%p row_c4=%p row_c8=%p row_c16=%p "
+                 "canonical_int2=%p canonical_fp16=%p\n",
+                 tensor_base ? tensor_base : "(null)",
+                 (int) dp.packing_version,
+                 (int) dp.is_valid,
+                 (void *) x_dev,
+                 (void *) y_dev,
+                 (void *) dp.row_c2,
+                 (void *) dp.row_c4,
+                 (void *) dp.row_c8,
+                 (void *) dp.row_c16,
+                 (void *) dp.canonical_pw_dev,
+                 (void *) dp.canonical_fv_dev);
+
+    if (dp.packing_version >= 5) {
+        if (!dp.row_c16) {
+            throw std::runtime_error("packing_version>=5 requires row_c16");
+        }
+        launch_fused_dequant_matvec_proto(
+            kern_pw,
+            kern_pm,
+            kern_fv,
+            dp.row_c2,
+            dp.row_c4,
+            dp.row_c8,
+            dp.row_c16,
+            rows,
+            cols,
+            block_size_eff,
+            dp.n_2bit_bytes,
+            dp.n_4bit_bytes,
+            dp.scale_low,
+            dp.scale_int4,
+            dp.scale_int8,
+            dp.zp_low,
+            dp.zp_int4,
+            dp.zp_int8,
+            x_dev,
+            y_dev,
+            8,
+            s);
+    } else {
+        launch_fused_dequant_matvec(
+            kern_pw,
+            kern_pm,
+            kern_fv,
+            dp.row_c2,
+            dp.row_c4,
+            dp.row_c8,
+            rows,
+            cols,
+            block_size_eff,
+            dp.n_2bit_bytes,
+            dp.n_4bit_bytes,
+            dp.scale_low,
+            dp.scale_int4,
+            dp.scale_int8,
+            dp.zp_low,
+            dp.zp_int4,
+            dp.zp_int8,
+            x_dev,
+            y_dev,
+            stream);
+    }
+}
 
 static staging_slot borrow_staging(gpu_staging_pool & p) {
     for (int i = 0; i < gpu_staging_pool::N_SLOTS; ++i) {
@@ -180,11 +442,27 @@ static ggml_tensor * apply_rmsnorm_gpu(
             x_col_dev = (const float *) in_slot.dev;
         }
 
+        // cudaGetLastError() is sticky per host thread; clear any prior unchecked
+        // failure (e.g. optional cudaHostRegister paths during model prep) so we
+        // only attribute errors to this launch. The x_mapped=true path skips the
+        // flush that runs after a failed cudaHostGetDevicePointer on x.
+        (void) cudaGetLastError();
+
         launch_rmsnorm(x_col_dev, w_dev, eps, n_embd, y_dev_slot, nullptr);
 
         // Deferred sync: a boundary cudaStreamSynchronize before the next CPU
         // consumer (flash_attn / silu) ensures the kernel has retired.
-        if (cudaGetLastError() != cudaSuccess) {
+        cudaError_t rms_err = cudaGetLastError();
+        if (rms_err != cudaSuccess) {
+            fprintf(stderr,
+                    "[apply_rmsnorm_gpu] CUDA error after launch_rmsnorm: %s | grid=(1,1,1) block=(256,1,1) "
+                    "n_embd=%d n_tok=%lld stream=default x_dev=%p w_dev=%p y_dev=%p\n",
+                    cudaGetErrorString(rms_err),
+                    n_embd,
+                    (long long) n_tok,
+                    (const void *) x_col_dev,
+                    (const void *) w_dev,
+                    (void *) y_dev_slot);
             throw std::runtime_error("apply_rmsnorm_gpu: kernel launch error");
         }
 
@@ -893,6 +1171,7 @@ static void unpack_layer_to_f32_blockwise(
     int32_t rows,
     int32_t cols,
     int32_t block_size,
+    int32_t packing_version,
     int32_t n_2bit_bytes,
     int32_t n_4bit_bytes,
     int32_t n_8bit_bytes,
@@ -905,11 +1184,45 @@ static void unpack_layer_to_f32_blockwise(
     const ggml_fp16_t * fp16_values,
     float * out_w) {
     const int64_t total = (int64_t) rows * (int64_t) cols;
-    const int64_t n_blocks = (total + block_size - 1) / block_size;
     const uint8_t * stream2 = packed_weights;
     const uint8_t * stream4 = packed_weights + n_2bit_bytes;
     const uint8_t * stream8 = packed_weights + n_2bit_bytes + n_4bit_bytes;
 
+    if (packing_version >= 5) {
+        int32_t c2 = 0;
+        int32_t c4 = 0;
+        int32_t c8 = 0;
+        int32_t c16 = 0;
+        for (int64_t pos = 0; pos < total; ++pos) {
+            const uint8_t mbyte = packed_mask[(size_t) (pos / 4)];
+            const uint8_t tier = unpack_u2_le(mbyte, (int) (pos % 4));
+            float v = 0.0f;
+            if (tier == 0) {
+                v = ggml_fp16_to_fp32(fp16_values[(size_t) c16]);
+                ++c16;
+            } else if (tier == 1) {
+                const uint8_t q = stream8[(size_t) c8];
+                ++c8;
+                v = ((float) q - zp_int8) * scale_int8;
+            } else if (tier == 2) {
+                const int32_t idx = c4;
+                const uint8_t b = stream4[(size_t) (idx / 2)];
+                const uint8_t q = (idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+                ++c4;
+                v = ((float) q - zp_int4) * scale_int4;
+            } else {
+                const int32_t idx = c2;
+                const uint8_t b = stream2[(size_t) (idx / 4)];
+                const uint8_t q = unpack_u2_le(b, (int) (idx % 4));
+                ++c2;
+                v = ((float) q - zp_low) * scale_low;
+            }
+            out_w[(size_t) pos] = v;
+        }
+        return;
+    }
+
+    const int64_t n_blocks = (total + block_size - 1) / block_size;
     int32_t c2 = 0;
     int32_t c4 = 0;
     int32_t c8 = 0;
@@ -1037,7 +1350,7 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     throw std::runtime_error("Jetson fused: preloaded canonical fv missing for "
                                              + linear.base);
                 }
-                if (!dp_ref.row_c2 || !dp_ref.row_c4 || !dp_ref.row_c8) {
+                if (!dp_ref.row_c2 || !dp_ref.row_c4 || !dp_ref.row_c8 || !dp_ref.row_c16) {
                     throw std::runtime_error("Jetson fused: row tier-base device buffers missing for "
                                              + linear.base);
                 }
@@ -1088,24 +1401,15 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                     }
 
                     staging_slot out_slot = borrow_staging(ctx.staging);
-                    launch_fused_dequant_matvec(
+                    launch_fused_dequant_matvec_jetson(
+                        dp_ref,
+                        linear.base.c_str(),
                         kern_pw,
                         kern_pm,
                         kern_fv,
-                        dp_ref.row_c2,
-                        dp_ref.row_c4,
-                        dp_ref.row_c8,
                         rows,
                         cols,
                         block_size_eff,
-                        dp_ref.n_2bit_bytes,
-                        dp_ref.n_4bit_bytes,
-                        dp_ref.scale_low,
-                        dp_ref.scale_int4,
-                        dp_ref.scale_int8,
-                        dp_ref.zp_low,
-                        dp_ref.zp_int4,
-                        dp_ref.zp_int8,
                         x_dev,
                         reinterpret_cast<float *>(out_slot.dev),
                         nullptr);
@@ -1149,24 +1453,15 @@ static ggml_tensor * apply_linear_with_transient_unpack(
                         (const uint8_t *) x->data + (size_t) t * x->nb[1]);
                     std::memcpy(ctx.cuda_fused_input_buffer, x_col, x_vec_bytes);
 
-                    launch_fused_dequant_matvec(
+                    launch_fused_dequant_matvec_jetson(
+                        dp_ref,
+                            linear.base.c_str(),
                         kern_pw,
                         kern_pm,
                         kern_fv,
-                        dp_ref.row_c2,
-                        dp_ref.row_c4,
-                        dp_ref.row_c8,
                         rows,
                         cols,
                         block_size_eff,
-                        dp_ref.n_2bit_bytes,
-                        dp_ref.n_4bit_bytes,
-                        dp_ref.scale_low,
-                        dp_ref.scale_int4,
-                        dp_ref.scale_int8,
-                        dp_ref.zp_low,
-                        dp_ref.zp_int4,
-                        dp_ref.zp_int8,
                         reinterpret_cast<const float *>(ctx.cuda_fused_input_buffer_dev),
                         fused_out_dev,
                         nullptr);
@@ -1298,12 +1593,15 @@ static ggml_tensor * apply_linear_with_transient_unpack(
             }
 
             if (block_size > 0) {
+                const int32_t packing_version =
+                    read_scalar_i32(model.wctx, linear.base + ".packing_version", 3);
                 unpack_layer_to_f32_blockwise(
                     pw,
                     pm,
                     rows,
                     cols,
                     block_size,
+                    packing_version,
                     n_2bit_bytes,
                     n_4bit_bytes,
                     n_8bit_bytes,
@@ -1605,6 +1903,10 @@ void bmo_execute_graph(bmo_context & ctx, ggml_cgraph * gf, const std::vector<te
     ctx.graph_uploads.clear();
 
 #ifdef BMO_JETSON
+    // Drop any sticky runtime error from earlier CUDA API calls in this thread
+    // (e.g. failed-but-non-fatal cudaHostRegister during init) so a subsequent
+    // cudaGetLastError() inside eager kernels is not mis-attributed.
+    (void) cudaGetLastError();
     // Drain any in-flight eager GPU work (apply_linear, apply_rmsnorm_gpu,
     // apply_residual_gpu, apply_rope_gpu_interleaved, apply_swiglu_gpu) before
     // the CPU graph compute reads from staging-slot leaves. Per-op syncs were
@@ -1735,6 +2037,7 @@ ggml_cgraph * bmo_build_temporal_graph(
             x_norm = ggml_mul(wctx, x_norm, model.temporal_layers[layer].norm1_weight);
         }
 #endif
+        bmo_h3_tap(layer, "T3", x_norm);
         if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
             bmo_dump_tensor_f32(x_norm, "layer0_post_norm1");
         }
@@ -1747,6 +2050,7 @@ ggml_cgraph * bmo_build_temporal_graph(
                 base + "_self_attn_in_proj_weight",
                 base + "_self_attn_in_proj",
             });
+        bmo_h3_tap(layer, "T4", qkv);
 
         // Diagnostic for the K=0 bug (Phase 4.4): on layer 0, print the input
         // (x_norm) and the QKV output to pinpoint whether zeros come from the
@@ -1849,6 +2153,7 @@ ggml_cgraph * bmo_build_temporal_graph(
                 ggml_tensor * attn_3d = apply_attention_eager_decode(
                     ctx, wctx, q_rope, k_rope, v_raw, n_past, layer);
                 attn_2d = ggml_reshape_2d(wctx, attn_3d, ctx.n_embd, n_token);
+                bmo_h3_tap(layer, "T5", attn_2d);
             }
 #endif
             if (!attn_2d) {
@@ -1892,6 +2197,7 @@ ggml_cgraph * bmo_build_temporal_graph(
                 ggml_tensor * attn_trans_out = ggml_permute(wctx, attn_heads, 0, 2, 1, 3);
                 ggml_tensor * attn_cont      = ggml_cont(wctx, attn_trans_out);
                 attn_2d                      = ggml_reshape_2d(wctx, attn_cont, ctx.n_embd, n_token);
+                bmo_h3_tap(layer, "T5", attn_2d);
             }
 
             ggml_tensor * attn_out = apply_linear_with_transient_unpack(
@@ -1919,6 +2225,7 @@ ggml_cgraph * bmo_build_temporal_graph(
 #else
             x = ggml_add(wctx, S(residual), S(attn_out));
 #endif
+            bmo_h3_tap(layer, "T1", x);
             if (dump_this_layer) {
                 bmo_dump_tensor_f32(
                     x,
@@ -1989,6 +2296,7 @@ ggml_cgraph * bmo_build_temporal_graph(
                     ("layer" + std::to_string(layer) + "_post_ffn").c_str(),
                     bmo_dump_kind::Deep);
             }
+            bmo_h3_tap(layer, "T6", ff_out);
 
             if (ggml_nelements(ff_out) != ggml_nelements(ff_residual)) {
                 throw std::runtime_error(
@@ -2003,6 +2311,7 @@ ggml_cgraph * bmo_build_temporal_graph(
                 x = ggml_add(wctx, S(ff_residual), S(ff_out));
 #endif
             }
+            bmo_h3_tap(layer, "T2", x);
         }
 
         if (layer == 0 && getenv("BMO_DUMP_LAYER0")) {
@@ -2094,6 +2403,7 @@ ggml_cgraph * bmo_build_temporal_graph(
             ggml_tensor * normed = ggml_rms_norm(wctx, x, 1e-5f);
             final_x = ggml_mul(wctx, normed, model.out_norm_weight);
 #endif
+            bmo_h3_tap_head("T7", "post_out_norm", final_x);
         }
 
         // Final residual stats just before LM head. Pairs with the per-layer
@@ -2140,6 +2450,7 @@ ggml_cgraph * bmo_build_temporal_graph(
             }
             ggml_set_name(text_logits, "text_logits");
             ggml_build_forward_expand(gf, text_logits);
+            bmo_h3_tap_head("T8", "final_logits", text_logits);
         }
     }
 

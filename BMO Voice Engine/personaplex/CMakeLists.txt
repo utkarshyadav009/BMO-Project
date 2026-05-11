@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.20)
 
 option(BMO_ENABLE_CUDA "Enable ggml CUDA backend when available" OFF)
 option(BMO_TARGET_JETSON "Optimize build specifically for Jetson Orin Nano" OFF)
+# Semicolon-separated real arch list for bmo's own CUDA TUs (e.g. 87;90).
+# Empty + BMO_TARGET_JETSON=ON  -> 87 only (Jetson ship default).
+# Empty + Jetson off            -> CMAKE_CUDA_ARCHITECTURES or 90;87.
+# Set to 87;90 when building the Jetson code path on an H100 (native sm_90 cubin).
+set(BMO_CUDA_ARCHS "" CACHE STRING
+    "CUDA arch list for bmo CUDA targets (e.g. 87;90). Empty+Jetson=ON->87 only. Empty+Jetson=OFF->CMAKE_CUDA_ARCHITECTURES or 90;87.")
 
 if(BMO_ENABLE_CUDA)
     project(bmo_minimal LANGUAGES C CXX CUDA)
@@ -71,7 +77,7 @@ endif()
 add_library(bmo STATIC bmo.cpp bmo_compute.cpp)
 
 if(BMO_ENABLE_CUDA)
-    target_sources(bmo PRIVATE bmo_cuda_kernels.cu)
+    target_sources(bmo PRIVATE bmo_cuda_kernels.cu bmo_cuda_kernels_proto.cu)
     set_target_properties(bmo PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 endif()
 
@@ -136,6 +142,41 @@ if(BMO_ENABLE_CUDA)
     target_include_directories(bmo_fused_mat_test PRIVATE "${CMAKE_SOURCE_DIR}")
     target_link_libraries(bmo_fused_mat_test PRIVATE ${_link_targets} bmo)
     set_target_properties(bmo_fused_mat_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
+    # Path-B SEPTQ prototype: per-element mask + warp-ballot prefix (also linked into bmo / bmo_shared).
+    add_executable(bmo_proto_test bmo_proto_test.cu)
+    target_include_directories(bmo_proto_test PRIVATE "${CMAKE_SOURCE_DIR}")
+    if(EXISTS "${LLAMA_CPP_DIR}/ggml/include")
+        target_include_directories(bmo_proto_test PRIVATE "${LLAMA_CPP_DIR}/ggml/include")
+    endif()
+    if(DEFINED llamacpp_SOURCE_DIR AND EXISTS "${llamacpp_SOURCE_DIR}/ggml/include")
+        target_include_directories(bmo_proto_test PRIVATE "${llamacpp_SOURCE_DIR}/ggml/include")
+    endif()
+    target_link_libraries(
+        bmo_proto_test
+        PRIVATE
+            bmo
+            ${_link_targets}
+            CUDA::cudart
+            CUDA::cuda_driver)
+    set_target_properties(bmo_proto_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
+    add_executable(bmo_v5_runtime_test bmo_v5_runtime_test.cu)
+    target_include_directories(bmo_v5_runtime_test PRIVATE "${CMAKE_SOURCE_DIR}")
+    if(EXISTS "${LLAMA_CPP_DIR}/ggml/include")
+        target_include_directories(bmo_v5_runtime_test PRIVATE "${LLAMA_CPP_DIR}/ggml/include")
+    endif()
+    if(DEFINED llamacpp_SOURCE_DIR AND EXISTS "${llamacpp_SOURCE_DIR}/ggml/include")
+        target_include_directories(bmo_v5_runtime_test PRIVATE "${llamacpp_SOURCE_DIR}/ggml/include")
+    endif()
+    target_link_libraries(
+        bmo_v5_runtime_test
+        PRIVATE
+            bmo
+            ${_link_targets}
+            CUDA::cudart
+            CUDA::cuda_driver)
+    set_target_properties(bmo_v5_runtime_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 endif()
 
 # -----------------------------------------------------------------------------
@@ -148,7 +189,7 @@ find_package(Threads REQUIRED)
 
 set(_bmo_shared_sources bmo.cpp bmo_compute.cpp bmo_api.cpp)
 if(BMO_ENABLE_CUDA)
-    list(APPEND _bmo_shared_sources bmo_cuda_kernels.cu)
+    list(APPEND _bmo_shared_sources bmo_cuda_kernels.cu bmo_cuda_kernels_proto.cu)
 endif()
 
 add_library(bmo_shared SHARED ${_bmo_shared_sources})
@@ -175,9 +216,6 @@ endif()
 if(BMO_ENABLE_CUDA)
     target_compile_definitions(bmo_shared PRIVATE BMO_ENABLE_CUDA=1)
     set_target_properties(bmo_shared PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-    if(BMO_TARGET_JETSON)
-        set_property(TARGET bmo_shared PROPERTY CUDA_ARCHITECTURES 87)
-    endif()
     target_link_libraries(bmo_shared PRIVATE CUDA::cudart CUDA::cuda_driver)
 endif()
 
@@ -185,3 +223,32 @@ target_link_libraries(bmo_shared PRIVATE ${_link_targets} Threads::Threads)
 
 message(STATUS "bmo_shared sources: ${_bmo_shared_sources}")
 message(STATUS "bmo_shared linking: ${_link_targets} Threads::Threads")
+
+# BMO CUDA .cu objects: pin real arch list so libbmo.so is not sm_87-only when
+# testing the Jetson code path on H100 (avoids PTX JIT / unsupported-toolchain).
+if(BMO_ENABLE_CUDA)
+    if(NOT BMO_CUDA_ARCHS STREQUAL "")
+        set(_bmo_cuda_archs "${BMO_CUDA_ARCHS}")
+    elseif(BMO_TARGET_JETSON)
+        set(_bmo_cuda_archs "87")
+    else()
+        if(CMAKE_CUDA_ARCHITECTURES)
+            set(_bmo_cuda_archs "${CMAKE_CUDA_ARCHITECTURES}")
+        else()
+            set(_bmo_cuda_archs "90;87")
+        endif()
+    endif()
+    message(STATUS "BMO CUDA targets CUDA_ARCHITECTURES: ${_bmo_cuda_archs}")
+    set(_bmo_cuda_targets
+        bmo
+        bmo_shared
+        bmo_unpack_kernel_test
+        bmo_fused_mat_test
+        bmo_proto_test
+        bmo_v5_runtime_test)
+    foreach(_bt IN LISTS _bmo_cuda_targets)
+        if(TARGET ${_bt})
+            set_property(TARGET ${_bt} PROPERTY CUDA_ARCHITECTURES "${_bmo_cuda_archs}")
+        endif()
+    endforeach()
+endif()

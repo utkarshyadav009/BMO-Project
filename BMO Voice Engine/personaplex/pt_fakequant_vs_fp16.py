@@ -55,6 +55,10 @@ from qat_septq import gather_qat_entries, register_fake_quant_for_entries  # noq
 
 HARNESS_JSON_DEFAULT = "harness_input.json"
 DEEP_LAYERS = [0, 1, 8, 15, 23, 31]
+# Path B H3 Diagnostic: T2 taps on C++ align with these layer indices (bmo_h3_tap T2).
+H3_T2_LAYERS = (0, 1, 4, 8, 16, 24, 31)
+# T1–T6 hooks / stderr taps (C++ bmo_h3_tap non-T2) use this layer set.
+H3_T1_T6_LAYERS = (0, 1, 4, 8)
 
 
 def _resolve_path(base: Path, p: str | Path) -> Path:
@@ -290,6 +294,359 @@ def install_deep_hooks(model: torch.nn.Module, layers: torch.nn.Module, cap: dic
     return hooks
 
 
+def install_all_layer_residual_hooks_skip_layer0(
+    model: torch.nn.Module, layers: torch.nn.Module, cap: dict
+) -> list:
+    """Capture ``layer{L}_residual_out`` for L=1..N-1 (layer 0 from ``install_layer0_hooks``)."""
+    hooks: list = []
+
+    def grab(name: str):
+        def fn(_m, _inp, out):
+            cap[name] = out.detach().clone()
+
+        return fn
+
+    n_layers = len(layers)
+    for L in range(1, n_layers):
+        hooks.append(layers[L].register_forward_hook(grab(f"layer{L}_residual_out")))
+    hooks.append(model.out_norm.register_forward_hook(grab("post_out_norm")))
+    hooks.append(model.text_linear.register_forward_hook(grab("final_logits")))
+    return hooks
+
+
+def run_forward_with_captures_all_residuals(model: torch.nn.Module, seq: torch.Tensor) -> dict[str, torch.Tensor]:
+    """Like ``run_forward_with_captures`` but records ``layer{L}_residual_out`` for every layer L (0..N-1)."""
+    layers = model.transformer.layers
+    layer0 = layers[0]
+    cap: dict[str, torch.Tensor] = {}
+    attn = layer0.self_attn
+    orig_fwd = attn.forward
+
+    def fwd_hook(q, k, v):
+        return streaming_mha_forward_capture(attn, q, k, v, cap)
+
+    attn.forward = fwd_hook
+
+    def capture_x0(_m, inp):
+        cap["layer0_x_in"] = inp[0].detach().clone()
+
+    hooks = [layer0.register_forward_pre_hook(capture_x0)]
+    hooks.extend(install_layer0_hooks(layer0, cap))
+    hooks.extend(install_all_layer_residual_hooks_skip_layer0(model, layers, cap))
+    try:
+        with torch.no_grad():
+            _transformer_out, _text_logits = model.forward_codes(seq)
+    finally:
+        attn.forward = orig_fwd
+        for h in hooks:
+            h.remove()
+
+    for L in range(len(layers)):
+        if f"layer{L}_x_in" in cap and f"layer{L}_post_attn" in cap:
+            cap[f"layer{L}_post_attn_residual"] = cap[f"layer{L}_x_in"] + cap[f"layer{L}_post_attn"]
+    return cap
+
+
+def _h3_pt_line(family: str, tag: str, layer: int, t: torch.Tensor) -> str:
+    """family is ``PT_h3`` or ``PT_FQ_h3`` → ``[PT_h3_tap_T1]`` / ``[PT_FQ_h3_tap_T1]``."""
+    t32 = t.detach().float().cpu().reshape(-1)
+    ne = int(t32.numel())
+    k = min(8, ne)
+    l2 = float(torch.linalg.norm(t32).item())
+    parts = ",".join(f"{float(t32[i]):.6f}" for i in range(k))
+    return f"[{family}_tap_{tag}] L={layer} n={ne} l2={l2:.6f} first8={parts}"
+
+
+def _h3_pt_line_head(family: str, tag: str, label: str, t: torch.Tensor) -> str:
+    """Head-path taps (T7 post_out_norm, T8 final_logits)."""
+    t32 = t.detach().float().cpu().reshape(-1)
+    ne = int(t32.numel())
+    k = min(8, ne)
+    l2 = float(torch.linalg.norm(t32).item())
+    parts = ",".join(f"{float(t32[i]):.6f}" for i in range(k))
+    return f"[{family}_tap_{tag}] {label} n={ne} l2={l2:.6f} first8={parts}"
+
+
+def format_pt_fq_h3_tap_t2_line(L: int, t: torch.Tensor) -> str:
+    """One stderr line for PT fakequant T2 (post-layer residual); pair with C++ ``[h3_tap_T2]``."""
+    t32 = t.detach().float().cpu().reshape(-1)
+    ne = int(t32.numel())
+    k = min(8, ne)
+    l2 = float(torch.linalg.norm(t32).item())
+    parts = ",".join(f"{float(t32[i]):.6f}" for i in range(k))
+    return f"[PT_FQ_h3_tap_T2] L={L} n={ne} l2={l2:.6f} first8={parts}"
+
+
+def write_milestone_residual_bin(path: Path, t: torch.Tensor, *, expect_n: int) -> None:
+    """Write float32 row-major ``expect_n`` floats (full n_embd residual)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arr = t.detach().float().cpu().numpy().astype(np.float32).reshape(-1)
+    if int(arr.size) != int(expect_n):
+        raise ValueError(f"{path.name}: expected {expect_n} elements, got {arr.size}")
+    arr.tofile(path)
+
+
+def run_forward_h3_pt_captures(model: torch.nn.Module, seq: torch.Tensor) -> dict[str, torch.Tensor]:
+    """Second forward with hooks for Path B Diagnostic 2 (aligns with C++ ``BMO_H3_TAPS``)."""
+    layers = model.transformer.layers
+    cap: dict[str, torch.Tensor] = {}
+    hooks: list = []
+
+    def _first_inp(inp: torch.Tensor | tuple) -> torch.Tensor:
+        return inp if isinstance(inp, torch.Tensor) else inp[0]
+
+    def grab_pre_x(L: int):
+        def fn(_m, inp, L=L):
+            cap[f"layer{L}_x_in"] = _first_inp(inp).detach().clone()
+
+        return fn
+
+    def grab_norm1(L: int):
+        def fn(_m, _inp, out, L=L):
+            cap[f"layer{L}_post_norm1"] = out.detach().clone()
+
+        return fn
+
+    def grab_pre_outproj(L: int):
+        def fn(_m, inp, L=L):
+            cap[f"layer{L}_attn_merge_pre_outproj"] = _first_inp(inp).detach().clone()
+
+        return fn
+
+    def grab_post_attn(L: int):
+        def fn(_m, _inp, out, L=L):
+            cap[f"layer{L}_post_attn"] = out.detach().clone()
+
+        return fn
+
+    def grab_layer_out(L: int):
+        def fn(_m, _inp, out, L=L):
+            cap[f"layer{L}_residual_out"] = out.detach().clone()
+
+        return fn
+
+    def register_gating_hooks(L: int, gating_mod: torch.nn.Module) -> None:
+        if isinstance(gating_mod, torch.nn.ModuleList):
+            for gi, sub in enumerate(gating_mod):
+
+                def make_hook(li: int, idx: int):
+                    def fn(_m, _inp, out, li=li, idx=idx):
+                        cap[f"layer{li}_post_ffn_g{idx}"] = out.detach().clone()
+
+                    return fn
+
+                hooks.append(sub.register_forward_hook(make_hook(L, gi)))
+        else:
+
+            def fn(_m, _inp, out, L=L):
+                cap[f"layer{L}_post_ffn"] = out.detach().clone()
+
+            hooks.append(gating_mod.register_forward_hook(fn))
+
+    for L in H3_T1_T6_LAYERS:
+        lay = layers[L]
+        hooks.append(lay.register_forward_pre_hook(grab_pre_x(L)))
+        hooks.append(lay.norm1.register_forward_hook(grab_norm1(L)))
+        hooks.append(lay.self_attn.out_proj.register_forward_pre_hook(grab_pre_outproj(L)))
+        hooks.append(lay.self_attn.out_proj.register_forward_hook(grab_post_attn(L)))
+        if lay.gating is None:
+            raise RuntimeError(f"layer {L}: expected gating module for h3 capture")
+        register_gating_hooks(L, lay.gating)
+        hooks.append(lay.register_forward_hook(grab_layer_out(L)))
+
+    n_tl = len(layers)
+    for L in H3_T2_LAYERS:
+        if L in H3_T1_T6_LAYERS:
+            continue
+        if L >= n_tl:
+            continue
+        hooks.append(layers[L].register_forward_hook(grab_layer_out(L)))
+
+    on = getattr(model, "out_norm", None)
+    if on is not None:
+
+        def grab_post_norm(_m, _inp, out):
+            cap["h3_post_out_norm"] = out.detach().clone()
+
+        hooks.append(on.register_forward_hook(grab_post_norm))
+
+    tl = getattr(model, "text_linear", None)
+    if tl is not None:
+
+        def grab_text_logits(_m, _inp, out):
+            cap["h3_final_logits"] = out.detach().clone()
+
+        hooks.append(tl.register_forward_hook(grab_text_logits))
+
+    try:
+        with torch.no_grad():
+            model.forward_codes(seq)
+    finally:
+        for h in hooks:
+            h.remove()
+
+    for L in H3_T1_T6_LAYERS:
+        pn = cap.get(f"layer{L}_post_norm1")
+        if pn is not None:
+            w = layers[L].self_attn.in_proj_weight
+            x2 = pn.reshape(-1, pn.shape[-1])
+            cap[f"layer{L}_in_proj_replay"] = F.linear(x2, w)
+
+    return cap
+
+
+def format_h3_pt_report(cap: dict[str, torch.Tensor], *, family: str = "PT_h3") -> list[str]:
+    """Lines matching C++ ``[h3_tap_T*]`` layout (first 8 + L2). ``family`` is ``PT_h3`` or ``PT_FQ_h3``."""
+    title = "PT FP16 (dense)" if family == "PT_h3" else "PT fakequant"
+    lines: list[str] = [
+        "",
+        f"=== {family} taps ({title}, second forward with hooks) ===",
+        f"T1–T6: L in {H3_T1_T6_LAYERS}. T2-only rows: L in {tuple(x for x in H3_T2_LAYERS if x not in H3_T1_T6_LAYERS)}. T7/T8: head.",
+        "NOTE: T1 uses x_in + post_attn (matches C++ when layer_scale_1 is Identity).",
+    ]
+    for L in H3_T1_T6_LAYERS:
+        xi = cap.get(f"layer{L}_x_in")
+        pa = cap.get(f"layer{L}_post_attn")
+        if xi is not None and pa is not None:
+            lines.append(_h3_pt_line(family, "T1", L, xi + pa))
+        else:
+            lines.append(f"[{family}_tap_T1] L={L} <MISSING>")
+        for key, tag in (
+            (f"layer{L}_residual_out", "T2"),
+            (f"layer{L}_post_norm1", "T3"),
+            (f"layer{L}_in_proj_replay", "T4"),
+            (f"layer{L}_attn_merge_pre_outproj", "T5"),
+        ):
+            t = cap.get(key)
+            if t is None:
+                lines.append(f"[{family}_tap_{tag}] L={L} <MISSING>")
+            else:
+                lines.append(_h3_pt_line(family, tag, L, t))
+        t6 = cap.get(f"layer{L}_post_ffn")
+        if t6 is None:
+            t6 = cap.get(f"layer{L}_post_ffn_g0")
+        if t6 is None:
+            lines.append(f"[{family}_tap_T6] L={L} <MISSING>")
+        else:
+            lines.append(_h3_pt_line(family, "T6", L, t6))
+
+    for L in H3_T2_LAYERS:
+        if L in H3_T1_T6_LAYERS:
+            continue
+        key = f"layer{L}_residual_out"
+        t = cap.get(key)
+        if t is None:
+            lines.append(f"[{family}_tap_T2] L={L} <MISSING>")
+        else:
+            lines.append(_h3_pt_line(family, "T2", L, t))
+
+    t7 = cap.get("h3_post_out_norm")
+    if t7 is None:
+        lines.append(f"[{family}_tap_T7] post_out_norm <MISSING>")
+    else:
+        lines.append(_h3_pt_line_head(family, "T7", "post_out_norm", t7))
+
+    t8 = cap.get("h3_final_logits")
+    if t8 is None:
+        lines.append(f"[{family}_tap_T8] final_logits <MISSING>")
+    else:
+        lines.append(_h3_pt_line_head(family, "T8", "final_logits", t8))
+    return lines
+
+
+def _pt_fq_vec_for_tap(cap: dict[str, torch.Tensor], L: int, tap: str) -> torch.Tensor | None:
+    if tap == "T1":
+        xi = cap.get(f"layer{L}_x_in")
+        pa = cap.get(f"layer{L}_post_attn")
+        if xi is None or pa is None:
+            return None
+        return xi + pa
+    if tap == "T2":
+        return cap.get(f"layer{L}_residual_out")
+    if tap == "T3":
+        return cap.get(f"layer{L}_post_norm1")
+    if tap == "T4":
+        return cap.get(f"layer{L}_in_proj_replay")
+    if tap == "T5":
+        return cap.get(f"layer{L}_attn_merge_pre_outproj")
+    if tap == "T6":
+        t6 = cap.get(f"layer{L}_post_ffn")
+        return t6 if t6 is not None else cap.get(f"layer{L}_post_ffn_g0")
+    return None
+
+
+def _load_cpp_h3_bin(path: Path) -> np.ndarray | None:
+    if not path.is_file():
+        return None
+    return np.fromfile(str(path), dtype=np.float32).astype(np.float64, copy=False)
+
+
+def append_h3_cpp_vs_pt_fq_per_op_table(
+    lines: list[str],
+    *,
+    bin_dir: Path,
+    cap_fq: dict[str, torch.Tensor],
+    cos_threshold: float = 0.95,
+) -> None:
+    """Full-vector cos(cpp, pt_fq) per tap; per-op gap = curr_cos - prev_cos along T1→T3→T4→T5→T6→T2."""
+    tap_order = ("T1", "T3", "T4", "T5", "T6", "T2")
+    lines.append("")
+    lines.append(
+        "=== H3 per-op: full-tensor cos(C++ bin, PT_FQ tap), first8 cos, per-op gap (curr-prev full cos) ==="
+    )
+    lines.append(f"bin_dir: {bin_dir}")
+    lines.append(
+        "| L | tap | full cos | first8 cos | per-op gap | below_0p95 | "
+        "PT_FQ l2 | C++ l2 |"
+    )
+    lines.append("|---|-----|----------|------------|------------|------------|----------|---------|")
+    for L in H3_T1_T6_LAYERS:
+        prev_full: float | None = None
+        for tap in tap_order:
+            pt_t = _pt_fq_vec_for_tap(cap_fq, L, tap)
+            if tap == "T2":
+                cpp_path = bin_dir / f"cpp_residual_L{L}.bin"
+            else:
+                cpp_path = bin_dir / f"cpp_h3_{tap}_L{L}.bin"
+            row_pt_l2 = ""
+            row_cpp_l2 = ""
+            flag = ""
+            if pt_t is None:
+                lines.append(f"| {L} | {tap} | MISSING_PT | nan | nan | — | — | — |")
+                continue
+            pt_np = pt_t.detach().float().cpu().numpy().reshape(-1).astype(np.float64, copy=False)
+            row_pt_l2 = f"{float(np.linalg.norm(pt_np)):.4f}"
+            cpp_np = _load_cpp_h3_bin(cpp_path)
+            if cpp_np is None or cpp_np.size != pt_np.size:
+                lines.append(
+                    f"| {L} | {tap} | MISSING_CPP | nan | nan | — | — | {row_pt_l2:>8} | — |"
+                )
+                prev_full = None
+                continue
+            row_cpp_l2 = f"{float(np.linalg.norm(cpp_np)):.4f}"
+            dot = float(np.dot(cpp_np, pt_np))
+            nc = float(np.linalg.norm(cpp_np))
+            nf = float(np.linalg.norm(pt_np))
+            full_cos = dot / (nc * nf + 1e-30)
+            a8 = cpp_np[:8]
+            b8 = pt_np[:8]
+            na8 = float(np.linalg.norm(a8))
+            nb8 = float(np.linalg.norm(b8))
+            fcos = float(np.dot(a8, b8) / (na8 * nb8 + 1e-30)) if na8 > 1e-30 and nb8 > 1e-30 else float("nan")
+            gap_s = ""
+            if prev_full is not None:
+                gap = full_cos - prev_full
+                gap_s = f"{gap:+.6f}"
+            prev_full = full_cos
+            if full_cos < cos_threshold:
+                flag = "LOW"
+            gap_disp = gap_s if gap_s else "—"
+            lines.append(
+                f"| {L} | {tap} | {full_cos:.6f} | {fcos:.6f} | {gap_disp:>10} | {flag:10} | {row_pt_l2:8} | {row_cpp_l2:7} |"
+            )
+
+
 def install_layer0_hooks(layer0: torch.nn.Module, cap: dict) -> list:
     hooks = []
 
@@ -373,6 +730,11 @@ def parse_args() -> argparse.Namespace:
         "If omitted, uses embedded data or qat_meta.source_student_quant_meta.",
     )
     p.add_argument("--device", type=str, default="cuda", help="cuda | cpu")
+    p.add_argument(
+        "--all-layer-residuals",
+        action="store_true",
+        help="Capture layer{L}_residual_out for every temporal layer (Path B triage / ceiling analysis).",
+    )
     return p.parse_args()
 
 
@@ -409,9 +771,17 @@ def main() -> None:
 
     dtype = torch.float16 if device.type == "cuda" else torch.float32
 
-    qat_payload = torch.load(str(ckpt_path), map_location="cpu")
-    if not isinstance(qat_payload, dict):
-        raise SystemExit(f"Expected checkpoint dict, got {type(qat_payload)}")
+    if str(ckpt_path).lower().endswith(".safetensors"):
+        qat_payload: dict[str, Any] = {}
+        if septq_override is None:
+            raise SystemExit(
+                "When --ckpt is a .safetensors weights file, pass --septq-meta to the multitier .pt "
+                "(tier_masks_uint2 + septq_meta.per_layer_stats) used for fakequant registration."
+            )
+    else:
+        qat_payload = torch.load(str(ckpt_path), map_location="cpu")
+        if not isinstance(qat_payload, dict):
+            raise SystemExit(f"Expected checkpoint dict, got {type(qat_payload)}")
 
     quant_ckpt, tier_masks_uint2, tier_masks_meta = resolve_quant_sources(
         qat_payload, ckpt_path, septq_override
@@ -452,10 +822,14 @@ def main() -> None:
     seq = torch.tensor(ids, dtype=torch.long, device=device).view(1, num_cb, 1)
 
     embed_fp16 = model_fp16.embed_codes(seq)
-    cap_fp16 = run_forward_with_captures(model_fp16, seq)
-
     embed_fq = model_fq.embed_codes(seq)
-    cap_fq = run_forward_with_captures(model_fq, seq)
+
+    if args.all_layer_residuals:
+        cap_fp16 = run_forward_with_captures_all_residuals(model_fp16, seq)
+        cap_fq = run_forward_with_captures_all_residuals(model_fq, seq)
+    else:
+        cap_fp16 = run_forward_with_captures(model_fp16, seq)
+        cap_fq = run_forward_with_captures(model_fq, seq)
 
     if not torch.equal(embed_fp16, embed_fq):
         print(
@@ -534,6 +908,26 @@ def main() -> None:
         )
 
     print("-" * 120)
+    if args.all_layer_residuals:
+        print("\n=== Per-layer residual cosine: FP16 vs fakequant (single harness step) ===")
+        tl = get_temporal_layers(model_fp16)
+        n_layers = len(tl) if tl else 0
+        for L in range(n_layers):
+            k = f"layer{L}_residual_out"
+            if k not in cap_fp16 or k not in cap_fq:
+                print(f"layer{L:2d}_residual_out  MISSING")
+                continue
+            z_a = cap_fp16[k].detach().float().reshape(-1)
+            z_b = cap_fq[k].detach().float().reshape(-1)
+            c = float(torch.sum(z_a * z_b) / (torch.norm(z_a) * torch.norm(z_b) + 1e-30))
+            print(f"layer{L:2d}_residual_out  cos_fp16_vs_fq={c:.8f}")
+        if "final_logits" in cap_fp16 and "final_logits" in cap_fq:
+            fl_a = cap_fp16["final_logits"].detach().float().reshape(-1)
+            fl_b = cap_fq["final_logits"].detach().float().reshape(-1)
+            cfl = float(torch.sum(fl_a * fl_b) / (torch.norm(fl_a) * torch.norm(fl_b) + 1e-30))
+            print(f"final_logits            cos_fp16_vs_fq={cfl:.8f}")
+        print("=== end per-layer residual block ===\n")
+
     for diag_name in ("layer31_residual_out", "post_out_norm"):
         if diag_name in cap_fp16 and diag_name in cap_fq:
             z_a = cap_fp16[diag_name].detach().float().reshape(-1)

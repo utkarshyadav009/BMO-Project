@@ -28,6 +28,20 @@ _lib.bmo_forward_temporal.argtypes = [
 ]
 _lib.bmo_forward_temporal.restype = ctypes.c_int
 
+if hasattr(_lib, "bmo_forward_temporal2"):
+    _lib.bmo_forward_temporal2.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_int32),
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_int32),
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_float),
+    ]
+    _lib.bmo_forward_temporal2.restype = ctypes.c_int
+
 _lib.bmo_forward_depth.argtypes = [
     ctypes.c_void_p, ctypes.c_int, ctypes.c_int32, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
 ]

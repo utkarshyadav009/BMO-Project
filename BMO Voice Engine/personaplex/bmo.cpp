@@ -138,6 +138,10 @@ static void free_device_packed_owned_buffers(device_packed_t & dp) {
         cudaFree(dp.row_c8);
         dp.row_c8 = nullptr;
     }
+    if (dp.row_c16) {
+        cudaFree(dp.row_c16);
+        dp.row_c16 = nullptr;
+    }
     // canonical_base_host is freed in bmo_free_cuda_resources (needs access to ctx).
 #endif
 #ifndef BMO_JETSON
@@ -670,32 +674,54 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
             size_t pw_bytes = (size_t) ggml_nbytes(pw);
             size_t pm_bytes = (size_t) ggml_nbytes(pm);
 
+            const int32_t packing_version =
+                read_scalar_i32(model.wctx, (base + ".packing_version").c_str(), 3);
+            dp.packing_version = packing_version;
+
+            const int64_t elem_total = (int64_t) rows * (int64_t) cols;
+            const size_t pm_expect_v5 =
+                (elem_total <= 0) ? 0 : (size_t) ((elem_total + (int64_t) 3) / (int64_t) 4);
+            const bool v5_layout = (packing_version >= 5);
+            if (v5_layout) {
+                if (pm_expect_v5 == 0 || pm_bytes != pm_expect_v5) {
+                    std::cerr << "[bmo_prepare_device_packed_tensors] " << base
+                              << ": v5 packed_mask size mismatch: got " << pm_bytes << " bytes, expected "
+                              << pm_expect_v5 << " for rows=" << rows << " cols=" << cols << "\n";
+                    continue;
+                }
+            }
+
 #ifdef BMO_JETSON
-            const int32_t n_blocks_from_mask = static_cast<int32_t>(pm_bytes * 4);
-            n_blocks = n_blocks_from_mask;
-            dp.n_blocks = n_blocks_from_mask;
+            if (!v5_layout) {
+                const int32_t n_blocks_from_mask = static_cast<int32_t>(pm_bytes * 4);
+                n_blocks = n_blocks_from_mask;
+                dp.n_blocks = n_blocks_from_mask;
+            }
 #else
             const uint8_t * pm_host = reinterpret_cast<const uint8_t *>(pm->data);
-            std::vector<int32_t> block_offset((size_t) n_blocks, 0);
-            int32_t c2 = 0;
-            int32_t c4 = 0;
-            int32_t c8 = 0;
-            int32_t c16 = 0;
-            for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
-                const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
-                const uint8_t tier = unpack_u2_le(mbyte, block_idx % 4);
-                if (tier == 0) {
-                    block_offset[(size_t) block_idx] = c16;
-                    c16 += block_size;
-                } else if (tier == 1) {
-                    block_offset[(size_t) block_idx] = c8;
-                    c8 += block_size;
-                } else if (tier == 2) {
-                    block_offset[(size_t) block_idx] = c4;
-                    c4 += block_size;
-                } else {
-                    block_offset[(size_t) block_idx] = c2;
-                    c2 += block_size;
+            std::vector<int32_t> block_offset;
+            if (!v5_layout) {
+                block_offset.assign((size_t) n_blocks, 0);
+                int32_t c2 = 0;
+                int32_t c4 = 0;
+                int32_t c8 = 0;
+                int32_t c16 = 0;
+                for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
+                    const uint8_t mbyte = pm_host[(size_t) block_idx / 4];
+                    const uint8_t tier = unpack_u2_le(mbyte, block_idx % 4);
+                    if (tier == 0) {
+                        block_offset[(size_t) block_idx] = c16;
+                        c16 += block_size;
+                    } else if (tier == 1) {
+                        block_offset[(size_t) block_idx] = c8;
+                        c8 += block_size;
+                    } else if (tier == 2) {
+                        block_offset[(size_t) block_idx] = c4;
+                        c4 += block_size;
+                    } else {
+                        block_offset[(size_t) block_idx] = c2;
+                        c2 += block_size;
+                    }
                 }
             }
 #endif
@@ -751,44 +777,81 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                           << " pm=" << cudaGetErrorString(pm_map)
                           << " fv=" << cudaGetErrorString(fv_map) << "\n";
                 dp.preloaded = false;
+                (void) cudaGetLastError();
             }
 
             {
                 const uint8_t * pm_host_bo = reinterpret_cast<const uint8_t *>(pm->data);
                 const int32_t blocks_per_row = cols / block_size;
-                if (blocks_per_row <= 0 || (int64_t) rows * (int64_t) blocks_per_row != (int64_t) n_blocks) {
-                    std::cerr << "[bmo_prepare_device_packed_tensors] row/block geometry mismatch for " << base
-                              << " rows=" << rows << " cols=" << cols << " block_size=" << block_size
-                              << " n_blocks=" << n_blocks << "\n";
-                    continue;
-                }
 
                 std::vector<int32_t> row_c2_host((size_t) rows, 0);
                 std::vector<int32_t> row_c4_host((size_t) rows, 0);
                 std::vector<int32_t> row_c8_host((size_t) rows, 0);
+                std::vector<int32_t> row_c16_host((size_t) rows, 0);
 
                 int32_t c2_bo = 0;
                 int32_t c4_bo = 0;
                 int32_t c8_bo = 0;
+                int32_t c16_bo = 0;
 
-                for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
-                    if (blocks_per_row > 0 && (block_idx % blocks_per_row) == 0) {
-                        const int32_t r = block_idx / blocks_per_row;
-                        if (r >= 0 && r < rows) {
-                            row_c2_host[(size_t) r] = c2_bo;
-                            row_c4_host[(size_t) r] = c4_bo;
-                            row_c8_host[(size_t) r] = c8_bo;
+                if (!v5_layout) {
+                    if (blocks_per_row <= 0 || (int64_t) rows * (int64_t) blocks_per_row != (int64_t) n_blocks) {
+                        std::cerr << "[bmo_prepare_device_packed_tensors] row/block geometry mismatch for " << base
+                                  << " rows=" << rows << " cols=" << cols << " block_size=" << block_size
+                                  << " n_blocks=" << n_blocks << "\n";
+                        continue;
+                    }
+
+                    for (int32_t block_idx = 0; block_idx < n_blocks; ++block_idx) {
+                        if (blocks_per_row > 0 && (block_idx % blocks_per_row) == 0) {
+                            const int32_t r = block_idx / blocks_per_row;
+                            if (r >= 0 && r < rows) {
+                                row_c2_host[(size_t) r] = c2_bo;
+                                row_c4_host[(size_t) r] = c4_bo;
+                                row_c8_host[(size_t) r] = c8_bo;
+                                row_c16_host[(size_t) r] = c16_bo;
+                            }
+                        }
+
+                        const uint8_t mbyte = pm_host_bo[(size_t) block_idx / 4];
+                        const uint8_t tier_bo = unpack_u2_le(mbyte, block_idx % 4);
+                        if (tier_bo == 0) {
+                            c16_bo += block_size;
+                        } else if (tier_bo == 1) {
+                            c8_bo += block_size;
+                        } else if (tier_bo == 2) {
+                            c4_bo += block_size;
+                        } else if (tier_bo == 3) {
+                            c2_bo += block_size;
+                        }
+                    }
+                } else {
+                    for (int32_t r = 0; r < rows; ++r) {
+                        row_c2_host[(size_t) r] = c2_bo;
+                        row_c4_host[(size_t) r] = c4_bo;
+                        row_c8_host[(size_t) r] = c8_bo;
+                        row_c16_host[(size_t) r] = c16_bo;
+                        for (int32_t c = 0; c < cols; ++c) {
+                            const int64_t ei = (int64_t) r * (int64_t) cols + (int64_t) c;
+                            const uint8_t mbyte = pm_host_bo[(size_t) (ei / 4)];
+                            const uint8_t tier_bo = unpack_u2_le(mbyte, (int) (ei % 4));
+                            if (tier_bo == 0) {
+                                ++c16_bo;
+                            } else if (tier_bo == 1) {
+                                ++c8_bo;
+                            } else if (tier_bo == 2) {
+                                ++c4_bo;
+                            } else if (tier_bo == 3) {
+                                ++c2_bo;
+                            }
                         }
                     }
 
-                    const uint8_t mbyte = pm_host_bo[(size_t) block_idx / 4];
-                    const uint8_t tier_bo = unpack_u2_le(mbyte, block_idx % 4);
-                    if (tier_bo == 1) {
-                        c8_bo += block_size;
-                    } else if (tier_bo == 2) {
-                        c4_bo += block_size;
-                    } else if (tier_bo == 3) {
-                        c2_bo += block_size;
+                    if ((int64_t) c16_bo != n_fp16) {
+                        std::cerr << "[bmo_prepare_device_packed_tensors] " << base
+                                  << ": fp16_values count mismatch for v5 mask: n_fp16_tensor=" << n_fp16
+                                  << " tier0_elems=" << c16_bo << "\n";
+                        continue;
                     }
                 }
 
@@ -796,6 +859,7 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                 int32_t * d_c2 = nullptr;
                 int32_t * d_c4 = nullptr;
                 int32_t * d_c8 = nullptr;
+                int32_t * d_c16 = nullptr;
 
                 cudaError_t r2_err = cudaMalloc(reinterpret_cast<void **>(&d_c2), row_tbl_bytes);
                 if (r2_err != cudaSuccess) {
@@ -818,19 +882,32 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                               << ": " << cudaGetErrorString(r8_err) << "\n";
                     continue;
                 }
+                cudaError_t r16_err = cudaMalloc(reinterpret_cast<void **>(&d_c16), row_tbl_bytes);
+                if (r16_err != cudaSuccess) {
+                    cudaFree(d_c2);
+                    cudaFree(d_c4);
+                    cudaFree(d_c8);
+                    std::cerr << "[bmo_prepare_device_packed_tensors] cudaMalloc row_c16 failed for " << base
+                              << ": " << cudaGetErrorString(r16_err) << "\n";
+                    continue;
+                }
 
                 r2_err = cudaMemcpy(d_c2, row_c2_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
                 r4_err = cudaMemcpy(d_c4, row_c4_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
                 r8_err = cudaMemcpy(d_c8, row_c8_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
-                if (r2_err != cudaSuccess || r4_err != cudaSuccess || r8_err != cudaSuccess) {
+                r16_err = cudaMemcpy(d_c16, row_c16_host.data(), row_tbl_bytes, cudaMemcpyHostToDevice);
+                if (r2_err != cudaSuccess || r4_err != cudaSuccess || r8_err != cudaSuccess ||
+                    r16_err != cudaSuccess) {
                     cudaFree(d_c2);
                     cudaFree(d_c4);
                     cudaFree(d_c8);
+                    cudaFree(d_c16);
                     std::cerr << "[bmo_prepare_device_packed_tensors] cudaMemcpy row tier bases failed for "
                               << base << ": "
                               << cudaGetErrorString(r2_err != cudaSuccess ? r2_err
                                                        : r4_err != cudaSuccess ? r4_err
-                                                                               : r8_err)
+                                                       : r8_err != cudaSuccess ? r8_err
+                                                                               : r16_err)
                               << "\n";
                     continue;
                 }
@@ -838,49 +915,137 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                 dp.row_c2 = d_c2;
                 dp.row_c4 = d_c4;
                 dp.row_c8 = d_c8;
+                dp.row_c16 = d_c16;
             }
 #else
-            err = cudaMalloc(&dp.packed_weights, pw_bytes);
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n"; continue; }
-            err = cudaMemcpy(dp.packed_weights, pw->data, pw_bytes, cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
+            if (!v5_layout) {
+                err = cudaMalloc(&dp.packed_weights, pw_bytes);
+                if (err != cudaSuccess) {
+                    std::cerr << "cudaMalloc packed_weights failed: " << cudaGetErrorString(err) << "\n";
+                    continue;
+                }
+                err = cudaMemcpy(dp.packed_weights, pw->data, pw_bytes, cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) {
+                    std::cerr << "cudaMemcpy packed_weights failed: " << cudaGetErrorString(err) << "\n";
+                    free_device_packed_owned_buffers(dp);
+                    continue;
+                }
 
-            err = cudaMalloc(&dp.packed_mask, pm_bytes);
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-            err = cudaMemcpy(dp.packed_mask, pm->data, pm_bytes, cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-#endif
-
-#ifndef BMO_JETSON
-            err = cudaMalloc(&dp.block_offset, block_offset.size() * sizeof(int32_t));
-            if (err != cudaSuccess) { std::cerr << "cudaMalloc block_offset failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-            err = cudaMemcpy(dp.block_offset, block_offset.data(), block_offset.size() * sizeof(int32_t), cudaMemcpyHostToDevice);
-            if (err != cudaSuccess) { std::cerr << "cudaMemcpy block_offset failed: " << cudaGetErrorString(err) << "\n"; free_device_packed_owned_buffers(dp); continue; }
-
-            // fp16 values: may be stored as f32 in gguf; convert if needed
-            if (fv->type == GGML_TYPE_F32) {
-                int64_t nf = n_fp16;
-                std::vector<ggml_fp16_t> tmp_f16((size_t) nf);
-                const float * src = reinterpret_cast<const float *>(fv->data);
-                for (int64_t j = 0; j < nf; ++j) tmp_f16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
-                size_t fv_bytes = (size_t) nf * sizeof(ggml_fp16_t);
-                err = cudaMalloc(&dp.fp16_values, fv_bytes);
-                if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
-                err = cudaMemcpy(dp.fp16_values, tmp_f16.data(), fv_bytes, cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+                err = cudaMalloc(&dp.packed_mask, pm_bytes);
+                if (err != cudaSuccess) {
+                    std::cerr << "cudaMalloc packed_mask failed: " << cudaGetErrorString(err) << "\n";
+                    free_device_packed_owned_buffers(dp);
+                    continue;
+                }
+                err = cudaMemcpy(dp.packed_mask, pm->data, pm_bytes, cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) {
+                    std::cerr << "cudaMemcpy packed_mask failed: " << cudaGetErrorString(err) << "\n";
+                    free_device_packed_owned_buffers(dp);
+                    continue;
+                }
             } else {
-                size_t fv_bytes = (size_t) ggml_nbytes(fv);
-                err = cudaMalloc(&dp.fp16_values, fv_bytes);
-                if (err != cudaSuccess) { std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
-                err = cudaMemcpy(dp.fp16_values, fv->data, fv_bytes, cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) { std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n"; goto cleanup_partial_dp; }
+                std::cerr << "[bmo_prepare_device_packed_tensors] " << base
+                          << ": packing_version>=5 per-element mask; skipping desktop CUDA staging "
+                             "(CPU unpack path will be used until Path B CUDA lands).\n";
             }
 #endif
 
+#ifndef BMO_JETSON
+            if (!v5_layout) {
+                err = cudaMalloc(&dp.block_offset, block_offset.size() * sizeof(int32_t));
+                if (err != cudaSuccess) {
+                    std::cerr << "cudaMalloc block_offset failed: " << cudaGetErrorString(err) << "\n";
+                    free_device_packed_owned_buffers(dp);
+                    continue;
+                }
+                err = cudaMemcpy(dp.block_offset, block_offset.data(), block_offset.size() * sizeof(int32_t),
+                                 cudaMemcpyHostToDevice);
+                if (err != cudaSuccess) {
+                    std::cerr << "cudaMemcpy block_offset failed: " << cudaGetErrorString(err) << "\n";
+                    free_device_packed_owned_buffers(dp);
+                    continue;
+                }
+
+                // fp16 values: may be stored as f32 in gguf; convert if needed
+                if (fv->type == GGML_TYPE_F32) {
+                    int64_t nf = n_fp16;
+                    std::vector<ggml_fp16_t> tmp_f16((size_t) nf);
+                    const float * src = reinterpret_cast<const float *>(fv->data);
+                    for (int64_t j = 0; j < nf; ++j) tmp_f16[(size_t) j] = ggml_fp32_to_fp16(src[j]);
+                    size_t fv_bytes = (size_t) nf * sizeof(ggml_fp16_t);
+                    err = cudaMalloc(&dp.fp16_values, fv_bytes);
+                    if (err != cudaSuccess) {
+                        std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n";
+                        goto cleanup_partial_dp;
+                    }
+                    err = cudaMemcpy(dp.fp16_values, tmp_f16.data(), fv_bytes, cudaMemcpyHostToDevice);
+                    if (err != cudaSuccess) {
+                        std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n";
+                        goto cleanup_partial_dp;
+                    }
+                } else {
+                    size_t fv_bytes = (size_t) ggml_nbytes(fv);
+                    err = cudaMalloc(&dp.fp16_values, fv_bytes);
+                    if (err != cudaSuccess) {
+                        std::cerr << "cudaMalloc fp16_values failed: " << cudaGetErrorString(err) << "\n";
+                        goto cleanup_partial_dp;
+                    }
+                    err = cudaMemcpy(dp.fp16_values, fv->data, fv_bytes, cudaMemcpyHostToDevice);
+                    if (err != cudaSuccess) {
+                        std::cerr << "cudaMemcpy fp16_values failed: " << cudaGetErrorString(err) << "\n";
+                        goto cleanup_partial_dp;
+                    }
+                }
+            }
+#endif
+
+#ifdef BMO_JETSON
+            // v5 uses fused_dequant_matvec_kernel_proto in bmo_compute; desktop CUDA still skips v5 unpack.
             dp.is_valid = true;
+            // H2 diagnostic: verify v5 quantized tensors are registered with distinct device pointers.
+            if (dp.is_valid &&
+                (base.find("self_attn_in_proj_weight") != std::string::npos ||
+                 base.find("gating_linear_in_weight") != std::string::npos ||
+                 base.find("gating_linear_out_weight") != std::string::npos)) {
+                std::string pretty_name = base;
+                auto repl = [&](const char * from, const char * to) {
+                    const std::string f(from);
+                    const size_t pos = pretty_name.find(f);
+                    if (pos != std::string::npos) {
+                        pretty_name.replace(pos, f.size(), to);
+                    }
+                };
+                repl("self_attn_in_proj_weight", "self_attn.in_proj_weight");
+                repl("gating_linear_in_weight", "gating.linear_in.weight");
+                repl("gating_linear_out_weight", "gating.linear_out.weight");
+
+                std::fprintf(stderr,
+                             "[h2_diag_register] %s | pv=%d valid=%d "
+                             "row_c2=%p row_c4=%p row_c8=%p row_c16=%p "
+                             "canonical_int2=%p canonical_int4=%p canonical_int8=%p canonical_fp16=%p "
+                             "packed_mask=%p\n",
+                             pretty_name.c_str(),
+                             (int) dp.packing_version,
+                             (int) dp.is_valid,
+                             (void *) dp.row_c2,
+                             (void *) dp.row_c4,
+                             (void *) dp.row_c8,
+                             (void *) dp.row_c16,
+                             (void *) dp.canonical_pw_dev,  // mapped as "canonical_int2" in this log
+                             (void *) dp.canonical_pw_dev,  // mapped as "canonical_int4"
+                             (void *) dp.canonical_pw_dev,  // mapped as "canonical_int8"
+                             (void *) dp.canonical_fv_dev,  // mapped as "canonical_fp16"
+                             (void *) dp.canonical_pm_dev   // mapped as "packed_mask"
+                );
+            }
+#else
+            dp.is_valid = !v5_layout;
+#endif
             ctx.packed_registry[base] = dp;
 #ifndef BMO_JETSON
-            max_unpack_elems = std::max(max_unpack_elems, (size_t) rows * (size_t) cols);
+            if (!v5_layout) {
+                max_unpack_elems = std::max(max_unpack_elems, (size_t) rows * (size_t) cols);
+            }
 #endif
             if (getenv("BMO_LOG_INIT")) {
                 std::cout << "[bmo_prepare_device_packed_tensors] registered " << base << " rows=" << rows << " cols=" << cols << " n_fp16=" << n_fp16 << "\n";
@@ -921,11 +1086,13 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                     cudaHostUnregister(out_raw);
                     std::free(out_raw);
                     std::cerr << "[bmo_jetson] cudaHostGetDevicePointer fused_output failed\n";
+                    (void) cudaGetLastError();
                 }
             } else {
                 std::cerr << "[bmo_jetson] cudaHostRegister fused_output failed: " << cudaGetErrorString(out_reg)
                           << "\n";
                 std::free(out_raw);
+                (void) cudaGetLastError();
             }
         } else {
             std::cerr << "[bmo_jetson] posix_memalign fused_output failed\n";
@@ -947,11 +1114,13 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
                     cudaHostUnregister(in_raw);
                     std::free(in_raw);
                     std::cerr << "[bmo_jetson] cudaHostGetDevicePointer fused_input failed\n";
+                    (void) cudaGetLastError();
                 }
             } else {
                 std::cerr << "[bmo_jetson] cudaHostRegister fused_input failed: " << cudaGetErrorString(in_reg)
                           << "\n";
                 std::free(in_raw);
+                (void) cudaGetLastError();
             }
         } else {
             std::cerr << "[bmo_jetson] posix_memalign fused_input failed\n";
@@ -1190,6 +1359,7 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
                           << " failed: " << cudaGetErrorString(reg) << "\n";
                 std::free(ctx.staging.host[i]);
                 ctx.staging.host[i] = nullptr;
+                (void) cudaGetLastError();
                 continue;
             }
             if (cudaHostGetDevicePointer(&ctx.staging.dev[i], ctx.staging.host[i], 0) != cudaSuccess) {
@@ -1199,6 +1369,7 @@ void bmo_init_kv_cache(bmo_context & ctx, int32_t n_ctx) {
                 std::free(ctx.staging.host[i]);
                 ctx.staging.host[i] = nullptr;
                 ctx.staging.dev[i] = nullptr;
+                (void) cudaGetLastError();
                 continue;
             }
             ++allocated;

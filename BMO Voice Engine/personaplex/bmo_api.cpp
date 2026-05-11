@@ -169,16 +169,46 @@ int bmo_forward_temporal(
     int pos,
     float * out_transformer,
     float * out_text_logits) {
+    return bmo_forward_temporal2(
+        h,
+        input_tokens,
+        num_codebooks,
+        pos,
+        out_transformer,
+        out_text_logits,
+        nullptr,
+        0,
+        nullptr);
+}
+
+int bmo_forward_temporal2(
+    bmo_handle_t * h,
+    const int32_t * input_tokens,
+    int num_codebooks,
+    int pos,
+    float * out_transformer,
+    float * out_text_logits,
+    const int32_t * capture_layers,
+    int n_capture_layers,
+    float * capture_out) {
     if (!h || !input_tokens || !out_transformer || !out_text_logits) {
-        set_err(h, "bmo_forward_temporal: null pointer argument");
+        set_err(h, "bmo_forward_temporal2: null pointer argument");
         return 1;
     }
     if (num_codebooks <= 0 || num_codebooks > h->ctx.num_codebooks) {
-        set_err(h, "bmo_forward_temporal: invalid num_codebooks");
+        set_err(h, "bmo_forward_temporal2: invalid num_codebooks");
         return 2;
     }
     if (pos < 0) {
-        set_err(h, "bmo_forward_temporal: pos must be non-negative");
+        set_err(h, "bmo_forward_temporal2: pos must be non-negative");
+        return 2;
+    }
+    if (n_capture_layers < 0) {
+        set_err(h, "bmo_forward_temporal2: invalid n_capture_layers");
+        return 2;
+    }
+    if (n_capture_layers > 0 && (!capture_layers || !capture_out)) {
+        set_err(h, "bmo_forward_temporal2: capture_layers/capture_out required when n_capture_layers > 0");
         return 2;
     }
 
@@ -192,7 +222,7 @@ int bmo_forward_temporal(
         ggml_cgraph * gf = bmo_build_temporal_graph(
             h->ctx, h->model, layer_in, pos, /*layer_begin=*/0, /*layer_end=*/h->ctx.n_layers);
         if (!gf) {
-            set_err(h, "bmo_forward_temporal: failed to build temporal graph");
+            set_err(h, "bmo_forward_temporal2: failed to build temporal graph");
             return 4;
         }
 
@@ -201,11 +231,11 @@ int bmo_forward_temporal(
         ggml_tensor * t_out = ggml_graph_get_tensor(gf, "transformer_out");
         ggml_tensor * t_lgt = ggml_graph_get_tensor(gf, "text_logits");
         if (!t_out || !t_out->data) {
-            set_err(h, "bmo_forward_temporal: transformer_out tensor missing");
+            set_err(h, "bmo_forward_temporal2: transformer_out tensor missing");
             return 3;
         }
         if (!t_lgt || !t_lgt->data) {
-            set_err(h, "bmo_forward_temporal: text_logits tensor missing (model.text_linear may be null)");
+            set_err(h, "bmo_forward_temporal2: text_logits tensor missing (model.text_linear may be null)");
             return 3;
         }
 
@@ -213,12 +243,33 @@ int bmo_forward_temporal(
         const size_t logits_bytes = (size_t) h->ctx.text_vocab_size * sizeof(float);
         if ((size_t) ggml_nbytes(t_out) < hidden_bytes ||
             (size_t) ggml_nbytes(t_lgt) < logits_bytes) {
-            set_err(h, "bmo_forward_temporal: output tensor smaller than expected");
+            set_err(h, "bmo_forward_temporal2: output tensor smaller than expected");
             return 5;
         }
 
         std::memcpy(out_transformer, t_out->data, hidden_bytes);
         std::memcpy(out_text_logits, t_lgt->data, logits_bytes);
+
+        if (n_capture_layers > 0) {
+            const int32_t n_embd = h->ctx.n_embd;
+            for (int i = 0; i < n_capture_layers; ++i) {
+                const int32_t L = capture_layers[i];
+                const std::string nm = "out_layer_" + std::to_string((int) L);
+                ggml_tensor * tl = ggml_graph_get_tensor(gf, nm.c_str());
+                if (!tl || !tl->data) {
+                    set_err(h, "bmo_forward_temporal2: missing capture tensor " + nm);
+                    return 6;
+                }
+                if ((size_t) ggml_nbytes(tl) < hidden_bytes) {
+                    set_err(h, "bmo_forward_temporal2: capture tensor too small for " + nm);
+                    return 7;
+                }
+                std::memcpy(
+                    capture_out + (size_t) i * (size_t) n_embd,
+                    tl->data,
+                    hidden_bytes);
+            }
+        }
 
         h->pos = pos + 1;
         h->last_error.clear();
@@ -227,7 +278,7 @@ int bmo_forward_temporal(
         set_err(h, ex.what());
         return 9;
     } catch (...) {
-        set_err(h, "bmo_forward_temporal: unknown exception");
+        set_err(h, "bmo_forward_temporal2: unknown exception");
         return 9;
     }
 }
