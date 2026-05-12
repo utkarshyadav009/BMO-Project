@@ -43,7 +43,7 @@ try:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.colors import BoundaryNorm, ListedColormap
+    from matplotlib.colors import LinearSegmentedColormap
     from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 except ImportError as e:  # pragma: no cover
     print("ERROR: matplotlib is required.", file=sys.stderr)
@@ -385,7 +385,117 @@ def _weight_numel_for_mask_key(
     return 4 * int(packed.numel())
 
 
+_TIER_LABELS = ["FP16", "INT8", "INT4", "INT2"]
+_TIER_COLORS_HEX = ["#2ca02c", "#ffdd57", "#ff7f0e", "#d62728"]
+_TIER_BITS = np.array([16.0, 8.0, 4.0, 2.0], dtype=np.float64)
+
+
+def _lookup_2d_weight(
+    sd: Dict[str, "torch.Tensor"], key: str
+) -> Optional["torch.Tensor"]:
+    """Resolve a 2-D weight tensor from state_dict for a (possibly base) key.
+
+    Cannot use ``a or b or c`` here: torch tensors raise
+    ``RuntimeError: Boolean value of Tensor with more than one value is
+    ambiguous`` when evaluated for truthiness. Use explicit ``is None`` /
+    ``torch.is_tensor`` checks.
+    """
+    candidates = [key, key + ".weight", key.replace(".weight", "")]
+    seen: set = set()
+    for ck in candidates:
+        if ck in seen:
+            continue
+        seen.add(ck)
+        w = sd.get(ck)
+        if torch.is_tensor(w) and w.ndim == 2:
+            return w
+    return None
+
+
+def _pick_representative_module(
+    masks: Dict[str, "torch.Tensor"],
+    sd: Dict[str, "torch.Tensor"],
+    preferred: Sequence[str] = (
+        "transformer.layers.0.self_attn.in_proj_weight",
+        "transformer.layers.0.gating_linear_in.weight",
+        "transformer.layers.0.gating_linear_in",
+    ),
+) -> Optional[Tuple[str, "torch.Tensor", Tuple[int, int]]]:
+    """Return (mask_key, mask_tensor, (rows, cols)) for a representative module.
+
+    Falls back to the largest 2-D weight that has a tier mask if none of the
+    preferred keys exist.
+    """
+    for key in preferred:
+        m = masks.get(key)
+        if m is None or not torch.is_tensor(m):
+            continue
+        w = _lookup_2d_weight(sd, key)
+        if w is not None:
+            return key, m, (int(w.shape[0]), int(w.shape[1]))
+
+    best: Optional[Tuple[str, "torch.Tensor", Tuple[int, int]]] = None
+    best_numel = -1
+    for key, m in masks.items():
+        if not isinstance(key, str) or not torch.is_tensor(m):
+            continue
+        w = _lookup_2d_weight(sd, key)
+        if w is None:
+            continue
+        n = int(w.shape[0]) * int(w.shape[1])
+        if n > best_numel:
+            best_numel = n
+            best = (key, m, (int(w.shape[0]), int(w.shape[1])))
+    return best
+
+
+def _downsample_tier_fractions(
+    tier_grid: np.ndarray,
+    target_rows: int = 256,
+    target_cols: int = 384,
+) -> Tuple[np.ndarray, int, int]:
+    """Reduce an (rows, cols) tier grid to (h2, w2, 4) per-tier fractions per tile.
+
+    Returns the fraction array plus the chosen pool height / width (ph, pw) so the
+    caller can label the figure ("tile = 48 x 11 weights").
+    """
+    rows, cols = tier_grid.shape
+    ph = max(1, rows // target_rows)
+    pw = max(1, cols // target_cols)
+    h2 = rows // ph
+    w2 = cols // pw
+    if h2 == 0 or w2 == 0:
+        # Fallback: degenerate sizes, return the raw grid as one-hot fractions.
+        one_hot = np.zeros((rows, cols, 4), dtype=np.float32)
+        for t in range(4):
+            one_hot[..., t] = (tier_grid == t).astype(np.float32)
+        return one_hot, 1, 1
+    cropped = tier_grid[: h2 * ph, : w2 * pw]
+    tile = cropped.reshape(h2, ph, w2, pw)
+    tile_area = float(ph * pw)
+    fracs = np.stack(
+        [(tile == t).sum(axis=(1, 3)).astype(np.float32) / tile_area for t in range(4)],
+        axis=-1,
+    )
+    return fracs, ph, pw
+
+
 def fig3_tier_heatmap(out: Path, ckpt_path: Path, n_layers: int = 32) -> None:
+    """SEPTQ tier-assignment figure.
+
+    Background. The earlier per-(layer, module) "effective bpw" heatmap
+    rendered a single uniform value (e.g. 3.72) because the SEPTQ multi-tier
+    PTQ in this codebase applies the **same global ratios** (FP16/INT8/INT4/
+    INT2 = 0.02/0.12/0.36/0.50) per tensor, so every quantized module has
+    identical bpw by construction. That metric has zero per-module variance.
+
+    What actually varies and is interesting for the report is the **spatial
+    placement** of the tiers WITHIN a tensor: Hessian-saliency-driven element
+    routing puts the FP16 / INT8 budget on the rows / columns where outlier
+    activations live, and pushes the rest to INT2. We visualize this for one
+    representative module (layer 0 ``self_attn.in_proj_weight`` by default,
+    falling back to the largest masked 2-D weight in the checkpoint).
+    """
     if not HAS_TORCH:
         _placeholder(out, "Figure 3 — SEPTQ tier heatmap\n(torch missing; install torch)")
         return
@@ -401,65 +511,149 @@ def fig3_tier_heatmap(out: Path, ckpt_path: Path, n_layers: int = 32) -> None:
     if not isinstance(masks, dict) or not masks:
         _placeholder(out, "Figure 3 — no tier_masks_uint2 in checkpoint")
         return
+    sd = ckpt.get("state_dict")
+    if not isinstance(sd, dict):
+        _placeholder(out, "Figure 3 — checkpoint missing state_dict")
+        return
 
+    picked = _pick_representative_module(masks, sd)
+    if picked is None:
+        _placeholder(out, "Figure 3 — no representative 2-D masked module found")
+        return
+    mask_key, mask_tensor, (rows, cols) = picked
+
+    numel = rows * cols
+    flat = unpack_uint2_mask(mask_tensor, numel)
+    if int(flat.numel()) != numel:
+        _placeholder(
+            out,
+            f"Figure 3 — tier mask numel mismatch for\n{mask_key}\n"
+            f"got {int(flat.numel())} unpacked vs {numel} expected",
+        )
+        return
+    tier_grid = flat.cpu().numpy().reshape(rows, cols).astype(np.int32)
+    tier_fracs, pool_h, pool_w = _downsample_tier_fractions(
+        tier_grid, target_rows=256, target_cols=384,
+    )
+
+    # Global tier composition across ALL temporal-stack masks, for the side panel.
     pat = re.compile(r"^transformer\.layers\.(\d+)\.(.+)$")
-    layer_mod: Dict[int, Dict[str, Tuple[str, "torch.Tensor"]]] = defaultdict(dict)
+    total_counts = np.zeros(4, dtype=np.int64)
+    n_modules = 0
     for k, v in masks.items():
         if not isinstance(k, str) or not torch.is_tensor(v):
             continue
         if v.dtype != torch.uint8:
             continue
         m = pat.match(k)
-        if not m:
+        if not m or int(m.group(1)) >= n_layers:
             continue
-        li = int(m.group(1))
-        rest = str(m.group(2))
-        if li < 0 or li >= n_layers:
+        wn = _weight_numel_for_mask_key(ckpt, k, v, int(m.group(1)))
+        max_unpacked = 4 * int(v.numel())
+        n = min(int(wn), max_unpacked)
+        if n <= 0:
             continue
-        # collapse duplicate .weight suffix for grouping
-        short = rest.replace(".weight", "")
-        layer_mod[li][short] = (k, v)
+        sub = unpack_uint2_mask(v, n).cpu().numpy()
+        if sub.size == 0:
+            continue
+        bc = np.bincount(sub, minlength=4).astype(np.int64)[:4]
+        total_counts += bc
+        n_modules += 1
 
-    # union of module names sorted
-    all_names = sorted({nm for d in layer_mod.values() for nm in d.keys()})
-    if not all_names:
-        _placeholder(out, "Figure 3 — no temporal tier keys matched")
-        return
+    grand_total = float(total_counts.sum())
+    if grand_total > 0:
+        agg_fracs = total_counts / grand_total
+        agg_bpw = float(np.dot(_TIER_BITS, agg_fracs))
+    else:
+        agg_fracs = np.zeros(4, dtype=np.float64)
+        agg_bpw = float("nan")
 
-    mat = np.full((n_layers, len(all_names)), -1.0)
-    for li in range(n_layers):
-        for j, name in enumerate(all_names):
-            pair = layer_mod[li].get(name)
-            if pair is None:
-                continue
-            full_key, t = pair
-            wn = _weight_numel_for_mask_key(ckpt, full_key, t, li)
-            max_unpacked = 4 * int(t.numel())
-            # Decode only bytes that exist; never index past packed stream.
-            numel = min(int(wn), max_unpacked)
-            flat = unpack_uint2_mask(t, numel)
-            if flat.numel() == 0:
-                continue
-            bc = torch.bincount(flat, minlength=4)
-            tier = int(torch.argmax(bc).item())
-            mat[li, j] = float(tier)
+    # ---- Render: 4-panel per-tier fraction view + stack-wide bar ----
+    # Why this layout: with global ratios 2/12/36/50, a "dominant tier" tile
+    # reduction makes the 2% FP16 budget invisible (no tile is majority FP16).
+    # Showing each tier's LOCAL fraction-per-tile as its own panel exposes
+    # exactly where the saliency router clustered the high-precision bits
+    # (look for bright rows/cols in the FP16 and INT8 panels).
+    fig = plt.figure(figsize=(15.5, 7.4))
+    gs = fig.add_gridspec(
+        2, 5,
+        width_ratios=[1.0, 1.0, 1.0, 1.0, 0.85],
+        height_ratios=[1.0, 0.08],
+        wspace=0.18, hspace=0.05,
+    )
+    pretty_key = mask_key.replace("transformer.layers.", "L").replace(".weight", "")
+    fig.suptitle(
+        "Figure 3 — SEPTQ within-tensor tier assignment "
+        f"(representative module: {pretty_key})\n"
+        "Each panel = local fraction of one tier per spatial tile "
+        f"({pool_h}\u00d7{pool_w} weights / tile, downsampled from {rows}\u00d7{cols}).",
+        fontsize=11, y=1.02,
+    )
 
-    # Discrete tiers 0..3: imshow + ListedColormap + linear norm maps floats onto the
-    # whole colormap gradient, so almost everything looks like the top color (INT2/red).
-    # BoundaryNorm pins 0,1,2,3 to the four list colors.
-    cmap = ListedColormap(["#2ca02c", "#ffdd57", "#ff7f0e", "#d62728"])  # FP16, INT8, INT4, INT2
-    cmap.set_bad("#d9d9d9")
-    norm = BoundaryNorm(np.arange(-0.5, 4.0, 1.0), cmap.N)
-    fig, ax = plt.subplots(figsize=(max(10, len(all_names) * 0.35), 7))
-    mat_masked = np.ma.masked_where(mat < 0, mat)
-    im = ax.imshow(mat_masked, aspect="auto", cmap=cmap, norm=norm, interpolation="nearest")
-    ax.set_yticks(range(n_layers))
-    ax.set_yticklabels([f"L{i:02d}" for i in range(n_layers)])
-    ax.set_xticks(range(len(all_names)))
-    ax.set_xticklabels(all_names, rotation=55, ha="right", fontsize=7)
-    ax.set_title("Figure 3 — SEPTQ tier assignment (dominant tier per module, temporal stack)")
-    cbar = plt.colorbar(im, ax=ax, fraction=0.025, pad=0.02, ticks=[0, 1, 2, 3])
-    cbar.ax.set_yticklabels(["FP16", "INT8", "INT4", "INT2"])
+    # The 0..1 fraction scale is per-panel-relative so the 2% FP16 budget is
+    # still visible. We don't share a single colorbar across panels because
+    # the dynamic ranges are very different (FP16 might max at 30% locally,
+    # INT2 will max at ~100%).
+    panel_max = [
+        max(0.05, float(tier_fracs[..., i].max())) if tier_fracs.size else 1.0
+        for i in range(4)
+    ]
+    panel_axes = []
+    last_im = None
+    for i in range(4):
+        ax_i = fig.add_subplot(gs[0, i])
+        panel_axes.append(ax_i)
+        cmap_i = LinearSegmentedColormap.from_list(
+            f"white_to_{_TIER_LABELS[i]}",
+            ["#ffffff", _TIER_COLORS_HEX[i]],
+            N=256,
+        )
+        last_im = ax_i.imshow(
+            tier_fracs[..., i],
+            aspect="auto", cmap=cmap_i,
+            vmin=0.0, vmax=panel_max[i], interpolation="nearest",
+        )
+        ax_i.set_title(
+            f"{_TIER_LABELS[i]}  ({agg_fracs[i] * 100:.1f}% global)\n"
+            f"panel scale 0\u2013{panel_max[i] * 100:.0f}%",
+            fontsize=9,
+        )
+        if i == 0:
+            ax_i.set_ylabel(f"output dim (rows / {pool_h})")
+        else:
+            ax_i.set_yticklabels([])
+        ax_i.set_xlabel(f"input dim (cols / {pool_w})")
+        # Per-panel colorbar so the per-tier dynamic range is readable.
+        cbar = plt.colorbar(last_im, ax=ax_i, fraction=0.04, pad=0.02)
+        cbar.set_label("fraction of tile", fontsize=7)
+        cbar.ax.tick_params(labelsize=7)
+
+    # ---- Side panel: aggregate tier mix across the whole stack ----
+    ax_side = fig.add_subplot(gs[0, 4])
+    bottom = 0.0
+    for i in range(4):
+        ax_side.bar(
+            [0], [agg_fracs[i]], bottom=[bottom], width=0.6,
+            color=_TIER_COLORS_HEX[i], edgecolor="white",
+            label=f"{_TIER_LABELS[i]}: {agg_fracs[i] * 100:.1f}%",
+        )
+        bottom += agg_fracs[i]
+    ax_side.set_ylim(0, 1)
+    ax_side.set_xlim(-1, 1)
+    ax_side.set_xticks([])
+    ax_side.set_ylabel("Fraction of elements")
+    ax_side.set_title("Stack-wide tier mix", fontsize=10)
+    ax_side.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0),
+                   fontsize=8, frameon=False)
+
+    subtitle_lines = [f"n modules: {n_modules}"]
+    if math.isfinite(agg_bpw):
+        subtitle_lines.append(f"mean bpw: {agg_bpw:.2f}")
+    ax_side.text(
+        0, -0.05, "\n".join(subtitle_lines),
+        ha="center", va="top", fontsize=9, transform=ax_side.transAxes,
+    )
+
     savefig(out)
 
 
@@ -654,31 +848,73 @@ def main() -> int:
     else:
         print("[WARN] No --metadata; skipping Table 1 and Figure 4.", file=sys.stderr)
 
-    fig1_memory_bars(out_dir / "figure1_memory_footprint.png", args.bf16_gb, args.gguf_gb, args.ceiling_gb)
-    fig2_pipeline(out_dir / "figure2_data_pipeline.png")
+    # Each figure is independently sandboxed: a failure in one figure must not
+    # prevent subsequent figures from rendering. Errors are captured and replaced
+    # with a placeholder PNG plus a stderr trace.
+    def _safe_fig(label: str, out_path: Path, fn) -> None:
+        try:
+            fn()
+        except Exception as exc:  # pragma: no cover -- defensive
+            import traceback
+            print(f"[WARN] {label} failed: {exc}", file=sys.stderr)
+            traceback.print_exc()
+            _placeholder(out_path, f"{label} failed\n{type(exc).__name__}: {exc}")
+
+    _safe_fig(
+        "Figure 1",
+        out_dir / "figure1_memory_footprint.png",
+        lambda: fig1_memory_bars(out_dir / "figure1_memory_footprint.png",
+                                 args.bf16_gb, args.gguf_gb, args.ceiling_gb),
+    )
+    _safe_fig(
+        "Figure 2",
+        out_dir / "figure2_data_pipeline.png",
+        lambda: fig2_pipeline(out_dir / "figure2_data_pipeline.png"),
+    )
 
     if args.septq_ckpt and args.septq_ckpt.is_file():
-        fig3_tier_heatmap(out_dir / "figure3_septq_tier_heatmap.png", args.septq_ckpt)
+        _safe_fig(
+            "Figure 3",
+            out_dir / "figure3_septq_tier_heatmap.png",
+            lambda: fig3_tier_heatmap(out_dir / "figure3_septq_tier_heatmap.png",
+                                      args.septq_ckpt),
+        )
     else:
-        _placeholder(out_dir / "figure3_septq_tier_heatmap.png", "Figure 3 — pass --septq-ckpt\n(e.g. bmo_temporal_half_cushion_max.pt)")
+        _placeholder(out_dir / "figure3_septq_tier_heatmap.png",
+                     "Figure 3 — pass --septq-ckpt\n(e.g. bmo_temporal_half_cushion_max.pt)")
 
     if durations_list:
-        fig4_duration_hist(out_dir / "figure4_duration_histogram.png", durations_list, args.hist_min, args.hist_max)
+        _safe_fig(
+            "Figure 4",
+            out_dir / "figure4_duration_histogram.png",
+            lambda: fig4_duration_hist(out_dir / "figure4_duration_histogram.png",
+                                       durations_list, args.hist_min, args.hist_max),
+        )
     else:
-        _placeholder(out_dir / "figure4_duration_histogram.png", "Figure 4 — need durations\n(--audio-root + soundfile or duration column)")
+        _placeholder(out_dir / "figure4_duration_histogram.png",
+                     "Figure 4 — need durations\n(--audio-root + soundfile or duration column)")
 
-    fig5_cosine_cascade(out_dir / "figure5_v11_cosine_cascade.png", args.zs_json, args.cascade_csv)
+    _safe_fig(
+        "Figure 5",
+        out_dir / "figure5_v11_cosine_cascade.png",
+        lambda: fig5_cosine_cascade(out_dir / "figure5_v11_cosine_cascade.png",
+                                    args.zs_json, args.cascade_csv),
+    )
 
-    fig6_rss_schematic(
+    _safe_fig(
+        "Figure 6",
         out_dir / "figure6_rss_schematic.png",
-        [
-            ("GGUF tensor pools (scalar + big)", args.rss_gb_weights),
-            ("Temporal KV (FP16, n_ctx-bounded)", args.rss_gb_kv),
-            ("Depth KV", args.rss_gb_depth_kv),
-            ("ggml work arena", args.rss_gb_work),
-            ("CUDA staging / registered", args.rss_gb_cuda),
-        ],
-        args.ceiling_gb,
+        lambda: fig6_rss_schematic(
+            out_dir / "figure6_rss_schematic.png",
+            [
+                ("GGUF tensor pools (scalar + big)", args.rss_gb_weights),
+                ("Temporal KV (FP16, n_ctx-bounded)", args.rss_gb_kv),
+                ("Depth KV", args.rss_gb_depth_kv),
+                ("ggml work arena", args.rss_gb_work),
+                ("CUDA staging / registered", args.rss_gb_cuda),
+            ],
+            args.ceiling_gb,
+        ),
     )
 
     write_readme(out_dir, args)
