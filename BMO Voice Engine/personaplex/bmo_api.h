@@ -117,6 +117,25 @@ BMO_API int bmo_forward_depth(
 // handle and is valid until the next API call on the same handle.
 BMO_API const char * bmo_last_error(bmo_handle_t * h);
 
+// Temporal attention geometry (main transformer), derived from loaded GGUF.
+BMO_API int bmo_get_n_attn_heads(bmo_handle_t * h);
+BMO_API int bmo_get_head_dim(bmo_handle_t * h);
+
+// Copies a contiguous slice of the FP16 temporal K-cache for one layer into
+// `out` as FP32. Layout is time-major to match ring-buffer readout order:
+//   index = ((t * n_heads) + h) * head_dim + d
+// for t in [0, n_positions), h in [0, n_heads), d in [0, head_dim).
+// Physical cache positions are [t_start, t_start + n_positions).
+// Returns the number of floats written on success; negative errno-style codes
+// on failure (-1 bad args, -2 buffer too small, -3 layer/range invalid).
+BMO_API int bmo_copy_k_cache_f32(
+    bmo_handle_t * h,
+    int layer,
+    int t_start,
+    int n_positions,
+    float * out,
+    int max_floats);
+
 #ifdef __cplusplus
 }
 #endif

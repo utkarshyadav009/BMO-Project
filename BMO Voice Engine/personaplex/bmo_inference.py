@@ -142,15 +142,18 @@ DEFAULT_N_MOSHI_CODEBOOKS = 8
 # is OOD and is what produced earlier gibberish-only outputs.
 TEXT_PAD_ID = 3
 
-# Pre-encoded Mimi codes for "8 codebooks of pure silence" (used on BOTH the
-# moshi/agent and the user audio channels during prefill) and "8 codebooks of
-# a 440 Hz placeholder sine wave" (kept here as documented reference -- vanilla
-# Moshi feeds this on the user channel during prompt phases, but PersonaPlex/
-# BMO empirically requires SILENCE_TOKENS on user instead; SINE_TOKENS produces
-# a DC-attractor residual mean=+1.13 / std=0.99 that gibbers, while
-# SILENCE_TOKENS gives mean=+0.03 / std=1.50, the model's healthy fixed point).
-# These are NOT all-zeros; they're the actual token ids that Mimi.encode
-# produces for those signals, baked in as constants.
+# Pre-encoded Mimi codes (8 codebooks each), baked in as constants. NOT all-zeros.
+#   SILENCE_TOKENS: Mimi.encode output for pure-silence audio. Used on the
+#     moshi/agent channel during silence-spacer prefill phases, and on the user
+#     channel during generation when --input-wav is absent or exhausted (i.e.
+#     mimi-encoded zero amplitude). Definition mirrors `SILENCE_TOKENS` in
+#     `moshi/models/lm.py:56`.
+#   SINE_TOKENS: Mimi.encode output for the canonical 440 Hz sine placeholder
+#     that moshi.offline feeds on the USER channel during ALL prompt phases
+#     (voice prompt, silence spacers, text prompt). PersonaPlex was fine-tuned
+#     with this input distribution; using anything else for user-channel prefill
+#     produces OOD KV cache state. See `moshi/models/lm.py:_encode_sine_frame`
+#     (lm.py around line 1079).
 SILENCE_TOKENS = np.array([948, 243, 1178, 546, 1736, 1030, 1978, 2008], dtype=np.int32)
 SINE_TOKENS    = np.array([430, 1268, 381, 1611, 1095, 1495,   56,  472], dtype=np.int32)
 
@@ -797,11 +800,15 @@ def mode_stream(args) -> int:
     Mirrors `moshi.offline.run_inference` with libbmo.so as the LM:
 
         Phase 1 (voice prompt prefill)   moshi channels = mimi.encode(voice_wav)
+                                         user channels  = SINE_TOKENS
+                                         text channel   = PAD (=zero_text_code)
+        Phase 2 (audio silence spacer)   moshi channels = SILENCE_TOKENS
+                                         user channels  = SINE_TOKENS    (~0.5 s)
                                          text channel   = PAD
-        Phase 2 (audio silence spacer)   all channels   = 0     (~0.5 s)
         Phase 3 (text prompt prefill)    text channel   = <system> tokens
-                                         audio channels = 0
-        Phase 4 (audio silence spacer)   all channels   = 0     (~0.5 s)
+                                         moshi channels = SILENCE_TOKENS
+                                         user channels  = SINE_TOKENS
+        Phase 4 (audio silence spacer)   same as phase 2                  (~0.5 s)
         Phase 5 (sampling loop)          user channels  = Mimi codes from
                                                           ``--input-wav``
                                                           (offline-parity
@@ -919,29 +926,36 @@ def mode_stream(args) -> int:
               f"Re-run with a higher --n-ctx, or shorten voice/text prompts.")
 
     # ----- 4. Reset state, run prompt phases -----
-    # IMPORTANT: the moshi/user "silence" tokens are NOT all-zeros. They are
-    # the specific Mimi codewords [948, 243, 1178, 546, 1736, 1030, 1978, 2008]
-    # for silence on the agent side, and we feed the SAME silence codewords on
-    # the user side during prefill.
+    # Prefill-frame inputs follow the canonical moshi/LMGen scheme:
+    #   - agent (moshi) channel = voice-prompt codes during phase 1, SILENCE_TOKENS otherwise
+    #   - user channel = SINE_TOKENS for EVERY prefill frame (matches moshi/models/lm.py
+    #     `_encode_sine_frame()`, called from `_step_voice_prompt_frame` lm.py:1097-1106
+    #     and `_step_audio_silence_core` lm.py:1161-1170)
+    #   - text channel = TEXT_PAD_ID (== self.zero_text_code == 3)
+    # Both SILENCE_TOKENS and SINE_TOKENS are real Mimi codewords baked in as constants,
+    # not all-zeros (definitions at module top).
     #
-    # NOTE on canonical Moshi divergence: vanilla Moshi's `step_system_prompts`
-    # uses a 440 Hz "sine" placeholder (SINE_TOKENS = [430, 1268, 381, 1611,
-    # 1095, 1495, 56, 472]) on the user channel for every prefill frame.
-    # Empirically (probe_user_channel.log) feeding SINE_TOKENS on user puts
-    # PersonaPlex/BMO in a DC-attractor state with residual mean = +1.13 and
-    # std = 0.99 for ~every silent prefill frame, KV cache is stuck in that
-    # mode for the rest of the run, EPAD/PAD logits get suppressed, and
-    # generation produces gibberish wordpieces. Feeding SILENCE_TOKENS on user
-    # keeps mean = +0.03 and std = 1.50 -- the model's healthy fixed point.
-    # PersonaPlex was fine-tuned with silence on user during prefill, not the
-    # 440 Hz sine, so SINE_TOKENS is wrong for this checkpoint.
+    # HISTORICAL NOTE (do not revert): an earlier version of this driver fed
+    # SILENCE_TOKENS on the user channel as well, derived "empirically" from
+    # residual-statistics probes while the C++ GGUF runtime was broken in
+    # unrelated ways (scale recomputation, tier-mask mismatch, matvec layout).
+    # That OOD prefill is what produced the static-text-logit gibberish during
+    # generation. The runtime bugs are fixed; SINE_TOKENS on user is what the
+    # model was actually fine-tuned with and is what produces coherent audio
+    # via moshi.offline.
     engine.reset()
 
     moshi_silence_tokens = SILENCE_TOKENS[:n_moshi].astype(np.int32, copy=False)
     if n_user > 0:
+        user_sine_tokens    = SINE_TOKENS[:n_user].astype(np.int32, copy=False)
         user_silence_tokens = SILENCE_TOKENS[:n_user].astype(np.int32, copy=False)
     else:
+        user_sine_tokens    = np.zeros(0, dtype=np.int32)
         user_silence_tokens = np.zeros(0, dtype=np.int32)
+    # Naming convention: `user_sine_tokens` is the prefill-time user-channel input
+    # (matches moshi.offline `_encode_sine_frame`), `user_silence_tokens` is the
+    # generation-time fallback when `--input-wav` is absent or exhausted (matches
+    # mimi-encoded zero-amplitude audio, used inside the sampling loop only).
 
     # Single delayer instance shared across prefill phases AND the sampling
     # loop. Its prev_moshi / prev_user buffers carry the per-channel delay=1
@@ -956,39 +970,37 @@ def mode_stream(args) -> int:
         toks = delayer.step(int(text_tok), moshi_in, user_in)
         engine.forward_temporal(toks)
 
-    # Phase 1: voice prompt -- moshi=voice_codes, user=SILENCE, text=PAD(=zero_text_code).
-    # See the SINE_TOKENS divergence note above: PersonaPlex/BMO lands in a DC
-    # attractor when fed SINE on user during prefill, but is healthy on
-    # SILENCE. That's the only deviation from canonical Moshi prefill.
+    # Phase 1: voice prompt -- moshi=voice_codes, user=SINE, text=PAD(=zero_text_code).
+    # Matches LMGen._step_voice_prompt_frame (moshi/models/lm.py:1097-1106).
     if voice_codes is not None:
         t0 = time.perf_counter()
         for f in range(voice_codes.shape[0]):
-            _prefill_one(TEXT_PAD_ID, voice_codes[f], user_silence_tokens)
+            _prefill_one(TEXT_PAD_ID, voice_codes[f], user_sine_tokens)
         print(f"[stream] phase1 voice prompt: {voice_codes.shape[0]} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
-        # Phase 2: silence spacer -- moshi=SILENCE, user=SILENCE, text=PAD.
+        # Phase 2: silence spacer -- moshi=SILENCE, user=SINE, text=PAD.
+        # Matches LMGen._step_audio_silence_core (moshi/models/lm.py:1161-1170).
         t0 = time.perf_counter()
         for _ in range(silence_frames):
-            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_silence_tokens)
+            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_sine_tokens)
         print(f"[stream] phase2 silence: {silence_frames} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
-    # Phase 3: text prompt -- moshi=SILENCE, user=SILENCE, text=current prompt token.
+    # Phase 3: text prompt -- moshi=SILENCE, user=SINE, text=current prompt token.
     # No shift: each prompt token is fed as text input on its own frame, exactly
-    # matching LMGen._step_text_prompt_core (lm.py lines 1183-1191), with the
-    # user-channel divergence noted above.
+    # matching LMGen._step_text_prompt_core (moshi/models/lm.py:1183-1191).
     if text_prompt_ids:
         t0 = time.perf_counter()
         for tid in text_prompt_ids:
-            _prefill_one(int(tid), moshi_silence_tokens, user_silence_tokens)
+            _prefill_one(int(tid), moshi_silence_tokens, user_sine_tokens)
         print(f"[stream] phase3 text prompt: {text_frames} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 
         # Phase 4: silence spacer -- same as phase 2.
         t0 = time.perf_counter()
         for _ in range(silence_frames):
-            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_silence_tokens)
+            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_sine_tokens)
         print(f"[stream] phase4 silence: {silence_frames} frames in "
               f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
 

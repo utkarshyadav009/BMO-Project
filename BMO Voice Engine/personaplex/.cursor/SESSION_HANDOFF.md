@@ -1,15 +1,50 @@
 # BMO C++ Runtime Gibberish — Session Handoff
 
-**Last updated:** 2026-05-11 23:14 UTC+1
+**Last updated:** 2026-05-12 10:23 UTC+1 (fix applied, ready to test)
 **Pickup transcript ID:** `c9c6ec77-3d61-4307-961a-d2ba4cdffadd`
 
 When you resume on another system, paste this whole file into the new chat so the agent has full context. To continue the original chat verbatim use `[BMO RoPE Bug Investigation](c9c6ec77-3d61-4307-961a-d2ba4cdffadd)`.
 
 ---
 
+## ✅ FIX APPLIED — TEST FIRST THING
+
+The user-channel prefill bug has been patched in `bmo_inference.py`. **No C++ rebuild needed.**
+
+### What changed in `bmo_inference.py`
+
+1. **Top-of-module comment** (lines ~145-158): replaced the "BMO empirically requires SILENCE_TOKENS on user" narrative with the actual semantics (SINE for prefill user channel, SILENCE for generation-time mimi-zero-pad fallback).
+2. **`mode_stream` docstring** (around line 800): updated the phase table to show `user channels = SINE_TOKENS` for phases 1-4.
+3. **Phase-prep block** (~line 941-952): now defines BOTH `user_sine_tokens` (SINE) for prefill and `user_silence_tokens` (SILENCE) for the generation-loop fallback.
+4. **Prefill call sites** (phase 1/2/3/4, lines ~974/982/992/999): all four `_prefill_one(...)` calls now pass `user_sine_tokens` instead of `user_silence_tokens`. This matches `moshi/models/lm.py:_encode_sine_frame()` called from `_step_voice_prompt_frame` (lm.py:1097-1106) and `_step_audio_silence_core` (lm.py:1161-1170) and `_step_text_prompt_core` (lm.py:1183-1191).
+5. **Generation-loop fallback** (line ~1021) still uses `user_silence_tokens` — this is correct because at generation time when `--input-wav` is absent/exhausted, the user channel should look like mimi-encoded silence (matches what `lm_iterate_audio(..., pad=True)` produces in moshi.offline when the wav runs out).
+
+File passes `python -m py_compile bmo_inference.py` cleanly.
+
+### How to test on the other system
+
+Just run the same audio-generation command that produced gibberish yesterday. No rebuild, no resync of `libbmo.so`. Pull `bmo_inference.py` and go.
+
+```bash
+# from /home/jovyan/work/BMO-Project/personaplex_repo (or your equivalent)
+git pull
+export PYTHONPATH=$PWD:$PWD/moshi BMO_SO_PATH=$PWD/build/libbmo.so
+# then the exact `python bmo_inference.py ...` command you ran yesterday
+```
+
+Listen to the output WAV.
+
+### Decision rules after listening
+
+- **Coherent audio** → runtime was fine all along, Python driver was wrong. Diff `bmo_inference.py` and consider also auditing (a) `PERSONAPLEX_DELAYS` at lines ~167-168 against `_lm_kwargs["delays"]` in `moshi/models/loaders.py`, and (b) `--force-text-pad` clamp around line ~1050 — both might be similar layered workarounds, though they may not bite if the fix above is the whole story.
+- **Still gibberish but different in character** → partial fix; combine with the RoPE/K-cache investigation below.
+- **Still identical gibberish** → user-channel wasn't the bug (unlikely given the evidence) or there's an additional bug. Move to the worker plan below.
+
+---
+
 ## The one-line status
 
-GGUF + C++ runtime produces gibberish audio. PT (.pt / .safetensors) produces coherent audio. Text logits in C++ output are **static across frames** — canonical symptom of attention being unable to see context.
+GGUF + C++ runtime produces gibberish audio. PT (.pt / .safetensors) produces coherent audio. Text logits in C++ output are **static across frames** — canonical symptom of attention being unable to see context, OR of the model being fed OOD inputs during prefill (which the user-channel token bug above would cause).
 
 ## The latest plot twist (READ THIS FIRST)
 
@@ -33,16 +68,12 @@ Conclusion: `NORMAL` is the correct constant for moshi's layout. Flipping to NEO
 
 **Bug is real, but Gemini's localization is wrong.** Still hunting.
 
-## What's currently in flight
+## Background worker status
 
-Background worker (already launched, will land in chat when done):
+The previous worker (RoPE consistency test + K-cache dump+compare script) was **closed by the user before completing** and produced no deliverables. Do not re-launch unless the SINE_TOKENS fix above fails to produce coherent audio. If it fails, the original worker prompt is preserved in the transcript and can be re-issued; the plan is unchanged:
 
-- **Goal:** localize the actual bug with two scripts, no code changes to RoPE math.
-- **Deliverable 1:** standalone CUDA/C++ test `tests/rope_consistency_test.cpp` + CMake target `bmo_rope_consistency_test`. Compares `ggml_rope(NORMAL)` output to `launch_rope_interleaved` output for an identical synthetic input. Exits 0 if max_abs_diff < 1e-5.
-- **Deliverable 2:** `scripts/dump_kcache_after_prefill.py` + a new debug C-API entry `bmo_get_kcache_layer(int layer, float* out, int max_elements)` exposed through `bmo_inference.py`. Runs identical small prefill in PT and C++, dumps K-cache layer 0 (and 16), computes cosine + per-head breakdown.
-- **Deliverable 3:** exact server-side commands + a decision tree for interpreting the results.
-
-When the worker lands, the chat will have build + run commands ready to paste on the server.
+- **Deliverable 1:** standalone CUDA/C++ test `tests/rope_consistency_test.cpp` + CMake target `bmo_rope_consistency_test`. Compares `ggml_rope(NORMAL)` output to `launch_rope_interleaved` output for identical synthetic input. Exit 0 = math matches.
+- **Deliverable 2:** `scripts/dump_kcache_after_prefill.py` + a new debug C-API entry `bmo_get_kcache_layer(int layer, float* out, int max_elements)`. Runs identical small prefill in PT and C++, dumps K-cache layer 0 and 16, reports per-head cosine.
 
 ## Decision tree (apply once worker returns results)
 
@@ -54,10 +85,12 @@ When the worker lands, the chat will have build + run commands ready to paste on
 
 ## Hard rules for the next session
 
-1. **Do not** apply Gemini's `GGML_ROPE_TYPE_NORMAL` → `GGML_ROPE_TYPE_NEOX` flip.
-2. **Do not** change `rope_theta` handling. The model uses 10000 and `ggml_rope`'s default is 10000.
-3. **Do not** restart end-to-end debugging from scratch. Use the worker's two scripts to localize first.
-4. **Do not** chase Q4_K_M / generic llama.cpp quant fallback paths — user has explicitly ruled this out repeatedly. SEPTQ multi-tier is the only quantization path.
+1. **Try the 🚨 lead first** (SILENCE_TOKENS → SINE_TOKENS on user channel during prefill). Five minutes, no rebuild, decisive.
+2. **Do not** apply Gemini's `GGML_ROPE_TYPE_NORMAL` → `GGML_ROPE_TYPE_NEOX` flip.
+3. **Do not** change `rope_theta` handling. The model uses 10000 and `ggml_rope`'s default is 10000.
+4. **Do not** restart end-to-end debugging from scratch. Use the worker's two scripts to localize first if the user-channel fix doesn't work.
+5. **Do not** chase Q4_K_M / generic llama.cpp quant fallback paths — user has explicitly ruled this out repeatedly. SEPTQ multi-tier is the only quantization path.
+6. **Be suspicious of every "empirical" workaround in `bmo_inference.py`** — they were derived while the runtime was broken, and any one of them could be a layered bug now. Specifically audit (a) the SILENCE_TOKENS-on-user override (lead above), (b) the `PERSONAPLEX_DELAYS` array at line 167-168 vs `_lm_kwargs["delays"]` in `moshi/models/loaders.py`, and (c) the `--force-text-pad` clamp at line 1041-1042.
 
 ## Files that matter (workspace-relative)
 
@@ -110,10 +143,10 @@ cmake --build build --target bmo_shared -j"$(nproc)"
 - ✅ `kv_len exceeds n_ctx 256` runtime crash (fixed by raising `--n-ctx` to 384).
 - ❌ Static text logits across frames — still open, this is the actual gibberish symptom.
 
-## If the worker takes forever or you need to start fresh on the new system
+## ## How to resume on the other system
 
 Re-prompt the new chat with:
 
-> Read `.cursor/SESSION_HANDOFF.md`. The C++ runtime produces gibberish but PT works. A worker was previously launched to write a RoPE consistency test and a K-cache dump+compare script — pick up from that plan. Do not change any RoPE constants. Verify the prior worker's output if available, otherwise re-launch it.
+> Read `.cursor/SESSION_HANDOFF.md`. The SINE_TOKENS fix has already been applied to `bmo_inference.py`. Just pull the repo on the test machine and run yesterday's audio-generation command — no rebuild needed. Tell me whether the audio is coherent or still gibberish, and I'll branch from there.
 
-Sleep well.
+Good luck with the test.

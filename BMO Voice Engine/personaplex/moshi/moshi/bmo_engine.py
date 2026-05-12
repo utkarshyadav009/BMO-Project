@@ -18,10 +18,31 @@ _lib.bmo_free.restype  = None
 _lib.bmo_reset.argtypes = [ctypes.c_void_p]
 _lib.bmo_reset.restype  = None
 
-for _name in ("bmo_get_n_layers", "bmo_get_n_embd", "bmo_get_n_codebooks", "bmo_get_dep_q", "bmo_get_text_vocab", "bmo_get_audio_vocab"):
-    _f = getattr(_lib, _name)
-    _f.argtypes = [ctypes.c_void_p]
-    _f.restype  = ctypes.c_int
+for _name in (
+    "bmo_get_n_layers",
+    "bmo_get_n_embd",
+    "bmo_get_n_codebooks",
+    "bmo_get_dep_q",
+    "bmo_get_text_vocab",
+    "bmo_get_audio_vocab",
+    "bmo_get_n_attn_heads",
+    "bmo_get_head_dim",
+):
+    if hasattr(_lib, _name):
+        _f = getattr(_lib, _name)
+        _f.argtypes = [ctypes.c_void_p]
+        _f.restype = ctypes.c_int
+
+if hasattr(_lib, "bmo_copy_k_cache_f32"):
+    _lib.bmo_copy_k_cache_f32.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+    ]
+    _lib.bmo_copy_k_cache_f32.restype = ctypes.c_int
 
 _lib.bmo_forward_temporal.argtypes = [
     ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32), ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
@@ -81,6 +102,30 @@ class BMOEngine:
             raise RuntimeError(f"forward_temporal rc={rc}: {err.decode() if err else 'unknown'}")
         self._pos += 1
         return self._buf_z.copy(), self._buf_text.copy()
+
+    def get_k_cache_f32(self, layer: int, t_start: int, n_positions: int) -> np.ndarray:
+        """Temporal K-cache slice as float32, layout (n_positions, n_heads, head_dim)."""
+        if not hasattr(_lib, "bmo_copy_k_cache_f32"):
+            raise RuntimeError("libbmo.so was built without bmo_copy_k_cache_f32 (rebuild bmo_shared).")
+        nh = _lib.bmo_get_n_attn_heads(self._h)
+        hd = _lib.bmo_get_head_dim(self._h)
+        if nh <= 0 or hd <= 0:
+            raise RuntimeError("bmo_get_n_attn_heads / bmo_get_head_dim returned invalid geometry.")
+        n_el = int(n_positions) * int(nh) * int(hd)
+        buf = np.empty(n_el, dtype=np.float32)
+        n_written = _lib.bmo_copy_k_cache_f32(
+            self._h,
+            int(layer),
+            int(t_start),
+            int(n_positions),
+            buf.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+            int(n_el),
+        )
+        if n_written < 0:
+            raise RuntimeError(f"bmo_copy_k_cache_f32 failed with code {n_written}")
+        if n_written != n_el:
+            raise RuntimeError(f"bmo_copy_k_cache_f32 expected {n_el} floats, got {n_written}")
+        return buf.reshape(int(n_positions), int(nh), int(hd))
 
     def forward_depth(self, cb_index: int, prev_token: int, transformer_out: np.ndarray) -> np.ndarray:
         assert transformer_out.dtype == np.float32 and transformer_out.shape == (self.n_embd,)

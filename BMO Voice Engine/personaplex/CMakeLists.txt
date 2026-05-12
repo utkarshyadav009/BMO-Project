@@ -177,6 +177,23 @@ if(BMO_ENABLE_CUDA)
             CUDA::cudart
             CUDA::cuda_driver)
     set_target_properties(bmo_v5_runtime_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
+    # ggml_rope (multi-token path) vs launch_rope_interleaved (per-token CUDA)
+    add_executable(bmo_rope_consistency_test tests/rope_consistency_test.cpp)
+    target_include_directories(bmo_rope_consistency_test PRIVATE "${CMAKE_SOURCE_DIR}")
+    if(EXISTS "${LLAMA_CPP_DIR}/ggml/include")
+        target_include_directories(bmo_rope_consistency_test PRIVATE "${LLAMA_CPP_DIR}/ggml/include")
+    endif()
+    if(DEFINED llamacpp_SOURCE_DIR AND EXISTS "${llamacpp_SOURCE_DIR}/ggml/include")
+        target_include_directories(bmo_rope_consistency_test PRIVATE "${llamacpp_SOURCE_DIR}/ggml/include")
+    endif()
+    target_link_libraries(
+        bmo_rope_consistency_test
+        PRIVATE
+            bmo
+            ${_link_targets}
+            CUDA::cudart
+            CUDA::cuda_driver)
 endif()
 
 # -----------------------------------------------------------------------------
@@ -245,7 +262,8 @@ if(BMO_ENABLE_CUDA)
         bmo_unpack_kernel_test
         bmo_fused_mat_test
         bmo_proto_test
-        bmo_v5_runtime_test)
+        bmo_v5_runtime_test
+        bmo_rope_consistency_test)
     foreach(_bt IN LISTS _bmo_cuda_targets)
         if(TARGET ${_bt})
             set_property(TARGET ${_bt} PROPERTY CUDA_ARCHITECTURES "${_bmo_cuda_archs}")
