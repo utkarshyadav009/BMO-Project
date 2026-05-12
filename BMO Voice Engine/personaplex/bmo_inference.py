@@ -22,10 +22,10 @@ Three modes, designed to be run *in order* so each stage isolates failures:
     text    Text-only autoregressive generation. Dummy moshi/user audio = 0.
             Validates: tokenizer wiring, KV cache across steps, text head.
 
-    stream  Full audio-in/audio-out streaming via Mimi + a depth strategy.
-            Validates: Mimi encode/decode, full duplex token layout (text +
-            8 moshi + 8 user), real audio output. Requires --depth-mode cpp
-            and a Mimi safetensors checkpoint via --mimi.
+    stream  Full duplex stream: ``LMGen`` + Mimi + ``patch_lm_for_bmo``, same
+            orchestration as ``moshi.offline`` with ``BMO_USE_CPP=1``. Requires
+            ``BMO_USE_CPP=1``, ``--mimi``, GGUF via ``--gguf``/``BMO_GGUF``, and
+            ``--so-path``/``BMO_SO_PATH``. WAV voice prompt only (no ``.pt``).
 
 Examples (all from the personaplex root, with libbmo.so already built):
 
@@ -47,9 +47,10 @@ Examples (all from the personaplex root, with libbmo.so already built):
             --text-prompt "Hello, my name is" \\
             --n-generate 30
 
-    # Canonical run: voice prompt + system text prompt + user audio + sampled
-    # text/audio output. Mirrors `moshi.offline` argument-for-argument.
-    PYTHONPATH=./moshi BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
+    # Canonical run (same stack as moshi.offline with BMO_USE_CPP=1: LMGen,
+    # warmup, reset after warmup, step_system_prompts, per-frame lm_gen.step).
+    PYTHONPATH=./moshi BMO_USE_CPP=1 BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
+        BMO_N_CTX=2048 \\
         python bmo_inference.py stream \\
             --gguf $PWD/bmo_septq_v3.gguf \\
             --mimi $PWD/tokenizer-e351c8d8-checkpoint125.safetensors \\
@@ -57,20 +58,17 @@ Examples (all from the personaplex root, with libbmo.so already built):
             --voice-prompt $PWD/bmo_621.wav \\
             --text-prompt "Tell me a joke." \\
             --input-wav $PWD/tellmeajoke_padded.wav \\
-            --depth-mode cpp \\
             --n-frames 125 \\
-            --n-ctx 256 \\
+            --n-ctx 2048 \\
             --output-wav /tmp/bmo_response.wav \\
             --output-text /tmp/bmo_response.json
 
     # Smoke-test with NO voice prompt (just to validate the decode path).
-    PYTHONPATH=./moshi BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
+    PYTHONPATH=./moshi BMO_USE_CPP=1 BMO_SO_PATH=$PWD/build_jetson/libbmo.so \\
         python bmo_inference.py stream \\
             --gguf $PWD/bmo_septq_v3.gguf \\
             --mimi $PWD/tokenizer-e351c8d8-checkpoint125.safetensors \\
-            --depth-mode cpp \\
-            --force-text-pad \\
-            --n-frames 50 --n-ctx 128 \\
+            --n-frames 50 --n-ctx 512 \\
             --output-wav /tmp/bmo_smoke.wav
 """
 
@@ -158,127 +156,6 @@ SILENCE_TOKENS = np.array([948, 243, 1178, 546, 1736, 1030, 1978, 2008], dtype=n
 SINE_TOKENS    = np.array([430, 1268, 381, 1611, 1095, 1495,   56,  472], dtype=np.int32)
 
 
-# Per-codebook input delays for PersonaPlex (Moshi-architecture variant).
-# Source: `_lm_kwargs["delays"]` in moshi/models/loaders.py. Index layout:
-#   [text, moshi_cb0..moshi_cb7, user_cb0..user_cb7]  (17 entries)
-# delay=0: the token provided at frame t is read at frame t (synchronous).
-# delay=1: the token provided at frame t is read at frame t+1 (i.e. on each
-#          frame, the model reads the PREVIOUS frame's value on this channel).
-# Without this shift, Q/K cache and the transformer's input distribution are
-# off by one frame on 14/17 channels, producing flat/uniform text logits with
-# EPAD/PAD ~3 logits BELOW random subword fragments instead of above.
-PERSONAPLEX_DELAYS = np.array(
-    [0, 0,1,1,1,1,1,1,1, 0,1,1,1,1,1,1,1], dtype=np.int32)
-
-
-class TokenDelayer:
-    """Stateful per-frame input composer that mimics LMGen.prepare_step_input.
-
-    For each frame the caller supplies the "current" tokens (text, moshi_now,
-    user_now). The class returns the K-int32 input vector with delay-shifted
-    values: delay=0 channels carry the current value, delay=1 channels carry
-    the value that was current on the *previous* call (i.e., what we stashed
-    in `prev_moshi` / `prev_user`).
-
-    The delay handling must be applied to BOTH the prefill phases (voice
-    prompt, silence spacers, text prompt) and the sampling loop. A single
-    instance must persist across all of these, so the prev buffer accumulates
-    correctly. Initial buffer values are `zero_token_id = -1`, which the C++
-    embed path interprets as "no value provided" (the row lookup is skipped).
-    """
-
-    def __init__(self, n_codebooks: int, n_moshi: int,
-                 delays: Optional[np.ndarray] = None):
-        if delays is None:
-            delays = PERSONAPLEX_DELAYS
-        self.K = int(n_codebooks)
-        self.n_moshi = int(n_moshi)
-        self.n_user = max(0, self.K - 1 - self.n_moshi)
-        # Slice/extend `delays` so it covers exactly K channels. Pad missing
-        # entries with delay=1 (acoustic default) so we degrade safely if the
-        # engine reports more codebooks than the canonical layout.
-        if delays.size >= self.K:
-            self.delays = delays[:self.K].astype(np.int32, copy=True)
-        else:
-            self.delays = np.concatenate(
-                [delays.astype(np.int32, copy=False),
-                 np.ones(self.K - delays.size, dtype=np.int32)])
-        # `prev_*` is the per-channel "what we provided last call". For first
-        # frame, all entries = -1 (skipped by add_row in the C++ embed path),
-        # matching LMGen's zero_token_id initial state.
-        self.prev_moshi = np.full(self.n_moshi, -1, dtype=np.int32) \
-            if self.n_moshi > 0 else np.zeros(0, dtype=np.int32)
-        self.prev_user = np.full(self.n_user, -1, dtype=np.int32) \
-            if self.n_user > 0 else np.zeros(0, dtype=np.int32)
-
-    def reset(self):
-        if self.n_moshi > 0:
-            self.prev_moshi.fill(-1)
-        if self.n_user > 0:
-            self.prev_user.fill(-1)
-
-    def step(self, text_token: int,
-             moshi_now: Optional[np.ndarray] = None,
-             user_now: Optional[np.ndarray] = None,
-             delay_moshi: bool = True,
-             delay_user: bool = True) -> np.ndarray:
-        """Compose the K-vector for `forward_temporal` and advance the buffer.
-
-        delay_moshi / delay_user toggle whether delay=1 channels read from
-        the previous-frame buffer (True) or from this frame's `moshi_now` /
-        `user_now` (False). Use True when the caller "provides" tokens (the
-        equivalent of LMGen.prepare_step_input writing with provided=True);
-        use False when the cache value comes from the model's own depth
-        writeback (`provided=False` => depth fills cb1-7 at the same position
-        as cb0, so cb0 and cb1-7 share the same source).
-
-        Concretely for our streaming pipeline:
-          - prefill:                      delay_moshi=True,  delay_user=True
-          - sampling steps t in {0,1}:    delay_moshi=True,  delay_user=True
-          - sampling steps t >= 2:        delay_moshi=False, delay_user=True
-        See the sampling loop for the rationale (LMGen's prefill prepare
-        writes cb1-7 with provided=True at N+1, blocking depth's overwrite at
-        sampling step t=0 and t=1; from t=2 onward the cb1-7 cache slot is
-        filled by depth's writeback at the same position as cb0).
-        """
-        tokens = np.zeros(self.K, dtype=np.int32)
-        tokens[0] = int(text_token)
-
-        # Normalise the inputs to fixed lengths so we can pad missing entries
-        # with -1 (treated as "no value" by the embed path).
-        def _coerce(arr: Optional[np.ndarray], n: int) -> np.ndarray:
-            if n <= 0:
-                return np.zeros(0, dtype=np.int32)
-            if arr is None:
-                return np.full(n, -1, dtype=np.int32)
-            a = np.asarray(arr, dtype=np.int32)
-            if a.size >= n:
-                return a[:n].copy()
-            return np.concatenate(
-                [a, np.full(n - a.size, -1, dtype=np.int32)])
-
-        m_now = _coerce(moshi_now, self.n_moshi)
-        u_now = _coerce(user_now, self.n_user)
-
-        for k in range(self.n_moshi):
-            if delay_moshi and self.delays[1 + k] != 0:
-                tokens[1 + k] = self.prev_moshi[k]
-            else:
-                tokens[1 + k] = m_now[k]
-        for k in range(self.n_user):
-            if delay_user and self.delays[1 + self.n_moshi + k] != 0:
-                tokens[1 + self.n_moshi + k] = self.prev_user[k]
-            else:
-                tokens[1 + self.n_moshi + k] = u_now[k]
-
-        if self.n_moshi > 0:
-            self.prev_moshi[:] = m_now
-        if self.n_user > 0:
-            self.prev_user[:] = u_now
-
-        return tokens
-
-
 def make_input_tokens(
     engine: BMOEngine,
     text_token: int,
@@ -350,6 +227,9 @@ class DepthStrategy:
         self,
         text_token: int,
         transformer_out: np.ndarray,
+        *,
+        depformer_audio: Optional[np.ndarray] = None,
+        depformer_provided: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         raise NotImplementedError
 
@@ -367,20 +247,20 @@ class DummyDepth(DepthStrategy):
         self.dep_q = int(dep_q)
         self._zeros = np.zeros(self.dep_q, dtype=np.int32)
 
-    def step(self, text_token, transformer_out):
+    def step(self, text_token, transformer_out, *, depformer_audio=None, depformer_provided=None):
         return self._zeros
 
 
 class CppDepth(DepthStrategy):
     """Production path (Phase 4.3): call libbmo.so's bmo_forward_depth.
 
-    Per temporal frame, bmo_forward_depth is invoked dep_q times in sequence:
-      cb=0:    prev = sampled text token, lookup via depformer_text_emb
-      cb=k>0:  prev = previously sampled audio token at codebook k-1,
-               lookup via depformer_emb[k-1]
-    The C++ side resets a small cross-codebook KV cache at cb=0 and
-    accumulates K/V at slots 0..k as the loop runs, then projects through
-    linears[k] to produce per-codebook audio logits.
+    Matches ``LMGen.depformer_step`` (moshi/models/lm.py): each step samples a
+    token per codebook, but ``prev`` fed into the next ``forward_depformer`` hop
+    is teacher-forced from ``target_/provided_`` when ``audio_provided[cb]``.
+
+    When used from ``mode_text``, teacher-forcing of user slots is not required.
+    From ``LMGen.depformer_step`` (``moshi.offline`` / ``mode_stream``), user
+    slots are forced via ``audio_tokens`` / ``audio_provided`` inside LMGen.
     """
     name = "cpp"
 
@@ -389,14 +269,39 @@ class CppDepth(DepthStrategy):
         self.temp = temp
         self.top_k = top_k
 
-    def step(self, text_token, transformer_out):
+    def step(
+        self,
+        text_token,
+        transformer_out,
+        *,
+        depformer_audio=None,
+        depformer_provided=None,
+    ):
+        dq = int(self.engine.dep_q)
+        if depformer_audio is None or depformer_provided is None:
+            forced_audio = np.zeros(dq, dtype=np.int32)
+            forced_prov = np.zeros(dq, dtype=np.bool_)
+        else:
+            forced_audio = np.asarray(depformer_audio, dtype=np.int32).reshape(-1)
+            forced_prov = np.asarray(depformer_provided, dtype=np.bool_).reshape(-1)
+            if forced_audio.size < dq:
+                raise RuntimeError(
+                    f"depformer_audio length {forced_audio.size} < dep_q {dq}"
+                )
+            if forced_prov.size < dq:
+                raise RuntimeError(
+                    f"depformer_provided length {forced_prov.size} < dep_q {dq}"
+                )
+            forced_audio = forced_audio[:dq]
+            forced_prov = forced_prov[:dq]
+
         prev = int(text_token)
-        out = np.empty(self.engine.dep_q, dtype=np.int32)
-        for cb in range(self.engine.dep_q):
+        out = np.empty(dq, dtype=np.int32)
+        for cb in range(dq):
             logits = self.engine.forward_depth(cb, prev, transformer_out)
             tok = sample_top_k(logits, self.temp, self.top_k)
             out[cb] = tok
-            prev = tok
+            prev = int(forced_audio[cb]) if bool(forced_prov[cb]) else int(tok)
         return out
 
 
@@ -658,26 +563,27 @@ def decode_text_token(token_id: int, sp) -> str:
     return piece.replace("\u2581", " ")  # SentencePiece's '▁' -> ASCII space
 
 
-def _encode_voice_prompt_codes(mimi, voice_prompt_path: str, n_moshi: int) -> np.ndarray:
-    """Encode a voice prompt wav -> (T_frames, n_moshi) int32 codebooks.
+def _resolve_voice_prompt_wav_for_lmgen(
+    voice_prompt_path: str, voice_prompt_seconds: float, sample_rate: int
+) -> str:
+    """Return a filesystem path to feed ``LMGen.load_voice_prompt``.
 
-    PersonaPlex's voice prompts are short (~5-10 s) wavs of the agent's
-    speaking voice. Mimi.encode produces (1, K, T_frames); we transpose
-    to per-frame layout and clamp to the first n_moshi codebooks (typically 8).
+    When ``voice_prompt_seconds > 0``, keep only the last ``seconds`` of audio
+    (same intent as the legacy stream driver) by writing a temporary 24 kHz wav.
+    Otherwise return ``voice_prompt_path`` unchanged.
     """
-    import torch  # local: only paid when --voice-prompt is set
+    if not voice_prompt_seconds or voice_prompt_seconds <= 0:
+        return voice_prompt_path
+    import tempfile
+
     wav = _read_wav_24k(voice_prompt_path)
-    wav_t = torch.from_numpy(wav).float().unsqueeze(0).unsqueeze(0)  # (1, 1, T)
-    with torch.no_grad():
-        codes_t = mimi.encode(wav_t)  # (1, K_codebooks, T_frames)
-    # (1, K, T) -> (T, K) and slice to n_moshi
-    codes_np = codes_t[0].transpose(0, 1).cpu().numpy().astype(np.int32)
-    if codes_np.shape[1] < n_moshi:
-        raise RuntimeError(
-            f"voice prompt encoded with only {codes_np.shape[1]} codebooks but "
-            f"the model expects {n_moshi}. Did you forget set_num_codebooks(8)?"
-        )
-    return codes_np[:, :n_moshi]
+    keep_samples = max(1, int(round(float(voice_prompt_seconds) * float(sample_rate))))
+    if wav.size > keep_samples:
+        wav = wav[-keep_samples:]
+    fd, tmp = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    _write_wav_24k(tmp, wav)
+    return tmp
 
 
 def _read_wav_24k(path: str):
@@ -795,100 +701,211 @@ def _write_wav_24k(path: str, wav: np.ndarray) -> None:
 
 
 def mode_stream(args) -> int:
-    """Full audio-in/audio-out streaming loop with voice/text prompt phases.
+    """Audio-in/audio-out streaming using ``LMGen`` + ``libbmo`` (``moshi.offline`` parity).
 
-    Mirrors `moshi.offline.run_inference` with libbmo.so as the LM:
+    This path matches ``moshi.offline.run_inference`` with ``BMO_USE_CPP=1``:
+    ``get_moshi_lm(None)``, ``patch_lm_for_bmo``, ``warmup``, ``bmo_engine.reset()``
+    after warmup, ``step_system_prompts``, then one ``lm_gen.step`` per generation
+    frame with Mimi-encoded user codes — the same delay ring and depformer
+    teacher-forcing as the reference server/offline stack.
 
-        Phase 1 (voice prompt prefill)   moshi channels = mimi.encode(voice_wav)
-                                         user channels  = SINE_TOKENS
-                                         text channel   = PAD (=zero_text_code)
-        Phase 2 (audio silence spacer)   moshi channels = SILENCE_TOKENS
-                                         user channels  = SINE_TOKENS    (~0.5 s)
-                                         text channel   = PAD
-        Phase 3 (text prompt prefill)    text channel   = <system> tokens
-                                         moshi channels = SILENCE_TOKENS
-                                         user channels  = SINE_TOKENS
-        Phase 4 (audio silence spacer)   same as phase 2                  (~0.5 s)
-        Phase 5 (sampling loop)          user channels  = Mimi codes from
-                                                          ``--input-wav``
-                                                          (offline-parity
-                                                          chunked encode), else
-                                                          SILENCE_TOKENS.
-                                         text + moshi   = sampled
-
-    Each phase consumes one KV-cache slot per frame, so total slots used is
-    voice_frames + 2*silence + text_frames + n_frames; if that exceeds the
-    Jetson n_ctx cap (currently 128 due to a defensive override in bmo.cpp),
-    the KV will silently wrap and quality will degrade. We print an explicit
-    budget summary up front so it's obvious when the cap needs raising.
-
-    Caveats vs the canonical PyTorch `moshi.offline`:
-      * ``TokenDelayer`` applies ``PERSONAPLEX_DELAYS`` across prefill and gen.
-      * Single Mimi instance for both encode and decode (offline.py uses two
-        with separate streaming state). Should be benign as long as we don't
-        interleave encode/decode mid-stream.
+    Requires ``BMO_USE_CPP=1``. Set ``BMO_N_CTX`` (or ``--n-ctx`` when the env var
+    is unset) large enough for voice + silence + text + ``--n-frames``.
     """
+    import torch
+
+    if os.environ.get("BMO_USE_CPP", "0") != "1":
+        raise RuntimeError(
+            "bmo_inference stream is wired like moshi.offline and requires "
+            "BMO_USE_CPP=1 (LMGen + libbmo GGUF). Export BMO_USE_CPP=1, point "
+            "BMO_GGUF or --gguf at the GGUF, and set BMO_SO_PATH / --so-path."
+        )
+
+    if args.force_text_pad:
+        print("[stream] WARN: --force-text-pad is ignored in the LMGen stream path.")
+    if args.depth_mode != "cpp":
+        print(
+            f"[stream] WARN: --depth-mode {args.depth_mode!r} ignored "
+            f"(stream uses LMGen's depformer_step -> patched forward_depformer)."
+        )
+
     BMOEngine = _load_engine_class()
 
-    # ----- 1. Models + tokenizer -----
+    device = args.device
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[stream] device={device}")
+
+    from moshi.models import loaders, LMGen
+    from moshi.offline import (
+        decode_tokens_to_pcm,
+        disable_cuda_graphs_in_lmgen,
+        patch_lm_for_bmo,
+        seed_all,
+        warmup,
+    )
+
+    if int(args.seed) >= 0:
+        seed_all(int(args.seed))
+
     print(f"[stream] rss_mb={rss_mb():.1f}")
-    mimi = _load_mimi(args, device="cpu")
-    print(f"[stream] mimi loaded: codebooks={mimi.num_codebooks} "
-          f"sr={mimi.sample_rate}Hz frame_rate={mimi.frame_rate}Hz")
-    print(f"[stream] rss_mb_after_mimi={rss_mb():.1f}")
+    mimi = _load_mimi(args, device=device)
+    other_mimi = loaders.get_mimi(args.mimi, device=device)
+    other_mimi.set_num_codebooks(DEFAULT_N_MOSHI_CODEBOOKS)
+    print(
+        f"[stream] mimi loaded: codebooks={mimi.num_codebooks} "
+        f"sr={mimi.sample_rate}Hz frame_rate={mimi.frame_rate}Hz"
+    )
 
-    engine = BMOEngine(args.gguf, n_ctx=args.n_ctx)
-    print(f"[stream] engine: K={engine.n_codebooks} d_embd={engine.n_embd} "
-          f"dep_q={engine.dep_q} text_vocab={engine.text_vocab} "
-          f"audio_vocab={engine.audio_vocab}")
-    print(f"[stream] rss_mb_after_engine={rss_mb():.1f}")
+    lm = loaders.get_moshi_lm(
+        None,
+        device=device,
+        cpu_offload=bool(args.cpu_offload),
+    )
+    lm.eval()
 
-    K = engine.n_codebooks
-    n_audio = max(0, K - 1)
-    n_moshi = min(DEFAULT_N_MOSHI_CODEBOOKS, n_audio)
-    n_user = n_audio - n_moshi
-    print(f"[stream] token layout: text=1 moshi={n_moshi} user={n_user} K={K}")
+    frame_size = int(mimi.sample_rate / mimi.frame_rate)
+    silence_cnt = int(round(float(args.silence_seconds) * float(mimi.frame_rate)))
 
-    sp = None
+    lm_gen = LMGen(
+        lm,
+        audio_silence_frame_cnt=max(0, silence_cnt),
+        sample_rate=mimi.sample_rate,
+        device=device,
+        frame_rate=mimi.frame_rate,
+        save_voice_prompt_embeddings=False,
+        use_sampling=True,
+        temp=args.temp_audio,
+        temp_text=args.temp_text,
+        top_k=args.topk_audio,
+        top_k_text=args.topk_text,
+    )
+
+    mimi.streaming_forever(1)
+    other_mimi.streaming_forever(1)
+    lm_gen.streaming_forever(1)
+
+    n_ctx_bmo = int(os.environ.get("BMO_N_CTX", str(args.n_ctx)))
+    if n_ctx_bmo < 32:
+        raise ValueError(f"BMO_N_CTX / --n-ctx too small: {n_ctx_bmo} (minimum 32).")
+
+    bmo_engine = BMOEngine(args.gguf, n_ctx=n_ctx_bmo)
+    print(
+        f"[stream] engine: K={bmo_engine.n_codebooks} d_embd={bmo_engine.n_embd} "
+        f"dep_q={bmo_engine.dep_q} text_vocab={bmo_engine.text_vocab} "
+        f"audio_vocab={bmo_engine.audio_vocab} n_ctx={n_ctx_bmo}"
+    )
+
+    patch_lm_for_bmo(lm, bmo_engine)
+    if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
+        lm_gen._streaming_state = None
+    lm_gen.streaming_forever(1)
+    disable_cuda_graphs_in_lmgen(lm_gen)
+    print("[stream] patched LM forward_codes / forward_depformer -> libbmo")
+
+    warmup(mimi, other_mimi, lm_gen, device, frame_size)
+    bmo_engine.reset()
+    print("[stream] libbmo KV reset after warmup (matches moshi.offline)")
+
+    text_tokenizer = None
     if args.tokenizer:
         try:
             import sentencepiece as spm
-            sp = spm.SentencePieceProcessor()
-            sp.Load(args.tokenizer)
-            print(f"[stream] tokenizer: vocab={sp.GetPieceSize()}")
+
+            text_tokenizer = spm.SentencePieceProcessor()
+            text_tokenizer.Load(args.tokenizer)
+            print(f"[stream] tokenizer: vocab={text_tokenizer.GetPieceSize()}")
         except ImportError:
-            print("[stream] WARN: sentencepiece not installed; skipping prompt prefill.")
-            sp = None
+            print("[stream] WARN: sentencepiece not installed; skipping text prefill.")
+    elif args.text_prompt:
+        print(
+            "[stream] WARN: --text-prompt set but no --tokenizer; "
+            "skipping text prefill."
+        )
 
-    depth = make_depth_strategy(args, engine)
-    print(f"[stream] depth_strategy={depth.name}")
-    if depth.name == "dummy":
-        print("[stream] WARNING: --depth-mode dummy emits ZERO audio codebooks "
-              "every frame. Mimi will decode 100% silence/buzzing AND the "
-              "temporal head will see out-of-distribution audio inputs, "
-              "producing garbage text. Use --depth-mode cpp for real output.")
-
-    # ----- 2. Pre-encode all audio that prefill needs -----
-    voice_codes = None  # (T_voice, n_moshi)
+    voice_tmp: Optional[str] = None
     if args.voice_prompt:
-        print(f"[stream] encoding voice prompt: {args.voice_prompt}")
-        voice_codes = _encode_voice_prompt_codes(mimi, args.voice_prompt, n_moshi)
-        full_t = voice_codes.shape[0]
-        if args.voice_prompt_seconds and args.voice_prompt_seconds > 0:
-            keep = max(1, int(round(args.voice_prompt_seconds * float(mimi.frame_rate))))
-            if voice_codes.shape[0] > keep:
-                # Keep the FINAL `keep` frames of the prompt: most voice
-                # prompts have leading silence/noise, and the recent context
-                # is what the model attends to during generation.
-                voice_codes = voice_codes[-keep:]
-                print(f"[stream] voice prompt trimmed: {full_t} -> "
-                      f"{voice_codes.shape[0]} frames "
-                      f"(--voice-prompt-seconds {args.voice_prompt_seconds})")
-        print(f"[stream] voice prompt: {voice_codes.shape[0]} frames "
-              f"({voice_codes.shape[0] / float(mimi.frame_rate):.2f}s) "
-              f"x {voice_codes.shape[1]} codebooks")
+        vp = args.voice_prompt
+        if vp.endswith(".pt"):
+            raise RuntimeError(
+                "BMO_USE_CPP GGUF-only mode requires a WAV voice prompt. "
+                ".pt embedding replay uses forward_embeddings on the PyTorch LM shell, "
+                "which is not loaded without a checkpoint (same rule as moshi.offline)."
+            )
+        vp_use = _resolve_voice_prompt_wav_for_lmgen(
+            vp, float(args.voice_prompt_seconds), int(mimi.sample_rate)
+        )
+        if vp_use != vp:
+            voice_tmp = vp_use
+            print(f"[stream] voice prompt trimmed for LMGen: wrote temp wav")
+        lm_gen.load_voice_prompt(vp_use)
+    else:
+        lm_gen.voice_prompt_audio = None
+        lm_gen.voice_prompt_embeddings = None
 
-    user_codes = None  # (T_user, n_user)
+    lm_gen.text_prompt_tokens = None
+    if text_tokenizer is not None and args.text_prompt:
+        wrapped = wrap_with_system_tags(args.text_prompt)
+        lm_gen.text_prompt_tokens = text_tokenizer.EncodeAsIds(wrapped)
+        print(f"[stream] text prompt={wrapped!r} ids={lm_gen.text_prompt_tokens}")
+
+    n_frames = int(args.n_frames)
+    if n_frames <= 0:
+        raise RuntimeError("--n-frames must be > 0 for stream mode")
+
+    from moshi.models import lm as moshi_lm_module
+
+    K = int(bmo_engine.n_codebooks)
+    n_moshi = int(moshi_lm_module.AUDIO_TOKENS_PER_STREAM)
+    n_user = int(lm.num_codebooks) - n_moshi - 1
+    if n_user < 1:
+        raise RuntimeError(
+            f"LM num_codebooks={lm.num_codebooks} implies n_user={n_user}; "
+            "expected 8 user codebooks for PersonaPlex."
+        )
+    if K != int(lm.num_codebooks):
+        print(
+            f"[stream] WARN: BMOEngine K={K} vs lm.num_codebooks={lm.num_codebooks} "
+            f"(patch_lm_for_bmo normally requires equality)."
+        )
+    print(f"[stream] token layout: text=1 moshi={n_moshi} user={n_user} K={K}")
+
+    silence_frames = int(round(float(args.silence_seconds) * float(mimi.frame_rate)))
+    voice_frames_est = 0
+    if args.voice_prompt:
+        try:
+            w = _read_wav_24k(args.voice_prompt)
+            if args.voice_prompt_seconds and args.voice_prompt_seconds > 0:
+                keep = max(1, int(round(float(args.voice_prompt_seconds) * float(mimi.sample_rate))))
+                voice_frames_est = int(min(w.size, keep) // max(1, frame_size))
+            else:
+                voice_frames_est = int(w.size // max(1, frame_size))
+        except Exception:
+            voice_frames_est = 0
+    text_frames = len(lm_gen.text_prompt_tokens or [])
+    total_slots = (
+        voice_frames_est
+        + (silence_frames if voice_frames_est else 0)
+        + text_frames
+        + (silence_frames if text_frames else 0)
+        + n_frames
+    )
+    print(
+        f"[stream] kv budget (approx): voice~={voice_frames_est} silence={silence_frames} "
+        f"text={text_frames} gen={n_frames} total~={total_slots} vs n_ctx={n_ctx_bmo}"
+    )
+    if total_slots > n_ctx_bmo:
+        print(
+            f"[stream] WARN: estimated slots ({total_slots}) exceed n_ctx ({n_ctx_bmo}); "
+            f"raise BMO_N_CTX or --n-ctx, or shorten prompts."
+        )
+
+    mimi.reset_streaming()
+    other_mimi.reset_streaming()
+    lm_gen.reset_streaming()
+    lm_gen.step_system_prompts(mimi)
+    mimi.reset_streaming()
+
     if args.input_wav and n_user > 0:
         print(f"[stream] encoding user audio (offline-parity): {args.input_wav}")
         user_codes, user_meta = _encode_user_wav_codes_like_offline(
@@ -896,250 +913,125 @@ def mode_stream(args) -> int:
         )
         for key, val in user_meta.items():
             print(f"[stream] user_audio: {key}={val}")
-
-    text_prompt_ids = []
-    if sp is not None and args.text_prompt:
-        wrapped = wrap_with_system_tags(args.text_prompt)
-        text_prompt_ids = sp.EncodeAsIds(wrapped)
-        print(f"[stream] text prompt={wrapped!r} ids={text_prompt_ids}")
-    elif args.text_prompt and sp is None:
-        print(f"[stream] WARN: --text-prompt set but no --tokenizer; "
-              f"text prefill will be skipped.")
-
-    # ----- 3. KV-cache budget -----
-    silence_frames = int(round(args.silence_seconds * float(mimi.frame_rate)))
-    voice_frames = voice_codes.shape[0] if voice_codes is not None else 0
-    text_frames = len(text_prompt_ids)
-    n_frames = int(args.n_frames)
-    if n_frames <= 0:
-        raise RuntimeError("--n-frames must be > 0 for stream mode")
-
-    total_slots = voice_frames + (silence_frames if voice_frames else 0) + \
-                  text_frames + (silence_frames if text_frames else 0) + \
-                  n_frames
-    print(f"[stream] kv budget: voice={voice_frames} silence={silence_frames} "
-          f"text={text_frames} silence={silence_frames} gen={n_frames} "
-          f"total={total_slots} vs --n-ctx={args.n_ctx}")
-    if total_slots > args.n_ctx:
-        print(f"[stream] WARN: total prefill+gen ({total_slots}) exceeds n_ctx "
-              f"({args.n_ctx}); the KV cache will wrap and quality will suffer. "
-              f"Re-run with a higher --n-ctx, or shorten voice/text prompts.")
-
-    # ----- 4. Reset state, run prompt phases -----
-    # Prefill-frame inputs follow the canonical moshi/LMGen scheme:
-    #   - agent (moshi) channel = voice-prompt codes during phase 1, SILENCE_TOKENS otherwise
-    #   - user channel = SINE_TOKENS for EVERY prefill frame (matches moshi/models/lm.py
-    #     `_encode_sine_frame()`, called from `_step_voice_prompt_frame` lm.py:1097-1106
-    #     and `_step_audio_silence_core` lm.py:1161-1170)
-    #   - text channel = TEXT_PAD_ID (== self.zero_text_code == 3)
-    # Both SILENCE_TOKENS and SINE_TOKENS are real Mimi codewords baked in as constants,
-    # not all-zeros (definitions at module top).
-    #
-    # HISTORICAL NOTE (do not revert): an earlier version of this driver fed
-    # SILENCE_TOKENS on the user channel as well, derived "empirically" from
-    # residual-statistics probes while the C++ GGUF runtime was broken in
-    # unrelated ways (scale recomputation, tier-mask mismatch, matvec layout).
-    # That OOD prefill is what produced the static-text-logit gibberish during
-    # generation. The runtime bugs are fixed; SINE_TOKENS on user is what the
-    # model was actually fine-tuned with and is what produces coherent audio
-    # via moshi.offline.
-    engine.reset()
-
-    moshi_silence_tokens = SILENCE_TOKENS[:n_moshi].astype(np.int32, copy=False)
-    if n_user > 0:
-        user_sine_tokens    = SINE_TOKENS[:n_user].astype(np.int32, copy=False)
-        user_silence_tokens = SILENCE_TOKENS[:n_user].astype(np.int32, copy=False)
     else:
-        user_sine_tokens    = np.zeros(0, dtype=np.int32)
-        user_silence_tokens = np.zeros(0, dtype=np.int32)
-    # Naming convention: `user_sine_tokens` is the prefill-time user-channel input
-    # (matches moshi.offline `_encode_sine_frame`), `user_silence_tokens` is the
-    # generation-time fallback when `--input-wav` is absent or exhausted (matches
-    # mimi-encoded zero-amplitude audio, used inside the sampling loop only).
+        user_codes = np.zeros((0, max(n_user, 1)), dtype=np.int32)
+        if n_user > 0 and not args.input_wav:
+            print("[stream] no --input-wav; user channel uses Mimi-encoded silence.")
 
-    # Single delayer instance shared across prefill phases AND the sampling
-    # loop. Its prev_moshi / prev_user buffers carry the per-channel delay=1
-    # state correctly across phase boundaries (so e.g. moshi cb1-7 at the
-    # first sampling frame is the moshi cb1-7 from the LAST silence-spacer
-    # frame, not initial zeros).
-    delayer = TokenDelayer(n_codebooks=engine.n_codebooks, n_moshi=n_moshi)
-    delay_str = ",".join(str(int(d)) for d in delayer.delays)
-    print(f"[stream] delay handling enabled: delays=[{delay_str}]")
+    with torch.no_grad():
+        zc = torch.zeros(1, 1, frame_size, dtype=torch.float32, device=device)
+        sil_enc = mimi.encode(zc)
+        if n_user > 0:
+            sil_user = (
+                sil_enc[0, :n_user, -1].detach().cpu().numpy().astype(np.int32)
+            )
+        else:
+            sil_user = np.zeros(0, dtype=np.int32)
 
-    def _prefill_one(text_tok, moshi_in, user_in):
-        toks = delayer.step(int(text_tok), moshi_in, user_in)
-        engine.forward_temporal(toks)
-
-    # Phase 1: voice prompt -- moshi=voice_codes, user=SINE, text=PAD(=zero_text_code).
-    # Matches LMGen._step_voice_prompt_frame (moshi/models/lm.py:1097-1106).
-    if voice_codes is not None:
-        t0 = time.perf_counter()
-        for f in range(voice_codes.shape[0]):
-            _prefill_one(TEXT_PAD_ID, voice_codes[f], user_sine_tokens)
-        print(f"[stream] phase1 voice prompt: {voice_codes.shape[0]} frames in "
-              f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
-
-        # Phase 2: silence spacer -- moshi=SILENCE, user=SINE, text=PAD.
-        # Matches LMGen._step_audio_silence_core (moshi/models/lm.py:1161-1170).
-        t0 = time.perf_counter()
-        for _ in range(silence_frames):
-            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_sine_tokens)
-        print(f"[stream] phase2 silence: {silence_frames} frames in "
-              f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
-
-    # Phase 3: text prompt -- moshi=SILENCE, user=SINE, text=current prompt token.
-    # No shift: each prompt token is fed as text input on its own frame, exactly
-    # matching LMGen._step_text_prompt_core (moshi/models/lm.py:1183-1191).
-    if text_prompt_ids:
-        t0 = time.perf_counter()
-        for tid in text_prompt_ids:
-            _prefill_one(int(tid), moshi_silence_tokens, user_sine_tokens)
-        print(f"[stream] phase3 text prompt: {text_frames} frames in "
-              f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
-
-        # Phase 4: silence spacer -- same as phase 2.
-        t0 = time.perf_counter()
-        for _ in range(silence_frames):
-            _prefill_one(TEXT_PAD_ID, moshi_silence_tokens, user_sine_tokens)
-        print(f"[stream] phase4 silence: {silence_frames} frames in "
-              f"{(time.perf_counter() - t0) * 1000.0:.1f}ms")
-
-    # ----- 5. Sampling loop (Phase 5) -----
-    # First frame after prefill: text starts at PAD, moshi seeded with the
-    # silence codeword pattern (so cb0=948 etc. as the model would expect on
-    # a "no audio yet" frame), user is taken from --input-wav if available.
-    text_token = TEXT_PAD_ID
-    moshi_prev = moshi_silence_tokens.copy()
-
-    moshi_codes_out = np.zeros((n_frames, n_moshi), dtype=np.int32)
-    timings_temp = []
-    timings_depth = []
-    text_pieces: list = []  # for --output-text JSON
-    text_id_log: list = []
+    text_pieces: list[str] = []
+    generated_frames: list[np.ndarray] = []
+    timings_step: list[float] = []
 
     t_gen0 = time.perf_counter()
-    for t in range(n_frames):
-        if user_codes is not None and t < user_codes.shape[0] and n_user > 0:
-            user_now = user_codes[t]
-        else:
-            user_now = user_silence_tokens
+    with torch.no_grad():
+        for t in range(n_frames):
+            if n_user > 0:
+                if t < user_codes.shape[0]:
+                    uc = user_codes[t]
+                else:
+                    uc = sil_user
+                step_in = (
+                    torch.from_numpy(uc.astype(np.int64))
+                    .view(1, n_user, 1)
+                    .long()
+                    .to(device)
+                )
+            else:
+                step_in = torch.zeros(1, 0, 1, dtype=torch.long, device=device)
 
-        # Delay handling for moshi during sampling:
-        #
-        # In LMGen, the first two sampling steps (t=0, t=1) read cb1-7 from
-        # cache slots that were stamped during the LAST PREFILL STEP's
-        # prepare_step_input (provided=True for cb1-7 at positions N and N+1).
-        # The depth writeback at sampling step t=0 cannot overwrite those
-        # slots because of the ~provided check, so cb1-7 stays = silence at
-        # both reads. From step t=2 onward, no prefill prepare reaches that
-        # position, provided=False, and depth's writeback at the matching
-        # position fills cb1-7 with the SAME-step depth output — i.e. cb0
-        # and cb1-7 share a source and there is no further delay shift.
-        #
-        # We model this by feeding `moshi_now=moshi_prev` (depth from t-1)
-        # at every sampling step, but toggling whether the delayer picks
-        # cb1-7 from `prev_moshi` (silence carried over from prefill, used
-        # at t=0 and t=1) or from this frame's `moshi_now` (depth, used at
-        # t>=2).
-        delay_moshi_now = (t < 2)
-        toks = delayer.step(int(text_token), moshi_prev, user_now,
-                            delay_moshi=delay_moshi_now,
-                            delay_user=True)
+            t0 = time.perf_counter()
+            tokens = lm_gen.step(step_in)
+            timings_step.append((time.perf_counter() - t0) * 1000.0)
 
-        t0 = time.perf_counter()
-        z, lt = engine.forward_temporal(toks)
-        timings_temp.append((time.perf_counter() - t0) * 1000.0)
+            if tokens is None:
+                continue
 
-        if args.force_text_pad:
-            text_token = TEXT_PAD_ID
-        else:
-            text_token = int(sample_top_k(lt, args.temp_text, args.topk_text))
-        text_id_log.append(text_token)
-        text_pieces.append(decode_text_token(text_token, sp))
+            pcm = decode_tokens_to_pcm(mimi, other_mimi, lm_gen, tokens)
+            generated_frames.append(pcm)
 
-        # Diagnostic for the "no EPAD/PAD ever" issue: on the first ~6 frames,
-        # print the top-5 text logits and the EPAD/PAD logits explicitly. If
-        # EPAD/PAD aren't even in the top 100, the bug is upstream of sampling
-        # (text head structure / load). If they ARE near the top but argmax is
-        # a real wordpiece, the model is just biased and we may need to inspect
-        # the prompt phase.
-        if t < 6:
-            top5 = np.argsort(lt)[::-1][:5]
-            top5_str = " ".join(f"{int(i)}({float(lt[i]):+.3f})" for i in top5)
-            epad_lg = float(lt[0]) if lt.size > 0 else float('nan')
-            bos_lg  = float(lt[1]) if lt.size > 1 else float('nan')
-            eos_lg  = float(lt[2]) if lt.size > 2 else float('nan')
-            pad_lg  = float(lt[3]) if lt.size > 3 else float('nan')
-            print(f"[stream] frame {t:3d} text_logits top5=[{top5_str}] "
-                  f"EPAD={epad_lg:+.3f} BOS={bos_lg:+.3f} "
-                  f"EOS={eos_lg:+.3f} PAD={pad_lg:+.3f}")
+            text_token = int(tokens[0, 0, 0].item())
+            text_pieces.append(decode_text_token(text_token, text_tokenizer))
 
-        t0 = time.perf_counter()
-        all_audio = depth.step(text_token, z)
-        timings_depth.append((time.perf_counter() - t0) * 1000.0)
+            moshi_prev = tokens[0, 1 : 1 + n_moshi, 0].detach().cpu().numpy().astype(
+                np.int32
+            )
+            is_special = text_token in TEXT_SPECIAL_LABELS
+            if not is_special:
+                print(
+                    f"[stream] frame {t:4d} text='{text_pieces[-1]}' id={text_token} "
+                    f"moshi_cb0={int(moshi_prev[0]):4d} step_dt={timings_step[-1]:6.1f}ms"
+                )
+            elif t < 3 or (t + 1) % 25 == 0 or t == n_frames - 1:
+                print(
+                    f"[stream] frame {t:4d} text='{text_pieces[-1]}' "
+                    f"moshi_cb0={int(moshi_prev[0]):4d} step_dt={timings_step[-1]:6.1f}ms"
+                )
 
-        moshi_prev = all_audio[:n_moshi].astype(np.int32, copy=False)
-        moshi_codes_out[t] = moshi_prev
+    if voice_tmp:
+        try:
+            os.remove(voice_tmp)
+        except OSError:
+            pass
 
-        # Per-frame log: only print non-PAD/EPAD text events verbosely; print
-        # a short tick line otherwise to avoid 100s of pad lines.
-        is_special = text_token in TEXT_SPECIAL_LABELS
-        if not is_special:
-            print(f"[stream] frame {t:4d} text='{text_pieces[-1]}' "
-                  f"id={text_token} moshi_cb0={int(moshi_prev[0]):4d} "
-                  f"temp_dt={timings_temp[-1]:6.1f}ms "
-                  f"depth_dt={timings_depth[-1]:6.1f}ms")
-        elif t < 3 or (t + 1) % 25 == 0 or t == n_frames - 1:
-            print(f"[stream] frame {t:4d} text='{text_pieces[-1]}' "
-                  f"moshi_cb0={int(moshi_prev[0]):4d} "
-                  f"temp_dt={timings_temp[-1]:6.1f}ms "
-                  f"depth_dt={timings_depth[-1]:6.1f}ms")
+    if not generated_frames:
+        print("[stream] error: no decoded frames (lm_gen.step returned None every time?).")
+        return 1
 
     t_gen_ms = (time.perf_counter() - t_gen0) * 1000.0
-    timings_temp_arr = np.asarray(timings_temp, dtype=np.float64)
-    timings_depth_arr = np.asarray(timings_depth, dtype=np.float64)
+    timings_arr = np.asarray(timings_step, dtype=np.float64)
     audio_seconds = n_frames / float(mimi.frame_rate)
-    n_real_text = sum(1 for tp in text_pieces if tp not in TEXT_SPECIAL_LABELS.values())
-    print(f"[stream] generated {n_frames} frames "
-          f"({audio_seconds:.2f}s of audio) in {t_gen_ms:.1f}ms "
-          f"({t_gen_ms / max(1, n_frames):.1f}ms/frame, "
-          f"realtime factor {(t_gen_ms / 1000.0) / max(audio_seconds, 1e-9):.1f}x); "
-          f"non-pad text frames={n_real_text}")
-    print(f"[stream] temporal: mean={timings_temp_arr.mean():.1f}ms "
-          f"p50={np.median(timings_temp_arr):.1f}ms "
-          f"p99={np.percentile(timings_temp_arr, 99):.1f}ms")
-    print(f"[stream] depth(x{engine.dep_q}): mean={timings_depth_arr.mean():.1f}ms "
-          f"p50={np.median(timings_depth_arr):.1f}ms "
-          f"p99={np.percentile(timings_depth_arr, 99):.1f}ms")
+    n_real_text = sum(
+        1 for tp in text_pieces if tp not in TEXT_SPECIAL_LABELS.values()
+    )
+    print(
+        f"[stream] ran {n_frames} generation steps in {t_gen_ms:.1f}ms "
+        f"({t_gen_ms / max(1, n_frames):.1f}ms/step); "
+        f"decoded_frames={len(generated_frames)} non-pad text frames~={n_real_text}"
+    )
+    print(
+        f"[stream] lm_gen.step: mean={timings_arr.mean():.1f}ms "
+        f"p50={np.median(timings_arr):.1f}ms "
+        f"p99={np.percentile(timings_arr, 99):.1f}ms"
+    )
 
-    # Render concatenated text for human inspection.
-    rendered = "".join(text_pieces[i] for i in range(len(text_pieces))
-                       if text_pieces[i] not in TEXT_SPECIAL_LABELS.values())
+    rendered = "".join(
+        text_pieces[i]
+        for i in range(len(text_pieces))
+        if text_pieces[i] not in TEXT_SPECIAL_LABELS.values()
+    )
     print(f"[stream] decoded text: {rendered!r}")
 
-    # ----- 6. Output: wav + json -----
     if args.output_text:
         try:
             import json
-            with open(args.output_text, "w") as f:
+
+            with open(args.output_text, "w", encoding="utf-8") as f:
                 json.dump(text_pieces, f, ensure_ascii=False)
             print(f"[stream] wrote text tokens to {args.output_text}")
-        except Exception as ex:
+        except OSError as ex:
             print(f"[stream] WARN: failed to write {args.output_text}: {ex}")
 
     if not args.output_wav:
-        print("[stream] no --output-wav given; skipping Mimi decode")
+        print("[stream] no --output-wav given; skipping concat write")
         return 0
 
-    import torch
-    print(f"[stream] decoding {n_frames} frames -> {args.output_wav}")
-    codes_t = torch.from_numpy(moshi_codes_out.T[None, ...]).long()  # (1, n_moshi, T)
-    with torch.no_grad():
-        wav_out = mimi.decode(codes_t)  # (1, 1, T_samples)
-    wav_out_np = wav_out.squeeze().cpu().numpy()
+    wav_out_np = np.concatenate(generated_frames, axis=-1)
     _write_wav_24k(args.output_wav, wav_out_np)
-    print(f"[stream] wrote {wav_out_np.shape[-1]} samples "
-          f"({audio_seconds:.2f}s) to {args.output_wav}")
+    print(
+        f"[stream] wrote {wav_out_np.shape[-1]} samples "
+        f"({len(generated_frames) / float(mimi.frame_rate):.2f}s of frames) "
+        f"to {args.output_wav}"
+    )
     return 0
 
 
@@ -1234,6 +1126,16 @@ def parse_args() -> argparse.Namespace:
                    help="(stream) number of 12.5 Hz frames to generate "
                         "(default 125 = ~10 s of audio). The total KV cache "
                         "consumption is voice_frames + 2*silence + text_frames + n_frames.")
+    p.add_argument(
+        "--device",
+        default=None,
+        help="(stream) torch device for Mimi/LM (default: cuda if available else cpu).",
+    )
+    p.add_argument(
+        "--cpu-offload",
+        action="store_true",
+        help="(stream) pass cpu_offload=True to get_moshi_lm (same flag as moshi.offline).",
+    )
     p.add_argument("--force-text-pad", action="store_true",
                    help="(stream) clamp the text channel to TEXT_PAD_ID=3 every "
                         "frame instead of sampling. Use only for the dummy TTS "

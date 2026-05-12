@@ -37,6 +37,12 @@ High-level flow:
 
 This script reuses helpers from lm.py (load_audio, _iterate_audio, encode_from_sphn) to
 keep parity with voice-prompt feeding logic in the server.
+
+When ``BMO_USE_CPP=1``, the Moshi LM is constructed **without** loading any ``.safetensors``
+checkpoint: only the ``LMModel`` Python shell (delays, shapes, ``LMGen`` wiring) is
+allocated. ``forward_codes`` / ``forward_depformer`` are patched to ``libbmo.so`` using
+``BMO_GGUF``. Use a **WAV** voice prompt; ``.pt`` embedding replay is unsupported in that
+mode because it would still run the PyTorch transformer on random weights.
 """
 
 import argparse
@@ -69,6 +75,13 @@ import numpy as np
 
 
 def patch_lm_for_bmo(lm, bmo_engine: BMOEngine):
+    """Route ``forward_codes`` / ``forward_depformer`` to ``libbmo.so`` (GGUF).
+
+    ``lm`` may be a **checkpoint-free** shell from ``get_moshi_lm(None)`` when
+    ``BMO_USE_CPP=1`` in ``run_inference``; only tensor shapes, ``delays``, and
+    ``LMGen`` plumbing must match ``bmo_engine``. Do not rely on PyTorch weights
+    for those two methods after patching.
+    """
     assert bmo_engine.n_codebooks == lm.num_codebooks
     assert bmo_engine.dep_q == lm.dep_q
     device = next(lm.parameters()).device
@@ -249,9 +262,25 @@ def run_inference(
 
     # 3) Load Moshi LM and eval mode
     log("info", "loading moshi")
-    if moshi_weight is None:
-        moshi_weight = hf_hub_download(hf_repo, loaders.MOSHI_NAME)  # type: ignore
-    lm = loaders.get_moshi_lm(moshi_weight, device=device, cpu_offload=cpu_offload)
+    use_bmo_cpp = os.environ.get("BMO_USE_CPP", "0") == "1"
+    if use_bmo_cpp:
+        if moshi_weight is not None:
+            log(
+                "info",
+                "BMO_USE_CPP=1: not loading --moshi-weight; using LM shell only "
+                "(no safetensors). Temporal+depth use BMO_GGUF via libbmo.so.",
+            )
+        if voice_prompt_path.endswith(".pt"):
+            raise RuntimeError(
+                "BMO_USE_CPP GGUF-only mode requires a WAV voice prompt. "
+                ".pt embedding replay uses LM.forward_embeddings (PyTorch transformer), "
+                "which is not loaded when no checkpoint is provided."
+            )
+        lm = loaders.get_moshi_lm(None, device=device, cpu_offload=cpu_offload)
+    else:
+        if moshi_weight is None:
+            moshi_weight = hf_hub_download(hf_repo, loaders.MOSHI_NAME)  # type: ignore
+        lm = loaders.get_moshi_lm(moshi_weight, device=device, cpu_offload=cpu_offload)
     lm.eval()
     log("info", "moshi loaded")
 
@@ -282,19 +311,35 @@ def run_inference(
     #      when the next streaming_forever() captures CUDAGraphed wrappers,
     #   3) the lambdas in disable_cuda_graphs_in_lmgen replace those wrappers
     #      so the ctypes path is invoked directly (no CUDA-graph capture).
-    import os
-    if os.environ.get("BMO_USE_CPP", "0") == "1":
-        bmo_engine = BMOEngine(gguf_path=os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf"), n_ctx=128)
+    bmo_engine = None
+    if use_bmo_cpp:
+        gguf_path = os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf")
+        # Default 2048: long prompts + generation exceed 128 quickly and wrap KV,
+        # which destroys quality. Override with BMO_N_CTX to match `bmo_inference --n-ctx`.
+        n_ctx_bmo = int(os.environ.get("BMO_N_CTX", "2048"))
+        if n_ctx_bmo < 32:
+            raise ValueError(f"BMO_N_CTX={n_ctx_bmo} is too small (minimum 32).")
+        bmo_engine = BMOEngine(gguf_path, n_ctx=n_ctx_bmo)
         patch_lm_for_bmo(lm, bmo_engine)
         if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
             lm_gen._streaming_state = None
         lm_gen.streaming_forever(1)
         disable_cuda_graphs_in_lmgen(lm_gen)
-        print(f"[bmo] C++ engine engaged: n_embd={bmo_engine.n_embd} dep_q={bmo_engine.dep_q}")
+        print(
+            f"[bmo] C++ engine engaged: gguf={gguf_path} n_ctx={n_ctx_bmo} "
+            f"n_embd={bmo_engine.n_embd} dep_q={bmo_engine.dep_q}"
+        )
 
     # 5) Warmup
     log("info", "warming up the model")
     warmup(mimi, other_mimi, lm_gen, device, frame_size)
+    # Warmup runs real `forward_codes` steps through the patched C++ path, which
+    # advances libbmo's KV cache and position counter. `lm_gen.reset_streaming()`
+    # only resets PyTorch-side StreamingModule state — it does NOT reset libbmo.
+    # Without this, prompt phases and decoding start from a polluted KV window.
+    if bmo_engine is not None:
+        bmo_engine.reset()
+        log("info", "reset libbmo KV/position after warmup (BMO_USE_CPP)")
 
     # 6) Prompt configuration (text + voice)
     # System text tokens (k=0) and agent voice-prompt audio (k=1..dep_q) are forced
