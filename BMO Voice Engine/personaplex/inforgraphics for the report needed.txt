@@ -1,0 +1,22 @@
+[TABLE 1 — Dataset Statistical Overview: Columns: Category, Total Clips, Mean Duration (s), Median Duration (s), Verification Threshold. Include rows for Verbal clips, each non-verbal category (laugh, cry, gasp, scream, grunt, sigh), and a Total row showing 968 clips, 2.30s mean, 1.86s median.]
+
+
+[TABLE 2 — Compression Approach Comparison: Columns: Method, Bits Per Weight (BPW), z_s Median Cosine, Top-1 Agreement Rate, Memory Footprint (GB), Deployment Status. Rows: BF16 Baseline, Global INT4 + LQEC, Mixed-Precision NF4, AWQ, LQEC Distillation, SliceGPT d=2816, SEPTQ Config A, Half Cushion Max v10, v11 Full Quantization, v12 + QAT Final.]
+
+[TABLE 3 — v11 Layer-by-Layer z_s Cosine Collapse: Columns: Layer Index, z_s Cosine Similarity, Status. Rows for layers 00 through 31 with the recorded collapse values, plus a final row showing the network overall score of 0.894 and QAT abort status.]
+
+
+[FIGURE 1- Memory Footprint vs Hardware Ceiling: Horizontal bar chart comparing the 16.7 GB BF16 baseline, the 7.69 GB v12 GGUF artifact, and the 5.5 GB Jetson Orin Nano usable memory ceiling. Include a red dashed line at 5.5 GB.]
+
+[FIGURE 2 — Data Processing Pipeline: A flowchart showing the sequential stages from raw episode files through vocal separation, transcription, speaker verification, stereo-doubling fix, CLAP non-verbal refinement, and AppraisalVector labeling to the final 968-clip dataset.]
+
+[FIGURE 3 — SEPTQ Tier Assignment: A layer-wise heatmap across all 32 temporal transformer layers showing the FP16, INT8, INT4, and INT2 precision designations assigned to each module based on Hessian saliency scores. Colour coding: green=FP16 protected, yellow=INT8, orange=INT4, red=INT2.]
+
+
+
+[FIGURE 4 — Acoustic Clip Duration Distribution: Histogram of clip durations from 1.0 to 12.0 seconds showing right-skewed distribution with mean at 2.30s and median at 1.86s.]
+
+[FIGURE 5 — v11 Cosine Cascade: Line graph with layer index on x-axis and z_s cosine similarity on y-axis plotting the collapse from Layer 00 (0.999) to Layer 31 (0.686525). Include horizontal red dashed lines at 0.997 (production threshold) and 0.90 (QAT abort threshold).]
+
+
+[Figure 6 — RSS and allocation components (current loader, not lazy weight mmap): schematic time series of resident set size showing dominant contributions from (i) fully loaded GGUF tensor pools (scalar + big), (ii) FP16 temporal KV proportional to n_ctx (Jetson-capped at 1024 in-tree), (iii) depth KV (small), (iv) the fixed ggml work arena (1 GiB Jetson / 2 GiB default host), and (v) CUDA staging / registered buffers, against the device’s physical RAM ceiling. The curve is not an on-demand page-in model for weights in the current implementation]
