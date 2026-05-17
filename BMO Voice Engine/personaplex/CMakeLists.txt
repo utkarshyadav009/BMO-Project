@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 
 option(BMO_ENABLE_CUDA "Enable ggml CUDA backend when available" OFF)
 option(BMO_TARGET_JETSON "Optimize build specifically for Jetson Orin Nano" OFF)
+# Dev/test CUDA executables (bmo_fused_mat_test, bmo_proto_test, …). Off by default
+# so Jetson/inference builds only need: cmake --build … --target bmo_shared
+option(BMO_BUILD_TESTS "Build optional CUDA dev/test executables" OFF)
 # Semicolon-separated real arch list for bmo's own CUDA TUs (e.g. 87;90).
 # Empty + BMO_TARGET_JETSON=ON  -> 87 only (Jetson ship default).
 # Empty + Jetson off            -> CMAKE_CUDA_ARCHITECTURES or 90;87.
@@ -130,7 +133,7 @@ message(STATUS "Linking bmo_minimal and bmo_main with targets: ${_link_targets}"
 target_link_libraries(bmo_minimal PRIVATE ${_link_targets} bmo)
 target_link_libraries(bmo_main PRIVATE ${_link_targets} bmo)
 
-if(BMO_ENABLE_CUDA)
+if(BMO_ENABLE_CUDA AND BMO_BUILD_TESTS)
     # Standalone CUDA unpack kernel validation
     add_executable(bmo_unpack_kernel_test bmo_unpack_kernel_test.cu)
     target_include_directories(bmo_unpack_kernel_test PRIVATE "${CMAKE_SOURCE_DIR}")
@@ -194,6 +197,8 @@ if(BMO_ENABLE_CUDA)
             ${_link_targets}
             CUDA::cudart
             CUDA::cuda_driver)
+elseif(BMO_ENABLE_CUDA)
+    message(STATUS "BMO_BUILD_TESTS=OFF: skipping optional CUDA test executables")
 endif()
 
 # -----------------------------------------------------------------------------

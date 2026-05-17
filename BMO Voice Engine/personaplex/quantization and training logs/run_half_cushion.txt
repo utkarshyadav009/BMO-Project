@@ -1,0 +1,34 @@
+#!/bin/bash
+set -e
+
+export PYTHONPATH="/home/jovyan/work/BMO-Project/personaplex_repo/moshi"
+export CUDA_VISIBLE_DEVICES=1
+
+echo "=== Starting HALF & HALF CUSHION (Layers 0-30) ==="
+
+# 2% FP16 / 12% INT8 / 36% INT4 / 50% INT2
+# Target BPW: ~5.72 | Target Size: ~3.87 GB
+python -u apply_septq_multitier.py \
+  --device cuda:0 \
+  --bf16 v5_step1500_split.safetensors \
+  --calibration-clips bmo_dataset_clean \
+  --bits 2 \
+  --ratio-fp16 0.02 \
+  --ratio-int8 0.12 \
+  --ratio-int4 0.36 \
+  --block-size 128 \
+  --max-calibration-samples 8192 \
+  --max-steps-per-clip 750 \
+  --max-clips 400 \
+  --quantize-layers 0-30 \
+  --skip-modules "self_attn.out_proj" \
+  --out bmo_temporal_half_cushion.pt 2>&1 | tee half_cushion.log
+
+python -u verify_septq_zs_drift.py \
+  --device cuda:0 \
+  --teacher v5_step1500_split.safetensors \
+  --student bmo_temporal_half_cushion.pt \
+  --steps 125 \
+  --min-median-cos 0.997 \
+  --save-json zs_half_cushion.json 2>&1 | tee zs_half_cushion.log
+

@@ -97,13 +97,40 @@ def classify_clip(filename: str, transcript: str) -> str:
 
 
 def _read_metadata_rows(path: Path) -> Tuple[List[str], List[Dict[str, str]]]:
-    """Return (fieldnames, rows as dicts). Supports tab or comma CSV."""
+    """Return (fieldnames, rows as dicts). Supports tab or comma CSV.
+
+    Also handles a common malformed-CSV variant used in this project where the
+    header is ``filename|text`` (pipe-joined inside a single column, padded with
+    trailing commas) and each row is ``<filename>|<transcript>,,,,`` with
+    transcripts that themselves contain commas. Parsing such a file as plain
+    comma-CSV destroys the transcript; we detect the pipe-header and split on
+    the first ``|`` per line instead.
+    """
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return [], []
 
-    # Sniff delimiter
+    header_stripped = lines[0].rstrip(",").strip()
+    if "|" in header_stripped and "," not in header_stripped:
+        parts = [p.strip() for p in header_stripped.split("|")]
+        if parts and parts[0].lower() in {"filename", "filepath", "file", "wav", "path", "clip"}:
+            fn_col = parts[0].lower()
+            tx_col = parts[1].lower() if len(parts) > 1 else "transcript"
+            if tx_col == "text":
+                tx_col = "transcript"
+            rows: List[Dict[str, str]] = []
+            for ln in lines[1:]:
+                stripped = ln.rstrip(",").rstrip()
+                if not stripped:
+                    continue
+                # Split on the FIRST '|'; transcripts may contain commas and
+                # pipes are not used inside the wav basename. Trailing commas
+                # are just CSV padding from the source export.
+                fn, sep, tx = stripped.partition("|")
+                rows.append({fn_col: fn.strip(), tx_col: tx.strip().rstrip(",").rstrip()})
+            return [fn_col, tx_col], rows
+
     delim = "\t" if lines[0].count("\t") >= lines[0].count(",") else ","
 
     # If first line looks like a header (contains 'filename' or 'path')
@@ -174,6 +201,37 @@ def _normalize_columns(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return out
 
 
+_AUDIO_BASENAME_INDEX: Dict[str, Dict[str, Path]] = {}
+
+
+def _build_audio_basename_index(audio_root: Path) -> Dict[str, Path]:
+    """Lazily build (and cache) a `{basename: absolute_path}` index for every
+    audio file under ``audio_root``, recursing into subdirectories.
+
+    This lets the caller pass any ancestor of the actual wav folder as
+    ``--audio-root`` and still resolve filenames by basename. Built once per
+    process per resolved root.
+    """
+    key = str(audio_root.resolve())
+    cached = _AUDIO_BASENAME_INDEX.get(key)
+    if cached is not None:
+        return cached
+    idx: Dict[str, Path] = {}
+    if audio_root.is_dir():
+        for ext in (".wav", ".WAV", ".flac", ".FLAC", ".mp3", ".MP3"):
+            for p in audio_root.rglob(f"*{ext}"):
+                if p.is_file():
+                    idx.setdefault(p.name, p)
+    _AUDIO_BASENAME_INDEX[key] = idx
+    if not idx:
+        print(
+            f"[WARN] _build_audio_basename_index: no audio files found under "
+            f"{audio_root} (rglob *.wav / *.flac / *.mp3).",
+            file=sys.stderr,
+        )
+    return idx
+
+
 def _duration_for_row(
     row: Dict[str, str],
     audio_root: Optional[Path],
@@ -189,18 +247,30 @@ def _duration_for_row(
     fn = row.get("filename") or ""
     if not fn:
         return None
+    # 1) absolute path in metadata wins.
     p = Path(fn)
-    if not p.is_absolute():
-        p = audio_root / p.name
-    if not p.is_file():
-        p = audio_root / fn
-    if not p.is_file():
-        return None
-    try:
-        info = sf.info(str(p))
-        return float(info.duration)
-    except OSError:
-        return None
+    if p.is_absolute() and p.is_file():
+        try:
+            return float(sf.info(str(p)).duration)
+        except OSError:
+            return None
+    # 2) direct child of audio_root (basename and full-relative-path attempts).
+    candidates: List[Path] = [audio_root / p.name, audio_root / fn]
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                return float(sf.info(str(cand)).duration)
+            except OSError:
+                return None
+    # 3) recursive basename lookup under audio_root (handles e.g. wavs/ nesting).
+    idx = _build_audio_basename_index(audio_root)
+    found = idx.get(p.name)
+    if found is not None and found.is_file():
+        try:
+            return float(sf.info(str(found)).duration)
+        except OSError:
+            return None
+    return None
 
 
 def build_table1(
@@ -839,12 +909,63 @@ def main() -> int:
         )
         write_table_files(out_dir, table_rows)
         # rebuild durations for histogram
-        _, rows = _read_metadata_rows(args.metadata)
-        rows = _normalize_columns(rows)
+        _, rows_raw = _read_metadata_rows(args.metadata)
+        rows = _normalize_columns(rows_raw)
+        ar_resolved = args.audio_root.resolve() if args.audio_root else None
+
+        # Diagnostic counters so a silent "Figure 4 needs durations" placeholder
+        # actually tells us what failed: how many rows have a filename, how many
+        # have a numeric duration column, how many resolve to a real file.
+        n_total = len(rows)
+        n_with_filename = sum(1 for r in rows if r.get("filename"))
+        n_via_dur_col = 0
+        n_via_audio = 0
+        n_unresolved_sample: List[str] = []
         for r in rows:
-            d = _duration_for_row(r, args.audio_root.resolve() if args.audio_root else None, args.duration_column or None)
-            if d is not None:
+            d = _duration_for_row(r, ar_resolved, args.duration_column or None)
+            if d is not None and math.isfinite(d) and d > 0:
                 durations_list.append(d)
+                if args.duration_column and args.duration_column in r:
+                    try:
+                        float(r[args.duration_column])
+                        n_via_dur_col += 1
+                        continue
+                    except (TypeError, ValueError):
+                        pass
+                n_via_audio += 1
+            elif r.get("filename") and len(n_unresolved_sample) < 5:
+                n_unresolved_sample.append(r["filename"])
+
+        if not durations_list:
+            reasons: List[str] = []
+            if n_total == 0:
+                reasons.append("metadata has zero rows after parsing")
+            elif n_with_filename == 0:
+                reasons.append("no row has a 'filename' column after header normalization "
+                               "(check that metadata has a column named filename/filepath/path/wav/clip)")
+            elif not HAS_SF and not args.duration_column:
+                reasons.append("soundfile not importable AND no --duration-column "
+                               "(install soundfile, or supply a numeric duration column)")
+            elif ar_resolved is None:
+                reasons.append("no --audio-root provided")
+            elif not ar_resolved.is_dir():
+                reasons.append(f"--audio-root {ar_resolved} is not a directory")
+            else:
+                reasons.append(f"every filename failed to resolve under {ar_resolved} "
+                               f"(direct, basename, and recursive lookups). "
+                               f"Examples (up to 5): {n_unresolved_sample}")
+            print(
+                f"[WARN] Figure 4: 0 / {n_total} rows resolved to a duration. "
+                f"n_with_filename={n_with_filename}, n_via_dur_col={n_via_dur_col}, "
+                f"n_via_audio={n_via_audio}. Reasons: {'; '.join(reasons)}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[OK] Figure 4: {len(durations_list)} / {n_total} rows resolved "
+                f"(via duration column: {n_via_dur_col}, via audio: {n_via_audio}).",
+                file=sys.stderr,
+            )
     else:
         print("[WARN] No --metadata; skipping Table 1 and Figure 4.", file=sys.stderr)
 

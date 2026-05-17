@@ -74,7 +74,11 @@ import torch
 import numpy as np
 
 
-def patch_lm_for_bmo(lm, bmo_engine: BMOEngine):
+def patch_lm_for_bmo(
+    lm,
+    bmo_engine: BMOEngine,
+    activation_device: str | torch.device | None = None,
+):
     """Route ``forward_codes`` / ``forward_depformer`` to ``libbmo.so`` (GGUF).
 
     ``lm`` may be a **checkpoint-free** shell from ``get_moshi_lm(None)`` when
@@ -84,7 +88,15 @@ def patch_lm_for_bmo(lm, bmo_engine: BMOEngine):
     """
     assert bmo_engine.n_codebooks == lm.num_codebooks
     assert bmo_engine.dep_q == lm.dep_q
-    device = next(lm.parameters()).device
+    if activation_device is None:
+        activation_device = getattr(lm, "_bmo_activation_device", None)
+    if activation_device is None:
+        activation_device = next(lm.parameters()).device
+    device = (
+        torch.device(activation_device)
+        if isinstance(activation_device, str)
+        else activation_device
+    )
 
     original_forward_codes = lm.forward_codes
     @torch.no_grad()
@@ -121,7 +133,7 @@ def disable_cuda_graphs_in_lmgen(lm_gen):
 
 
 def log(level: str, msg: str):
-    print(make_log(level, msg))
+    print(make_log(level, msg), flush=True)
 
 
 def seed_all(seed: int):
@@ -156,8 +168,9 @@ def warmup(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, device: str, f
 
     Replicates the same warmup behavior as server.py: zeros → encode → LMGen.step → decode.
     """
+    mimi_device = next(mimi.parameters()).device
     for _ in range(4):
-        chunk = torch.zeros(1, 1, frame_size, dtype=torch.float32, device=device)
+        chunk = torch.zeros(1, 1, frame_size, dtype=torch.float32, device=mimi_device)
         codes = mimi.encode(chunk)
         _ = other_mimi.encode(chunk)
         for c in range(codes.shape[-1]):
@@ -247,23 +260,18 @@ def run_inference(
     # No worries about double-counting since config.json will be cached the second time
     #hf_hub_download(hf_repo, "config.json")
 
-    # 1) Load Mimi encoders/decoders (same as server.py)
-    log("info", "loading mimi")
-    if mimi_weight is None:
-        mimi_weight = hf_hub_download(hf_repo, loaders.MIMI_NAME)  # type: ignore
-    mimi = loaders.get_mimi(mimi_weight, device)
-    other_mimi = loaders.get_mimi(mimi_weight, device)
-    log("info", "mimi loaded")
+    use_bmo_cpp = os.environ.get("BMO_USE_CPP", "0") == "1"
 
-    # 2) Load tokenizer
+    # 1) Tokenizer (lightweight)
     if tokenizer_path is None:
         tokenizer_path = hf_hub_download(hf_repo, loaders.TEXT_TOKENIZER_NAME)  # type: ignore
     text_tokenizer = sentencepiece.SentencePieceProcessor(tokenizer_path)  # type: ignore
 
-    # 3) Load Moshi LM and eval mode
-    log("info", "loading moshi")
-    use_bmo_cpp = os.environ.get("BMO_USE_CPP", "0") == "1"
+    bmo_engine = None
     if use_bmo_cpp:
+        # Jetson unified memory: load GGUF *before* Mimi. The isolation test shows
+        # bmo_init alone uses ~6.5 GB RSS; loading two Mimis first leaves ~200 MB
+        # free and the prepare step blocks at 0% CPU until the OOM killer intervenes.
         if moshi_weight is not None:
             log(
                 "info",
@@ -276,16 +284,58 @@ def run_inference(
                 ".pt embedding replay uses LM.forward_embeddings (PyTorch transformer), "
                 "which is not loaded when no checkpoint is provided."
             )
+        log("info", "loading moshi LM shell (no checkpoint weights)")
         lm = loaders.get_moshi_lm(None, device=device, cpu_offload=cpu_offload)
+        lm.eval()
+        log("info", "moshi shell ready")
+
+        os.environ.setdefault("NO_CUDA_GRAPH", "1")
+        gguf_path = os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf")
+        n_ctx_bmo = int(os.environ.get("BMO_N_CTX", "2048"))
+        if n_ctx_bmo < 32:
+            raise ValueError(f"BMO_N_CTX={n_ctx_bmo} is too small (minimum 32).")
+        log("info", f"loading GGUF via libbmo ({gguf_path}, n_ctx={n_ctx_bmo})")
+        bmo_engine = BMOEngine(gguf_path, n_ctx=n_ctx_bmo)
+        patch_lm_for_bmo(lm, bmo_engine, activation_device=device)
+        log(
+            "info",
+            f"C++ engine engaged: n_embd={bmo_engine.n_embd} dep_q={bmo_engine.dep_q}",
+        )
+
+        # GGUF + KV already consume ~7 GB unified memory on Orin 8GB; Mimi on CUDA
+        # fails with NvMapMemAlloc error 12. Run the codec on CPU (still fine at 12.5 Hz).
+        mimi_device = os.environ.get("BMO_MIMI_DEVICE", "cpu")
+        log(
+            "info",
+            f"loading mimi on {mimi_device} (after GGUF; set BMO_MIMI_DEVICE=cuda to force GPU)",
+        )
+        if mimi_weight is None:
+            mimi_weight = hf_hub_download(hf_repo, loaders.MIMI_NAME)  # type: ignore
+        mimi = loaders.get_mimi(mimi_weight, mimi_device)
+        if os.environ.get("BMO_SINGLE_MIMI", "1") != "0":
+            other_mimi = mimi
+        else:
+            other_mimi = loaders.get_mimi(mimi_weight, mimi_device)
+        log("info", "mimi loaded")
     else:
+        # Standard path: Mimi first (same as server.py), then full LM checkpoint.
+        log("info", "loading mimi")
+        if mimi_weight is None:
+            mimi_weight = hf_hub_download(hf_repo, loaders.MIMI_NAME)  # type: ignore
+        mimi = loaders.get_mimi(mimi_weight, device)
+        other_mimi = loaders.get_mimi(mimi_weight, device)
+        log("info", "mimi loaded")
+
+        log("info", "loading moshi")
         if moshi_weight is None:
             moshi_weight = hf_hub_download(hf_repo, loaders.MOSHI_NAME)  # type: ignore
         lm = loaders.get_moshi_lm(moshi_weight, device=device, cpu_offload=cpu_offload)
-    lm.eval()
-    log("info", "moshi loaded")
+        lm.eval()
+        log("info", "moshi loaded")
 
-    # 4) Construct LMGen like server.py's ServerState does
+    # 5) Construct LMGen like server.py's ServerState does
     frame_size = int(mimi.sample_rate / mimi.frame_rate)
+    log("info", "constructing LMGen")
     lm_gen = LMGen(
         lm,
         audio_silence_frame_cnt=int(0.5 * mimi.frame_rate),  # spacer after prompts
@@ -299,38 +349,14 @@ def run_inference(
         top_k=topk_audio,
         top_k_text=topk_text,
     )
-    # Keep models in streaming mode similar to the server
+    log("info", "entering streaming mode")
     mimi.streaming_forever(1)
     other_mimi.streaming_forever(1)
     lm_gen.streaming_forever(1)
-
-    # ----- Phase 4.2: optionally redirect Temporal/Depth to libbmo.so -----
-    # Placed after `lm_gen.streaming_forever(1)` so that:
-    #   1) the streaming state already exists for the trigger to clear,
-    #   2) the patched `lm.forward_codes`/`lm.forward_depformer` are in scope
-    #      when the next streaming_forever() captures CUDAGraphed wrappers,
-    #   3) the lambdas in disable_cuda_graphs_in_lmgen replace those wrappers
-    #      so the ctypes path is invoked directly (no CUDA-graph capture).
-    bmo_engine = None
     if use_bmo_cpp:
-        gguf_path = os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf")
-        # Default 2048: long prompts + generation exceed 128 quickly and wrap KV,
-        # which destroys quality. Override with BMO_N_CTX to match `bmo_inference --n-ctx`.
-        n_ctx_bmo = int(os.environ.get("BMO_N_CTX", "2048"))
-        if n_ctx_bmo < 32:
-            raise ValueError(f"BMO_N_CTX={n_ctx_bmo} is too small (minimum 32).")
-        bmo_engine = BMOEngine(gguf_path, n_ctx=n_ctx_bmo)
-        patch_lm_for_bmo(lm, bmo_engine)
-        if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
-            lm_gen._streaming_state = None
-        lm_gen.streaming_forever(1)
         disable_cuda_graphs_in_lmgen(lm_gen)
-        print(
-            f"[bmo] C++ engine engaged: gguf={gguf_path} n_ctx={n_ctx_bmo} "
-            f"n_embd={bmo_engine.n_embd} dep_q={bmo_engine.dep_q}"
-        )
 
-    # 5) Warmup
+    # 6) Warmup
     log("info", "warming up the model")
     warmup(mimi, other_mimi, lm_gen, device, frame_size)
     # Warmup runs real `forward_codes` steps through the patched C++ path, which

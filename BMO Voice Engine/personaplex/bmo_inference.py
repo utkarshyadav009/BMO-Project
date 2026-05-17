@@ -796,7 +796,7 @@ def mode_stream(args) -> int:
         f"audio_vocab={bmo_engine.audio_vocab} n_ctx={n_ctx_bmo}"
     )
 
-    patch_lm_for_bmo(lm, bmo_engine)
+    patch_lm_for_bmo(lm, bmo_engine, activation_device=device)
     if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
         lm_gen._streaming_state = None
     lm_gen.streaming_forever(1)

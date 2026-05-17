@@ -25,6 +25,8 @@
 """Retrieves the pretrained models for Moshi and Mimi."""
 from pathlib import Path
 import logging
+import os
+import warnings
 
 from safetensors.torch import load_model, load_file
 import torch
@@ -220,11 +222,38 @@ def get_moshi_lm(
 
     # Init with meta device to avoid init dummy memory
     init_device = "meta" if filename is not None else device
-    model = LMModel(device=init_device, dtype=dtype, **lm_kwargs)
     if filename is None:
+        activ_dev = torch.device(device) if isinstance(device, str) else device
+        # BMO_USE_CPP: LM weights live in libbmo.so (GGUF). Only LMGen plumbing is needed;
+        # materializing ~7B dummy Linear weights on CUDA OOMs Jetson unified memory.
+        if os.environ.get("BMO_USE_CPP", "0") == "1":
+            try:
+                from accelerate import init_empty_weights
+
+                with init_empty_weights():
+                    model = LMModel(device=torch.device("meta"), dtype=dtype, **lm_kwargs)
+                model._bmo_activation_device = activ_dev
+                model.eval()
+                return model
+            except ImportError:
+                warnings.warn(
+                    "BMO_USE_CPP=1 but accelerate is not installed; falling back to a "
+                    "full-weight LM shell on CPU (high RAM use). "
+                    "pip install accelerate for a zero-weight shell.",
+                    stacklevel=2,
+                )
+                shell_dev = torch.device("cpu")
+                model = LMModel(device=shell_dev, dtype=dtype, **lm_kwargs)
+                model.to(device=shell_dev, dtype=dtype)
+                model._bmo_activation_device = activ_dev
+                model.eval()
+                return model
+        model = LMModel(device=init_device, dtype=dtype, **lm_kwargs)
         model.to(device=device, dtype=dtype)
         model.eval()
         return model
+
+    model = LMModel(device=init_device, dtype=dtype, **lm_kwargs)
 
     filename = str(filename)
 

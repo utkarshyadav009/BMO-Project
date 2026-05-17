@@ -454,6 +454,13 @@ class LMModel(StreamingContainer):
 
     @property
     def device(self):
+        override = getattr(self, "_bmo_activation_device", None)
+        if override is not None:
+            return (
+                override
+                if isinstance(override, torch.device)
+                else torch.device(override)
+            )
         first_param = next(iter(self.parameters()))
         return first_param.device
 
@@ -472,7 +479,11 @@ class LMModel(StreamingContainer):
     def _get_initial_token(self) -> torch.Tensor:
         # Returns the initial token that will be fed to the model to predict the very first timestep.
         # The output shape will be [B, K, 1].
-        device = next(iter(self.parameters())).device
+        device = getattr(self, "_bmo_activation_device", None)
+        if device is None:
+            device = next(iter(self.parameters())).device
+        elif isinstance(device, str):
+            device = torch.device(device)
         zero = torch.full(
             [1, 1, 1], self.zero_token_id, device=device, dtype=torch.long
         )
