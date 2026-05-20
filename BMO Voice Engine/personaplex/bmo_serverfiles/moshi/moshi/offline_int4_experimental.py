@@ -37,12 +37,6 @@ High-level flow:
 
 This script reuses helpers from lm.py (load_audio, _iterate_audio, encode_from_sphn) to
 keep parity with voice-prompt feeding logic in the server.
-
-When ``BMO_USE_CPP=1``, the Moshi LM is constructed **without** loading any ``.safetensors``
-checkpoint: only the ``LMModel`` Python shell (delays, shapes, ``LMGen`` wiring) is
-allocated. ``forward_codes`` / ``forward_depformer`` are patched to ``libbmo.so`` using
-``BMO_GGUF``. Use a **WAV** voice prompt; ``.pt`` embedding replay is unsupported in that
-mode because it would still run the PyTorch transformer on random weights.
 """
 
 import argparse
@@ -51,6 +45,7 @@ import tarfile
 from pathlib import Path
 import json
 from typing import Optional, List
+import time 
 
 import numpy as np
 import torch
@@ -64,99 +59,116 @@ from .models.lm import load_audio as lm_load_audio
 from .models.lm import _iterate_audio as lm_iterate_audio
 from .models.lm import encode_from_sphn as lm_encode_from_sphn
 
-# ---------------------------------------------------------------------------
-# Phase 4.2: optional bridge to the optimized C++ Temporal engine.
-# Activated by the BMO_USE_CPP=1 environment variable; otherwise inert and the
-# original CUDA/PyTorch path runs unchanged.
-# ---------------------------------------------------------------------------
-from moshi.bmo_engine import BMOEngine
+import bitsandbytes as bnb
 import torch
-import numpy as np
+import torch.nn as nn
+from moshi.modules.gating import ActivationGating
 
 
-def patch_lm_for_bmo(
-    lm,
-    bmo_engine: BMOEngine,
-    activation_device: str | torch.device | None = None,
-):
-    """Route ``forward_codes`` / ``forward_depformer`` to ``libbmo.so`` (GGUF).
-
-    ``lm`` may be a **checkpoint-free** shell from ``get_moshi_lm(None)`` when
-    ``BMO_USE_CPP=1`` in ``run_inference``; only tensor shapes, ``delays``, and
-    ``LMGen`` plumbing must match ``bmo_engine``. Do not rely on PyTorch weights
-    for those two methods after patching.
-    """
-    assert bmo_engine.n_codebooks == lm.num_codebooks
-    if bmo_engine.dep_q != lm.dep_q:
-        raise RuntimeError(
-            f"GGUF dep_q={bmo_engine.dep_q} but LM shell dep_q={lm.dep_q}. "
-            "Sync loaders with bmo_config.json (expected dep_q=16)."
-        )
-    expected = loaders.get_personaplex_lm_kwargs()
-    exp_delays = expected.get("delays")
-    if exp_delays is not None and list(lm.delays) != list(exp_delays):
-        raise RuntimeError(
-            f"LM delays {list(lm.delays)} do not match bmo_config delays {list(exp_delays)}. "
-            "Wrong delays misalign LMGen cache vs libbmo and produce gibberish."
-        )
-    if activation_device is None:
-        activation_device = getattr(lm, "_bmo_activation_device", None)
-    if activation_device is None:
-        activation_device = next(lm.parameters()).device
-    device = (
-        torch.device(activation_device)
-        if isinstance(activation_device, str)
-        else activation_device
-    )
-
-    original_forward_codes = lm.forward_codes
-    _debug_step = os.environ.get("BMO_DEBUG_STEP", "").strip() not in ("", "0", "false")
-    _debug_step_count = 0
-
-    @torch.no_grad()
-    def patched_forward_codes(sequence: torch.Tensor):
-        nonlocal _debug_step_count
-        tokens_np = sequence[0, :, 0].detach().cpu().numpy().astype(np.int32)
-        if _debug_step and _debug_step_count < 8:
-            neg = [int(tokens_np[i]) for i in range(tokens_np.size) if tokens_np[i] < 0]
-            log(
-                "info",
-                f"bmo step pos={bmo_engine._pos} text={int(tokens_np[0])} "
-                f"audio0..3={tokens_np[1:5].tolist()} neg_channels={neg or 'none'}",
-            )
-            _debug_step_count += 1
-        z, text_logits = bmo_engine.forward_temporal(tokens_np)
-        z_t = torch.from_numpy(z).to(device).reshape(1, 1, -1)
-        l_t = torch.from_numpy(text_logits).to(device).reshape(1, 1, 1, -1)
-        return z_t, l_t
-    lm.forward_codes = patched_forward_codes
-
-    @torch.no_grad()
-    def patched_forward_depformer(cb_index: int, sequence: torch.Tensor, transformer_out: torch.Tensor):
-        prev_token = int(sequence[0, 0, 0].detach().cpu().item())
-        z_np = transformer_out[0, 0].detach().cpu().numpy().astype(np.float32)
-        logits = bmo_engine.forward_depth(cb_index, prev_token, z_np)
-        return torch.from_numpy(logits).to(device).reshape(1, 1, 1, -1)
-    lm.forward_depformer = patched_forward_depformer
+SKIP_MODULES = {"text_emb", "audio_emb", "out_norm", "audio_heads", "text_heads", "extra_heads", "mimi"}
 
 
-def disable_cuda_graphs_in_lmgen(lm_gen):
-    if hasattr(lm_gen, "_streaming_state") and lm_gen._streaming_state is not None:
-        s = lm_gen._streaming_state
-        s.graphed_main = lambda inp: lm_gen.lm_model.forward_codes(inp)
-        s.graphed_embeddings = lambda inp: lm_gen.lm_model.forward_embeddings(inp)
-        # NOTE (deviation from spec): the spec's `lambda text_token, t_out:` only
-        # accepted 2 args, but LMGen.process_transformer_output calls
-        # state.graphed_depth(next_text_token, transformer_out, audio_tokens,
-        # audio_provided) -- 4 positional args matching depformer_step's real
-        # signature. Forwarding all four arguments here so the lambda doesn't
-        # raise TypeError on the first decode step.
-        s.graphed_depth = lambda text_token, transformer_out, audio_tokens, audio_provided: \
-            lm_gen.depformer_step(text_token, transformer_out, audio_tokens, audio_provided)
+def patched_gating_forward(self, x: torch.Tensor):
+    # Route through standard __call__ so bnb hooks trigger
+    x = self.linear_in(x)
+    B, T, _ = x.shape
+    x = x.view(B, T, 2, -1)
+    x = self.activation(x[..., 0, :]) * x[..., 1, :]
+    x = self.linear_out(x)
+    return x
+    
+ActivationGating.forward = patched_gating_forward
+
+import moshi.modules.transformer as moshi_transformer
+from moshi.modules.transformer import KVCacheResult
+
+class TurboRingKVCache(nn.Module):
+    def __init__(self, batch_size: int, num_heads: int, dim_per_head: int, capacity: int, device: torch.device = torch.device("cuda"), dtype: torch.dtype = torch.bfloat16):
+        super().__init__()
+        self.capacity = capacity
+        self.register_buffer("cache", torch.zeros((2, batch_size, num_heads, capacity, dim_per_head), device=device, dtype=torch.int8))
+        with torch.no_grad():
+            q, _ = torch.linalg.qr(torch.randn(dim_per_head, dim_per_head, device=device))
+            self.register_buffer("rotation_q", q.to(dtype))
+        self.register_buffer("scales", torch.ones((2, batch_size, num_heads, capacity, 1), device=device, dtype=dtype))
+        self.register_buffer("end_offset", torch.zeros(1, device=device, dtype=torch.long))
+
+    def reset(self):
+        self.end_offset.zero_()
+
+    def complete(self, k: torch.Tensor, v: torch.Tensor) -> KVCacheResult:
+        B, H, T, D = k.shape
+        dtype = k.dtype
+
+        k_rot = k @ self.rotation_q
+        v_rot = v @ self.rotation_q
+
+        num_levels = 2 ** 2.5
+        k_s = k_rot.abs().max(dim=-1, keepdim=True).values.clamp(min=1e-6) / num_levels
+        v_s = v_rot.abs().max(dim=-1, keepdim=True).values.clamp(min=1e-6) / num_levels
+
+        k_int = (k_rot / k_s).round().clamp(-3, 3).to(torch.int8)
+        v_int = (v_rot / v_s).round().clamp(-3, 3).to(torch.int8)
+
+        indexes = (torch.arange(T, device=self.end_offset.device, dtype=self.end_offset.dtype) + self.end_offset) % self.capacity
+        
+        self.cache[0].index_copy_(2, indexes, k_int)
+        self.cache[1].index_copy_(2, indexes, v_int)
+        self.scales[0].index_copy_(2, indexes, k_s.to(dtype))
+        self.scales[1].index_copy_(2, indexes, v_s.to(dtype))
+        
+        self.end_offset.add_(T)
+
+        keys = (self.cache[0].to(dtype) * self.scales[0]) @ self.rotation_q.T
+        values = (self.cache[1].to(dtype) * self.scales[1]) @ self.rotation_q.T
+
+        indexes_all = torch.arange(self.capacity, device=self.end_offset.device, dtype=torch.long)
+        invalid = indexes_all >= self.end_offset
+        delta = indexes_all - (self.end_offset % self.capacity)
+        positions = torch.where(delta <= 0, self.end_offset + delta, self.end_offset + delta - self.capacity)
+        positions = torch.where(invalid, torch.full_like(positions, -1), positions)
+
+        return KVCacheResult(keys, values, positions)
+
+# 🚨 OVERRIDE MOSHI'S NATIVE KV CACHE 🚨
+moshi_transformer.RingKVCache = TurboRingKVCache
+
+def quantize_mixed_precision_inplace(model):
+    n_replaced = 0
+    def _swap(module, prefix=""):
+        nonlocal n_replaced
+        for child_name, child in module.named_children():
+            full_name = f"{prefix}.{child_name}" if prefix else child_name
+            
+            # Protect ONLY the Depth Transformer & core embeddings/heads
+            if "depformer" in full_name or any(skip in full_name for skip in SKIP_MODULES):
+                continue
+
+            if isinstance(child, nn.Linear):
+                int4_layer = bnb.nn.Linear4bit(
+                    child.in_features, child.out_features, 
+                    bias=child.bias is not None, 
+                    compute_dtype=torch.bfloat16, quant_type="nf4"
+                )
+                int4_layer.weight = bnb.nn.Params4bit(
+                    child.weight.data.clone(), requires_grad=False, quant_type="nf4"
+                )
+                if child.bias is not None:
+                    int4_layer.bias = nn.Parameter(child.bias.data.clone())
+                    
+                int4_layer.cuda()
+                setattr(module, child_name, int4_layer)
+                n_replaced += 1
+                del child
+            else:
+                _swap(child, full_name)
+    _swap(model)
+    print(f"[INFO] Replaced {n_replaced} Temporal FFN layers with INT4.")
+
 
 
 def log(level: str, msg: str):
-    print(make_log(level, msg), flush=True)
+    print(make_log(level, msg))
 
 
 def seed_all(seed: int):
@@ -186,23 +198,13 @@ def wrap_with_system_tags(text: str) -> str:
     return f"<system> {cleaned} <system>"
 
 
-def _agent_audio_codes_on_mimi_device(tokens: torch.Tensor, mimi: MimiModel) -> torch.Tensor:
-    """Agent RVQ codes for Mimi decode; LMGen may emit CUDA tokens while Mimi is on CPU."""
-    codes = tokens[:, 1:9]
-    mimi_device = next(mimi.parameters()).device
-    if codes.device != mimi_device:
-        codes = codes.to(mimi_device)
-    return codes
-
-
 def warmup(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, device: str, frame_size: int):
     """Run a short warmup loop to initialize CUDA graphs and streaming state.
 
     Replicates the same warmup behavior as server.py: zeros → encode → LMGen.step → decode.
     """
-    mimi_device = next(mimi.parameters()).device
     for _ in range(4):
-        chunk = torch.zeros(1, 1, frame_size, dtype=torch.float32, device=mimi_device)
+        chunk = torch.zeros(1, 1, frame_size, dtype=torch.float32, device=device)
         codes = mimi.encode(chunk)
         _ = other_mimi.encode(chunk)
         for c in range(codes.shape[-1]):
@@ -210,9 +212,8 @@ def warmup(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, device: str, f
             if tokens is None:
                 continue
             # Decode agent audio channels to ensure decode graphs/states are primed
-            agent_codes = _agent_audio_codes_on_mimi_device(tokens, mimi)
-            _ = mimi.decode(agent_codes)
-            _ = other_mimi.decode(agent_codes.to(next(other_mimi.parameters()).device))
+            _ = mimi.decode(tokens[:, 1:9])
+            _ = other_mimi.decode(tokens[:, 1:9])
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
@@ -223,9 +224,8 @@ def decode_tokens_to_pcm(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, 
     tokens is shaped [B, dep_q+1, 1]; channels 1..dep_q are the agent audio codebooks.
     Returns a 1D float32 numpy array (mono) for the current frame.
     """
-    agent_codes = _agent_audio_codes_on_mimi_device(tokens, mimi)
-    pcm = mimi.decode(agent_codes)
-    _ = other_mimi.decode(agent_codes.to(next(other_mimi.parameters()).device))
+    pcm = mimi.decode(tokens[:, 1:9])
+    _ = other_mimi.decode(tokens[:, 1:9])
     pcm = pcm.detach().cpu().numpy()[0, 0]
     return pcm
 
@@ -292,105 +292,38 @@ def run_inference(
 
     # Download config.json to increment download counter
     # No worries about double-counting since config.json will be cached the second time
-    #hf_hub_download(hf_repo, "config.json")
+    hf_hub_download(hf_repo, "config.json")
 
-    use_bmo_cpp = os.environ.get("BMO_USE_CPP", "0") == "1"
+    # 1) Load Mimi encoders/decoders (same as server.py)
+    log("info", "loading mimi")
+    if mimi_weight is None:
+        mimi_weight = hf_hub_download(hf_repo, loaders.MIMI_NAME)  # type: ignore
+    mimi = loaders.get_mimi(mimi_weight, device)
+    other_mimi = loaders.get_mimi(mimi_weight, device)
+    log("info", "mimi loaded")
 
-    # 1) Tokenizer (lightweight)
+    # 2) Load tokenizer
     if tokenizer_path is None:
         tokenizer_path = hf_hub_download(hf_repo, loaders.TEXT_TOKENIZER_NAME)  # type: ignore
     text_tokenizer = sentencepiece.SentencePieceProcessor(tokenizer_path)  # type: ignore
 
-    bmo_engine = None
-    if use_bmo_cpp:
-        # Jetson unified memory: load GGUF *before* Mimi. The isolation test shows
-        # bmo_init alone uses ~6.5 GB RSS; loading two Mimis first leaves ~200 MB
-        # free and the prepare step blocks at 0% CPU until the OOM killer intervenes.
-        if moshi_weight is not None:
-            log(
-                "info",
-                "BMO_USE_CPP=1: not loading --moshi-weight; using LM shell only "
-                "(no safetensors). Temporal+depth use BMO_GGUF via libbmo.so.",
-            )
-        if voice_prompt_path.endswith(".pt"):
-            raise RuntimeError(
-                "BMO_USE_CPP GGUF-only mode requires a WAV voice prompt. "
-                ".pt embedding replay uses LM.forward_embeddings (PyTorch transformer), "
-                "which is not loaded when no checkpoint is provided."
-            )
-        log("info", "loading moshi LM shell (no checkpoint weights)")
-        lm = loaders.get_moshi_lm(None, device=device, cpu_offload=cpu_offload)
-        lm.eval()
-        log("info", "moshi shell ready")
+    # 3) Load Moshi LM and eval mode
+    log("info", "loading moshi")
+    if moshi_weight is None:
+        moshi_weight = hf_hub_download(hf_repo, loaders.MOSHI_NAME)  # type: ignore
+    lm = loaders.get_moshi_lm(moshi_weight, device=device, cpu_offload=cpu_offload)
+    print("[INFO] Applying Mixed-Precision INT4 Quantization...")
+    quantize_mixed_precision_inplace(lm)
+    lm.eval()
+    log("info", "moshi loaded")
 
-        # LMGen cache / helper tensors must not use CUDA after libbmo init (~6.5 GB RSS, ~200 MB free).
-        lm_plumbing_device = os.environ.get("BMO_LMGEN_DEVICE", "cpu")
-        if str(device).startswith("cuda") and lm_plumbing_device == "cpu":
-            log(
-                "info",
-                "BMO_USE_CPP: LMGen and streaming buffers on CPU; libbmo still uses the GPU. "
-                "Set BMO_LMGEN_DEVICE=cuda only if you have spare VRAM.",
-            )
-
-        os.environ.setdefault("NO_CUDA_GRAPH", "1")
-        gguf_path = os.environ.get("BMO_GGUF", "bmo_septq_v3.gguf")
-        n_ctx_bmo = int(os.environ.get("BMO_N_CTX", "2048"))
-        if n_ctx_bmo < 32:
-            raise ValueError(f"BMO_N_CTX={n_ctx_bmo} is too small (minimum 32).")
-        log("info", f"loading GGUF via libbmo ({gguf_path}, n_ctx={n_ctx_bmo})")
-        bmo_engine = BMOEngine(gguf_path, n_ctx=n_ctx_bmo)
-        lm._bmo_activation_device = torch.device(lm_plumbing_device)
-        patch_lm_for_bmo(lm, bmo_engine, activation_device=lm_plumbing_device)
-        log(
-            "info",
-            f"C++ engine engaged: n_embd={bmo_engine.n_embd} dep_q={bmo_engine.dep_q} "
-            f"n_codebooks={bmo_engine.n_codebooks} delays={list(lm.delays)}",
-        )
-
-        # GGUF + KV already consume ~7 GB unified memory on Orin 8GB; Mimi on CUDA
-        # fails with NvMapMemAlloc error 12. Run the codec on CPU (still fine at 12.5 Hz).
-        mimi_device = os.environ.get("BMO_MIMI_DEVICE", "cpu")
-        log(
-            "info",
-            f"loading mimi on {mimi_device} (after GGUF; set BMO_MIMI_DEVICE=cuda to force GPU)",
-        )
-        if mimi_weight is None:
-            mimi_weight = hf_hub_download(hf_repo, loaders.MIMI_NAME)  # type: ignore
-        mimi = loaders.get_mimi(mimi_weight, mimi_device)
-        if os.environ.get("BMO_SINGLE_MIMI", "1") != "0":
-            other_mimi = mimi
-        else:
-            other_mimi = loaders.get_mimi(mimi_weight, mimi_device)
-        log("info", "mimi loaded")
-    else:
-        # Standard path: Mimi first (same as server.py), then full LM checkpoint.
-        log("info", "loading mimi")
-        if mimi_weight is None:
-            mimi_weight = hf_hub_download(hf_repo, loaders.MIMI_NAME)  # type: ignore
-        mimi = loaders.get_mimi(mimi_weight, device)
-        other_mimi = loaders.get_mimi(mimi_weight, device)
-        log("info", "mimi loaded")
-
-        log("info", "loading moshi")
-        if moshi_weight is None:
-            moshi_weight = hf_hub_download(hf_repo, loaders.MOSHI_NAME)  # type: ignore
-        lm = loaders.get_moshi_lm(moshi_weight, device=device, cpu_offload=cpu_offload)
-        lm.eval()
-        log("info", "moshi loaded")
-
-    # 5) Construct LMGen like server.py's ServerState does
+    # 4) Construct LMGen like server.py's ServerState does
     frame_size = int(mimi.sample_rate / mimi.frame_rate)
-    lm_gen_device = (
-        os.environ.get("BMO_LMGEN_DEVICE", "cpu")
-        if use_bmo_cpp
-        else device
-    )
-    log("info", f"constructing LMGen (device={lm_gen_device})")
     lm_gen = LMGen(
         lm,
         audio_silence_frame_cnt=int(0.5 * mimi.frame_rate),  # spacer after prompts
         sample_rate=mimi.sample_rate,
-        device=lm_gen_device,
+        device=device,
         frame_rate=mimi.frame_rate,
         save_voice_prompt_embeddings=save_voice_prompt_embeddings,
         use_sampling=not greedy,
@@ -399,23 +332,14 @@ def run_inference(
         top_k=topk_audio,
         top_k_text=topk_text,
     )
-    log("info", "entering streaming mode")
+    # Keep models in streaming mode similar to the server
     mimi.streaming_forever(1)
     other_mimi.streaming_forever(1)
     lm_gen.streaming_forever(1)
-    if use_bmo_cpp:
-        disable_cuda_graphs_in_lmgen(lm_gen)
 
-    # 6) Warmup
+    # 5) Warmup
     log("info", "warming up the model")
     warmup(mimi, other_mimi, lm_gen, device, frame_size)
-    # Warmup runs real `forward_codes` steps through the patched C++ path, which
-    # advances libbmo's KV cache and position counter. `lm_gen.reset_streaming()`
-    # only resets PyTorch-side StreamingModule state — it does NOT reset libbmo.
-    # Without this, prompt phases and decoding start from a polluted KV window.
-    if bmo_engine is not None:
-        bmo_engine.reset()
-        log("info", "reset libbmo KV/position after warmup (BMO_USE_CPP)")
 
     # 6) Prompt configuration (text + voice)
     # System text tokens (k=0) and agent voice-prompt audio (k=1..dep_q) are forced
@@ -437,15 +361,6 @@ def run_inference(
     other_mimi.reset_streaming()
     lm_gen.reset_streaming()
     lm_gen.step_system_prompts(mimi)
-    if bmo_engine is not None:
-        n_ctx_used = int(os.environ.get("BMO_N_CTX", "2048"))
-        log("info", f"libbmo temporal position after prompts: {bmo_engine._pos} (n_ctx={n_ctx_used})")
-        if bmo_engine._pos > n_ctx_used - 64:
-            log(
-                "warning",
-                f"KV window nearly full after prompts (pos={bmo_engine._pos}, n_ctx={n_ctx_used}). "
-                "Raise BMO_N_CTX or shorten voice/text prompts.",
-            )
     # Reset mimi streaming after voice prompt encoding
     mimi.reset_streaming()
 
@@ -470,8 +385,16 @@ def run_inference(
         steps = user_encoded.shape[-1]
         for c in range(steps):
             step_in = user_encoded[:, :, c : c + 1]
+            
+            # Measure Latency
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            
             # Feed user-side input channels; text + agent audio are sampled
             tokens = lm_gen.step(step_in)
+            torch.cuda.synchronize()
+            step_ms = (time.perf_counter() - t0) * 1000
+            
             if tokens is None:
                 continue
             # Decode current sampled agent frame to PCM
@@ -480,14 +403,19 @@ def run_inference(
             # Decode text token
             text_token = tokens[0, 0, 0].item()
             if text_token not in (0, 3):
-                _text = text_tokenizer.id_to_piece(text_token)  # type: ignore
-                _text = _text.replace("▁", " ")
+                #_text = text_tokenizer.id_to_piece(text_token)  # type: ignore
+                _text = text_tokenizer.id_to_piece(text_token).replace("▁", " ")
+                #_text = _text.replace("▁", " ")
                 log("info", f"text token '{_text}'")
+                print(f"{_text}", end="", flush=True) # Dump text live
                 generated_text_tokens.append(_text)
             else:
                 text_token_map = ['EPAD', 'BOS', 'EOS', 'PAD']
                 log("info", f"text token '{text_token_map[text_token]}'")
                 generated_text_tokens.append(text_token_map[text_token])
+                # Print latency warning if we blow the 80ms realtime budget
+            if step_ms > 80.0:
+                print(f"\n[WARN] Frame {c} latency: {step_ms:.1f}ms (Budget: 80ms)")
 
     if len(generated_frames) == 0:
         log("error", "No audio frames were generated. Check input file and configuration.")
@@ -622,5 +550,44 @@ def main():
         )
 
 
-if __name__ == "__main__":
+
+def main_with_lora():
+    """Wrapper that adds --lora-weights arg to main()."""
+    import sys
+    # extract --lora-weights before argparse sees it
+    lora_path = None
+    filtered_args = []
+    i = 1
+    while i < len(sys.argv):
+        if sys.argv[i] == "--lora-weights" and i+1 < len(sys.argv):
+            lora_path = sys.argv[i+1]
+            i += 2
+        else:
+            filtered_args.append(sys.argv[i])
+            i += 1
+    sys.argv = [sys.argv[0]] + filtered_args
+
+    if lora_path:
+        # monkey-patch get_moshi_lm to inject LoRA after loading
+        from moshi.models import loaders
+        _original = loaders.get_moshi_lm
+        def _patched(*args, **kwargs):
+            # build with LoRA structure via lm_kwargs
+            if "lm_kwargs" not in kwargs:
+                kwargs["lm_kwargs"] = {}
+            kwargs["lm_kwargs"]["lora"] = True
+            kwargs["lm_kwargs"]["lora_rank"] = 128
+            kwargs["lm_kwargs"]["lora_scaling"] = 1.0
+            model = _original(*args, **kwargs)
+            # load LoRA weights
+            import safetensors.torch
+            lora_state = safetensors.torch.load_file(lora_path)
+            model.load_state_dict(lora_state, strict=False)
+            print(f"[Info] Loaded {len(lora_state)} LoRA keys from {lora_path}")
+            return model
+        loaders.get_moshi_lm = _patched
+
     main()
+
+if __name__ == "__main__":
+    main_with_lora()

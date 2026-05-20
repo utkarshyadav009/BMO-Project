@@ -290,25 +290,23 @@ static void launch_fused_dequant_matvec_jetson(
     void *                  stream) {
     cudaStream_t s = reinterpret_cast<cudaStream_t>(stream);
 
-    // Opt-in only: BMO_H2_DIAG=1 — otherwise one line per fused matvec for the whole run.
-    if (getenv("BMO_H2_DIAG")) {
-        std::fprintf(stderr,
-                     "[h2_diag_matvec] tensor=%s pv=%d valid=%d "
-                     "in_dev=%p out_dev=%p "
-                     "row_c2=%p row_c4=%p row_c8=%p row_c16=%p "
-                     "canonical_int2=%p canonical_fp16=%p\n",
-                     tensor_base ? tensor_base : "(null)",
-                     (int) dp.packing_version,
-                     (int) dp.is_valid,
-                     (void *) x_dev,
-                     (void *) y_dev,
-                     (void *) dp.row_c2,
-                     (void *) dp.row_c4,
-                     (void *) dp.row_c8,
-                     (void *) dp.row_c16,
-                     (void *) dp.canonical_pw_dev,
-                     (void *) dp.canonical_fv_dev);
-    }
+    // H2 diagnostic: log every fused dequant->matvec dispatch (register pointers are expected to be distinct per-layer).
+    if (0) std::fprintf(stderr,
+                 "[h2_diag_matvec] tensor=%s pv=%d valid=%d "
+                 "in_dev=%p out_dev=%p "
+                 "row_c2=%p row_c4=%p row_c8=%p row_c16=%p "
+                 "canonical_int2=%p canonical_fp16=%p\n",
+                 tensor_base ? tensor_base : "(null)",
+                 (int) dp.packing_version,
+                 (int) dp.is_valid,
+                 (void *) x_dev,
+                 (void *) y_dev,
+                 (void *) dp.row_c2,
+                 (void *) dp.row_c4,
+                 (void *) dp.row_c8,
+                 (void *) dp.row_c16,
+                 (void *) dp.canonical_pw_dev,
+                 (void *) dp.canonical_fv_dev);
 
     if (dp.packing_version >= 5) {
         if (!dp.row_c16) {
@@ -2150,12 +2148,7 @@ ggml_cgraph * bmo_build_temporal_graph(
             // ggml_cont chain entirely. The KV cache write is performed inside
             // the helper, so we no longer need k_slot / v_slot / k_write /
             // v_write / k_hist / v_hist nodes on this path.
-            // Default on Jetson: eager CPU attention (staging-safe). Set
-            // BMO_DISABLE_EAGER_ATTN=1 to A/B test the lazy flash-attn path
-            // (same as discrete-GPU builds); may be racy but useful to compare.
-            const bool jetson_eager_decode =
-                (n_token == 1) && (std::getenv("BMO_DISABLE_EAGER_ATTN") == nullptr);
-            if (jetson_eager_decode) {
+            if (n_token == 1) {
                 cudaStreamSynchronize(0); // ensure RoPE / qkv kernels finished
                 ggml_tensor * attn_3d = apply_attention_eager_decode(
                     ctx, wctx, q_rope, k_rope, v_raw, n_past, layer);

@@ -148,7 +148,6 @@ void bmo_reset(bmo_handle_t * h) {
     if (h->ctx.v_cache && h->ctx.v_cache->data) {
         std::memset(h->ctx.v_cache->data, 0, (size_t) ggml_nbytes(h->ctx.v_cache));
     }
-    bmo_reset_depth_kv(h->ctx);
     h->last_error.clear();
 }
 
@@ -161,65 +160,6 @@ int bmo_get_audio_vocab (bmo_handle_t * h) { return h ? h->ctx.audio_vocab_size 
 
 const char * bmo_last_error(bmo_handle_t * h) {
     return (!h || h->last_error.empty()) ? nullptr : h->last_error.c_str();
-}
-
-int bmo_get_n_attn_heads(bmo_handle_t * h) {
-    return h ? (int) h->ctx.n_heads : 0;
-}
-
-int bmo_get_head_dim(bmo_handle_t * h) {
-    return h ? (int) h->ctx.head_dim : 0;
-}
-
-int bmo_copy_k_cache_f32(
-    bmo_handle_t * h,
-    int layer,
-    int t_start,
-    int n_positions,
-    float * out,
-    int max_floats) {
-    if (!h || !out || n_positions <= 0 || max_floats <= 0) {
-        return -1;
-    }
-    if (!h->ctx.k_cache || !h->ctx.k_cache->data) {
-        return -1;
-    }
-    if (h->ctx.k_cache->type != GGML_TYPE_F16) {
-        return -1;
-    }
-    const int n_heads = (int) h->ctx.n_heads;
-    const int head_dim = (int) h->ctx.head_dim;
-    const int n_ctx = (int) h->ctx.k_cache->ne[1];
-    if (layer < 0 || layer >= (int) h->ctx.n_layers || n_heads <= 0 || head_dim <= 0) {
-        return -3;
-    }
-    if (t_start < 0 || t_start + n_positions > n_ctx) {
-        return -3;
-    }
-    const int64_t need = (int64_t) n_positions * (int64_t) n_heads * (int64_t) head_dim;
-    if (need > (int64_t) max_floats) {
-        return -2;
-    }
-
-    std::lock_guard<std::mutex> lk(h->mu);
-
-    const ggml_fp16_t * k_cache_data = (const ggml_fp16_t *) h->ctx.k_cache->data;
-    const size_t per_layer =
-        (size_t) head_dim * (size_t) n_ctx * (size_t) h->ctx.n_heads;
-    const size_t per_head = (size_t) head_dim * (size_t) n_ctx;
-
-    int w = 0;
-    for (int ti = 0; ti < n_positions; ++ti) {
-        const int p = t_start + ti;
-        for (int hh = 0; hh < n_heads; ++hh) {
-            const size_t cache_row_base =
-                (size_t) layer * per_layer + (size_t) hh * per_head + (size_t) p * (size_t) head_dim;
-            for (int d = 0; d < head_dim; ++d) {
-                out[w++] = ggml_fp16_to_fp32(k_cache_data[cache_row_base + (size_t) d]);
-            }
-        }
-    }
-    return w;
 }
 
 int bmo_forward_temporal(

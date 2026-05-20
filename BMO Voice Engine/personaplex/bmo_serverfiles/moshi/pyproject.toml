@@ -10,7 +10,6 @@ dependencies = [
     "sentencepiece == 0.2",
     "sounddevice == 0.5",
     "sphn >= 0.1.4, < 0.2",
-    "pyloudnorm >= 0.1.0, < 0.2",
     "torch >= 2.2.0, < 2.5",
     "aiohttp>=3.10.5, <3.11",
 ]

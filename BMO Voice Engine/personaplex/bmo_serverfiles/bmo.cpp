@@ -1002,8 +1002,8 @@ void bmo_prepare_device_packed_tensors(bmo_model & model, bmo_context & ctx) {
 #ifdef BMO_JETSON
             // v5 uses fused_dequant_matvec_kernel_proto in bmo_compute; desktop CUDA still skips v5 unpack.
             dp.is_valid = true;
-            // Opt-in only: BMO_H2_DIAG=1 — register-time pointer dump (once per packed tensor at load).
-            if (getenv("BMO_H2_DIAG") && dp.is_valid &&
+            // H2 diagnostic: verify v5 quantized tensors are registered with distinct device pointers.
+            if (dp.is_valid &&
                 (base.find("self_attn_in_proj_weight") != std::string::npos ||
                  base.find("gating_linear_in_weight") != std::string::npos ||
                  base.find("gating_linear_out_weight") != std::string::npos)) {

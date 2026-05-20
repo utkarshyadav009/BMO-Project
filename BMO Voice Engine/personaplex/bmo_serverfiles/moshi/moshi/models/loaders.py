@@ -24,10 +24,7 @@
 # LICENSE file in the root directory of this source tree.
 """Retrieves the pretrained models for Moshi and Mimi."""
 from pathlib import Path
-import json
 import logging
-import os
-import warnings
 
 from safetensors.torch import load_model, load_file
 import torch
@@ -97,7 +94,7 @@ _lm_kwargs = {
     "text_card": 32000,
     "existing_text_padding_id": 3,
     "n_q": 16,
-    "dep_q": 16,
+    "dep_q": 8,
     "card": _quantizer_kwargs["bins"],
     "num_heads": 32,
     "num_layers": 32,
@@ -121,71 +118,8 @@ _lm_kwargs = {
     "depformer_gating": "silu",
     "depformer_pos_emb": "none",
     "depformer_weights_per_step": True,
-    # Must match bmo_config.json / trained checkpoint (index 9 is 1, not 0).
-    "delays": [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    "delays": [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1],
 }
-
-_BMO_CONFIG_KEYS = (
-    "dim",
-    "text_card",
-    "existing_text_padding_id",
-    "n_q",
-    "dep_q",
-    "card",
-    "num_heads",
-    "num_layers",
-    "hidden_scale",
-    "causal",
-    "layer_scale",
-    "context",
-    "max_period",
-    "gating",
-    "norm",
-    "positional_embedding",
-    "depformer_dim",
-    "depformer_dim_feedforward",
-    "depformer_num_heads",
-    "depformer_num_layers",
-    "depformer_layer_scale",
-    "depformer_multi_linear",
-    "depformer_context",
-    "depformer_max_period",
-    "depformer_gating",
-    "depformer_pos_emb",
-    "depformer_weights_per_step",
-    "delays",
-)
-
-
-def resolve_bmo_config_path() -> Path | None:
-    """Personaplex repo ``bmo_config.json`` (override with ``BMO_CONFIG``)."""
-    env = os.environ.get("BMO_CONFIG", "").strip()
-    if env:
-        p = Path(env)
-        return p if p.is_file() else None
-    for candidate in (
-        Path(__file__).resolve().parents[3] / "bmo_config.json",
-        Path.cwd() / "bmo_config.json",
-    ):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def load_bmo_config_overrides() -> dict:
-    path = resolve_bmo_config_path()
-    if path is None:
-        return {}
-    with open(path, encoding="utf-8") as f:
-        cfg = json.load(f)
-    return {k: cfg[k] for k in _BMO_CONFIG_KEYS if k in cfg}
-
-
-def get_personaplex_lm_kwargs() -> dict:
-    """LM shell kwargs aligned with ``bmo_config.json`` when present."""
-    lm_kwargs = dict(_lm_kwargs)
-    lm_kwargs.update(load_bmo_config_overrides())
-    return lm_kwargs
 
 
 def _is_safetensors(path: Path | str) -> bool:
@@ -264,7 +198,9 @@ def get_moshi_lm(
         cpu_offload: If True, offload model layers to CPU when GPU memory is
                      insufficient. Uses accelerate's device_map="auto".
     """
-    lm_kwargs = get_personaplex_lm_kwargs()
+    # Copy to avoid mutating a shared/global dict
+    lm_kwargs = dict(_lm_kwargs)
+    lm_kwargs["dep_q"] = 16
 
     preloaded_state_dict = None
     if filename is not None and not _is_safetensors(filename):
@@ -284,39 +220,11 @@ def get_moshi_lm(
 
     # Init with meta device to avoid init dummy memory
     init_device = "meta" if filename is not None else device
+    model = LMModel(device=init_device, dtype=dtype, **lm_kwargs)
     if filename is None:
-        activ_dev = torch.device(device) if isinstance(device, str) else device
-        # BMO_USE_CPP: LM weights live in libbmo.so (GGUF). Only LMGen plumbing is needed;
-        # materializing ~7B dummy Linear weights on CUDA OOMs Jetson unified memory.
-        if os.environ.get("BMO_USE_CPP", "0") == "1":
-            try:
-                from accelerate import init_empty_weights
-
-                with init_empty_weights():
-                    model = LMModel(device=torch.device("meta"), dtype=dtype, **lm_kwargs)
-                # PyTorch plumbing only; inference is in libbmo. CPU avoids Jetson OOM after GGUF load.
-                model._bmo_activation_device = torch.device("cpu")
-                model.eval()
-                return model
-            except ImportError:
-                warnings.warn(
-                    "BMO_USE_CPP=1 but accelerate is not installed; falling back to a "
-                    "full-weight LM shell on CPU (high RAM use). "
-                    "pip install accelerate for a zero-weight shell.",
-                    stacklevel=2,
-                )
-                shell_dev = torch.device("cpu")
-                model = LMModel(device=shell_dev, dtype=dtype, **lm_kwargs)
-                model.to(device=shell_dev, dtype=dtype)
-                model._bmo_activation_device = torch.device("cpu")
-                model.eval()
-                return model
-        model = LMModel(device=init_device, dtype=dtype, **lm_kwargs)
         model.to(device=device, dtype=dtype)
         model.eval()
         return model
-
-    model = LMModel(device=init_device, dtype=dtype, **lm_kwargs)
 
     filename = str(filename)
 
