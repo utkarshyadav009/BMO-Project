@@ -711,6 +711,7 @@ def save_qat_checkpoint(
     parametrized_state_keys: Dict[str, Tuple[nn.Module, str]],
     source_cfg: Dict[str, Any] | None,
     qat_meta: Dict[str, Any],
+    source_payload: Dict[str, Any] | None = None,
 ) -> None:
     export_sd = export_dense_state_dict(student, parametrized_state_keys)
     payload = {
@@ -720,6 +721,9 @@ def save_qat_checkpoint(
         "force_dense": True,
         "qat_meta": qat_meta,
     }
+    src_payload = source_payload
+    if isinstance(src_payload, dict) and "depth_int8_meta" in src_payload:
+        payload["depth_int8_meta"] = src_payload["depth_int8_meta"]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, str(out_path))
 
@@ -959,6 +963,7 @@ def main() -> None:
         f"excluded_by_filter={len(excluded_entries)}"
     )
 
+    print("[INFO] Freezing all student params before fake-quant registration...")
     freeze_all_params(student)
     parametrized_state_keys = register_fake_quant_for_entries(
         entries=entries,
@@ -1204,6 +1209,7 @@ def main() -> None:
                     parametrized_state_keys=parametrized_state_keys,
                     source_cfg=source_cfg,
                     qat_meta=qat_meta,
+                    source_payload=quant_checkpoint,
                 )
 
                 if bool(args.verify_load_on_checkpoint):
@@ -1221,6 +1227,7 @@ def main() -> None:
                         parametrized_state_keys=parametrized_state_keys,
                         source_cfg=source_cfg,
                         qat_meta=qat_meta,
+                        source_payload=quant_checkpoint,
                     )
                 else:
                     evals_since_best += 1
