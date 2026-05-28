@@ -791,6 +791,306 @@ def build_tier_mask(
     return tier.view_as(scores).contiguous()
 
 
+def aggregate_output_dim_tile_scores(
+    scores: torch.Tensor,
+    tile_size: int,
+    aggregate: str,
+) -> torch.Tensor:
+    """Pool per-element scores into tiles over the output-channel dimension."""
+    if tile_size <= 0:
+        raise ValueError("tile_size must be > 0")
+
+    agg = str(aggregate).strip().lower()
+    if agg not in {"mean", "max", "p95"}:
+        raise ValueError(f"tile aggregate must be one of mean, max, p95; got {aggregate!r}")
+
+    if scores.ndim != 2:
+        raise ValueError(f"tile-region scores must be 2D, got shape={tuple(scores.shape)}")
+
+    out_dim, in_dim = int(scores.shape[0]), int(scores.shape[1])
+    n_tiles_out = (out_dim + int(tile_size) - 1) // int(tile_size)
+    padded_out = n_tiles_out * int(tile_size)
+    pad_rows = padded_out - out_dim
+
+    if pad_rows > 0:
+        pad_value = float("-inf") if agg == "max" else 0.0
+        pad = torch.full(
+            (pad_rows, in_dim),
+            pad_value,
+            dtype=scores.dtype,
+            device=scores.device,
+        )
+        scores_pad = torch.cat([scores, pad], dim=0)
+    else:
+        scores_pad = scores
+
+    tiles = scores_pad.view(n_tiles_out, int(tile_size), in_dim)
+    valid = torch.ones((n_tiles_out, int(tile_size)), dtype=torch.bool, device=scores.device)
+    if pad_rows > 0:
+        valid[-1, int(tile_size) - pad_rows :] = False
+
+    if agg == "mean":
+        denom = valid.sum(dim=1).clamp_min(1).to(dtype=tiles.dtype).unsqueeze(-1)
+        return (tiles * valid.unsqueeze(-1).to(dtype=tiles.dtype)).sum(dim=1) / denom
+
+    if agg == "max":
+        return tiles.masked_fill(~valid.unsqueeze(-1), float("-inf")).amax(dim=1)
+
+    # Approximate torch.quantile(..., 0.95) per tile while respecting the final
+    # partial tile. This avoids Python loops over millions of tile/column pairs.
+    sorted_vals = tiles.masked_fill(~valid.unsqueeze(-1), float("inf")).sort(dim=1).values
+    counts = valid.sum(dim=1).clamp_min(1)
+    idx = torch.floor((counts.to(dtype=torch.float32) - 1.0) * 0.95).to(dtype=torch.long)
+    gather_idx = idx.view(n_tiles_out, 1, 1).expand(n_tiles_out, 1, in_dim)
+    return sorted_vals.gather(dim=1, index=gather_idx).squeeze(1)
+
+
+def compute_tile_region_scores(
+    weight: torch.Tensor,
+    activations: torch.Tensor,
+    low_bits: int,
+    hessian_damp: float,
+    quant_min_range: float,
+    tile_size: int,
+    tile_aggregate: str,
+    device: str | torch.device | None = None,
+) -> Dict[str, Any]:
+    if device is None:
+        quant_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        quant_device = torch.device(device)
+        if quant_device.type == "cuda" and not torch.cuda.is_available():
+            quant_device = torch.device("cpu")
+
+    w = weight.detach().to(device=quant_device, dtype=torch.float32).contiguous()
+    x = activations.detach().to(device=quant_device, dtype=torch.float32).contiguous()
+    out_dim, in_dim = int(w.shape[0]), int(w.shape[1])
+
+    h_inv, _, _ = compute_hessian_inverse(
+        x,
+        hessian_damp=hessian_damp,
+        device=quant_device,
+    )
+
+    quant_scale_low, quant_zero_point_low = find_affine_params_mse(
+        w,
+        bits=low_bits,
+        min_range=quant_min_range,
+    )
+
+    w_rtn = torch.empty_like(w)
+    for j in range(in_dim):
+        w_rtn[:, j], _, _ = quantize_vector_rtn_affine(
+            w[:, j],
+            low_bits,
+            scale=quant_scale_low,
+            zero_point=quant_zero_point_low,
+            min_range=quant_min_range,
+        )
+
+    diag = torch.diag(h_inv.to(device=w.device, dtype=w.dtype)).abs().clamp_min(1e-12)
+    if int(diag.numel()) != in_dim:
+        raise ValueError(
+            f"H^-1 diag size mismatch: got {int(diag.numel())}, expected {in_dim}"
+        )
+
+    scores = (w - w_rtn).pow(2) / (2.0 * diag.unsqueeze(0))
+    tile_scores = aggregate_output_dim_tile_scores(
+        scores=scores,
+        tile_size=int(tile_size),
+        aggregate=str(tile_aggregate),
+    )
+    n_tiles_total = int(tile_scores.numel())
+
+    return {
+        "shape": [out_dim, in_dim],
+        "tile_dim": 0,
+        "n_tiles_total": n_tiles_total,
+        "tile_scores": tile_scores.reshape(-1).detach().to(device="cpu", dtype=torch.float32).contiguous(),
+    }
+
+
+def assign_global_tile_region_tiers(
+    tile_region_scores: Dict[str, Dict[str, Any]],
+    ratio_fp16: float,
+    ratio_int8: float,
+    ratio_int4: float,
+) -> Dict[str, Dict[str, Any]]:
+    if not tile_region_scores:
+        return {}
+
+    ordered_names = list(tile_region_scores.keys())
+    score_parts = []
+    for name in ordered_names:
+        scores = tile_region_scores[name]["tile_scores"]
+        if not torch.is_tensor(scores):
+            raise ValueError(f"tile_scores for {name} must be a tensor")
+        score_parts.append(scores.reshape(-1).to(dtype=torch.float32, device="cpu"))
+
+    flat_scores = torch.cat(score_parts, dim=0)
+    n = int(flat_scores.numel())
+    if n == 0:
+        return {}
+
+    ratio_fp16 = float(min(1.0, max(0.0, ratio_fp16)))
+    ratio_int8 = float(min(1.0, max(0.0, ratio_int8)))
+    ratio_int4 = float(min(1.0, max(0.0, ratio_int4)))
+
+    n_fp16 = max(0, min(n, int(ratio_fp16 * n)))
+    n_int8 = max(0, min(n - n_fp16, int(ratio_int8 * n)))
+    n_int4 = max(0, min(n - n_fp16 - n_int8, int(ratio_int4 * n)))
+
+    sorted_indices = torch.argsort(flat_scores, descending=True)
+    flat_tiers = torch.full((n,), 3, dtype=torch.uint8)
+    if n_fp16 > 0:
+        flat_tiers[sorted_indices[:n_fp16]] = 0
+    if n_int8 > 0:
+        flat_tiers[sorted_indices[n_fp16 : n_fp16 + n_int8]] = 1
+    if n_int4 > 0:
+        start = n_fp16 + n_int8
+        flat_tiers[sorted_indices[start : start + n_int4]] = 2
+
+    out: Dict[str, Dict[str, Any]] = {}
+    offset = 0
+    for name in ordered_names:
+        item = tile_region_scores[name]
+        count = int(item["n_tiles_total"])
+        tile_tiers = flat_tiers[offset : offset + count].clone().contiguous()
+        offset += count
+        out[name] = {
+            "n_tiles_total": int(count),
+            "tile_dim": int(item.get("tile_dim", 0)),
+            "tile_tiers": tile_tiers,
+        }
+    return out
+
+
+def expand_output_dim_tile_tiers(
+    tile_tiers: torch.Tensor,
+    shape: List[int] | tuple[int, int],
+    tile_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if len(shape) != 2:
+        raise ValueError(f"tile-region shape must be length 2, got {shape}")
+    out_dim, in_dim = int(shape[0]), int(shape[1])
+    n_tiles_out = (out_dim + int(tile_size) - 1) // int(tile_size)
+    expected = n_tiles_out * in_dim
+    flat = tile_tiers.detach().to(device=device, dtype=torch.uint8).reshape(-1)
+    if int(flat.numel()) != int(expected):
+        raise ValueError(
+            f"tile tier count mismatch: got {int(flat.numel())}, expected {expected} "
+            f"for shape={(out_dim, in_dim)} tile_size={tile_size}"
+        )
+    expanded = (
+        flat.view(n_tiles_out, in_dim)
+        .unsqueeze(1)
+        .expand(n_tiles_out, int(tile_size), in_dim)
+        .reshape(n_tiles_out * int(tile_size), in_dim)[:out_dim, :]
+        .contiguous()
+    )
+    return expanded.to(dtype=torch.uint8)
+
+
+def _pack_uint4(values: torch.Tensor) -> torch.Tensor:
+    flat = values.detach().to(dtype=torch.uint8).reshape(-1)
+    if flat.numel() == 0:
+        return torch.empty((0,), dtype=torch.uint8)
+    pad = (-int(flat.numel())) % 2
+    if pad > 0:
+        flat = torch.cat([flat, torch.zeros((pad,), dtype=torch.uint8, device=flat.device)], dim=0)
+    packed = (flat[0::2] | (flat[1::2] << 4)).to(dtype=torch.uint8)
+    return packed.to(device="cpu").contiguous()
+
+
+def _pack_uint2(values: torch.Tensor) -> torch.Tensor:
+    flat = values.detach().to(dtype=torch.uint8).reshape(-1)
+    if flat.numel() == 0:
+        return torch.empty((0,), dtype=torch.uint8)
+    pad = (-int(flat.numel())) % 4
+    if pad > 0:
+        flat = torch.cat([flat, torch.zeros((pad,), dtype=torch.uint8, device=flat.device)], dim=0)
+    packed = (
+        flat[0::4]
+        | (flat[1::4] << 2)
+        | (flat[2::4] << 4)
+        | (flat[3::4] << 6)
+    ).to(dtype=torch.uint8)
+    return packed.to(device="cpu").contiguous()
+
+
+def _tile_values_for_indices(
+    weight: torch.Tensor,
+    tile_indices: torch.Tensor,
+    tile_size: int,
+) -> torch.Tensor:
+    w = weight.detach().to(device="cpu", dtype=torch.float32).contiguous()
+    out_dim, in_dim = int(w.shape[0]), int(w.shape[1])
+    values = torch.zeros((int(tile_indices.numel()), int(tile_size)), dtype=torch.float32)
+    for out_idx, tile_id in enumerate(tile_indices.to(dtype=torch.long).tolist()):
+        tile_out = int(tile_id) // in_dim
+        col = int(tile_id) % in_dim
+        row_start = tile_out * int(tile_size)
+        row_end = min(out_dim, row_start + int(tile_size))
+        valid = max(0, row_end - row_start)
+        if valid > 0:
+            values[out_idx, :valid] = w[row_start:row_end, col]
+    return values
+
+
+def build_tile_packed_streams(
+    export_state_dict: Dict[str, torch.Tensor],
+    tile_region_metadata: Dict[str, Any],
+    module_stats_by_name: Dict[str, Dict[str, Any]],
+    tile_size: int,
+    low_bits: int,
+) -> Dict[str, Dict[str, torch.Tensor]]:
+    streams: Dict[str, Dict[str, torch.Tensor]] = {}
+    tiles = tile_region_metadata.get("tiles", {})
+    if not isinstance(tiles, dict):
+        return streams
+
+    for tensor_name, tile_info in tiles.items():
+        weight = export_state_dict.get(tensor_name)
+        if not torch.is_tensor(weight):
+            continue
+        tile_tiers = tile_info.get("tile_tiers")
+        if not torch.is_tensor(tile_tiers):
+            continue
+
+        stats = module_stats_by_name.get(tensor_name, {})
+        scale_int8 = float(stats.get("quant_scale_int8", 1.0))
+        zp_int8 = float(stats.get("quant_zero_point_int8", 0.0))
+        scale_int4 = float(stats.get("quant_scale_int4", 1.0))
+        zp_int4 = float(stats.get("quant_zero_point_int4", 0.0))
+        scale_int2 = float(stats.get("quant_scale_low", 1.0))
+        zp_int2 = float(stats.get("quant_zero_point_low", 0.0))
+
+        entry: Dict[str, torch.Tensor] = {}
+        for tier, label in ((0, "fp16"), (1, "int8"), (2, "int4"), (3, "int2")):
+            indices = torch.nonzero(tile_tiers.reshape(-1) == int(tier), as_tuple=False).reshape(-1).to(dtype=torch.int64)
+            values = _tile_values_for_indices(weight=weight, tile_indices=indices, tile_size=int(tile_size))
+            entry[f"{label}_tile_indices"] = indices.to(device="cpu").contiguous()
+            if tier == 0:
+                entry[f"{label}_packed"] = values.to(dtype=torch.float16).contiguous()
+            elif tier == 1:
+                q = torch.round(values / max(scale_int8, 1e-12) + zp_int8).clamp(0, 255).to(dtype=torch.uint8)
+                entry[f"{label}_packed"] = q.contiguous()
+                entry[f"{label}_scales"] = torch.tensor([scale_int8, zp_int8], dtype=torch.float32)
+            elif tier == 2:
+                q = torch.round(values / max(scale_int4, 1e-12) + zp_int4).clamp(0, 15).to(dtype=torch.uint8)
+                entry[f"{label}_packed"] = _pack_uint4(q)
+                entry[f"{label}_scales"] = torch.tensor([scale_int4, zp_int4], dtype=torch.float32)
+            else:
+                qmax = (1 << int(low_bits)) - 1
+                q = torch.round(values / max(scale_int2, 1e-12) + zp_int2).clamp(0, qmax).to(dtype=torch.uint8)
+                entry[f"{label}_packed"] = _pack_uint2(q)
+                entry[f"{label}_scales"] = torch.tensor([scale_int2, zp_int2], dtype=torch.float32)
+        streams[tensor_name] = entry
+
+    return streams
+
+
 def pack_tier_mask_uint2(tier: torch.Tensor) -> tuple[torch.Tensor, int]:
     flat = tier.detach().to(dtype=torch.uint8).reshape(-1)
     if flat.numel() == 0:
@@ -1075,6 +1375,7 @@ def septq_quantize_weight(
     mask_mode: str = "per-element",
     block_mask_aggregate: str = "sum",
     module_name: str = "",
+    forced_tier_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, Dict[str, float | int]]:
     if device is None:
         quant_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1127,7 +1428,28 @@ def septq_quantize_weight(
 
     mode = str(mask_mode).strip().lower()
     block_tier_map_cpu = None
-    if mode == "block-aligned":
+    if forced_tier_mask is not None:
+        tier_mask = forced_tier_mask.detach().to(device=w.device, dtype=torch.uint8).contiguous()
+        if tuple(tier_mask.shape) != tuple(w.shape):
+            raise ValueError(
+                f"forced tier mask shape mismatch for {module_name}: "
+                f"mask={tuple(tier_mask.shape)} weight={tuple(w.shape)}"
+            )
+        if bool(torch.any(tier_mask > 3)):
+            raise ValueError(f"forced tier mask for {module_name} contains values outside [0, 3]")
+        fp16_elements = int((tier_mask == 0).sum().item())
+        int8_elements = int((tier_mask == 1).sum().item())
+        int4_elements = int((tier_mask == 2).sum().item())
+        lowbit_elements = int((tier_mask == 3).sum().item())
+        tier_counts = {
+            "fp16_elements": fp16_elements,
+            "int8_elements": int8_elements,
+            "int4_elements": int4_elements,
+            "lowbit_elements": lowbit_elements,
+            "total_elements": int(w.numel()),
+        }
+        mode = "tile-region"
+    elif mode == "block-aligned":
         tier_mask, tier_counts = build_block_aligned_mask(
             weight=w,
             weight_rtn=w_rtn,
@@ -1380,10 +1702,60 @@ def sanitize_layer_stats(layer_stats: List[Dict[str, Any]]) -> List[Dict[str, An
                     "calibration_samples": int(m.get("calibration_samples", 0)),
                     "mask_mode": str(m.get("mask_mode", "per-element")),
                     "block_mask_aggregate": m.get("block_mask_aggregate"),
+                    "allocation_mode": str(m.get("allocation_mode", "per-weight")),
+                    "tile_size": int(m.get("tile_size", 0)),
+                    "tile_aggregate": m.get("tile_aggregate"),
                 }
             )
         sanitized.append(clean)
     return sanitized
+
+
+def quantize_depth_int8(
+    model: nn.Module,
+    skip_filters: List[str],
+    dtype: torch.dtype,
+) -> Dict[str, Dict[str, Any]]:
+    """Per-output-channel symmetric INT8 quantization of depth transformer Linears.
+    Replaces weight with dequantized values (in `dtype`) so the .pt loads natively via
+    get_moshi_lm. Returns metadata for future GGUF export."""
+    depformer = getattr(model, "depformer", None)
+    if depformer is None:
+        for cand in ("depth_transformer", "depth", "depformer_transformer"):
+            depformer = getattr(model, cand, None)
+            if depformer is not None:
+                break
+    if depformer is None:
+        raise RuntimeError("Could not locate depth transformer module on model")
+
+    meta: Dict[str, Dict[str, Any]] = {}
+    quantized = 0
+    skipped = 0
+    for name, module in depformer.named_modules():
+        if not isinstance(module, nn.Linear):
+            continue
+        full_name = f"depformer.{name}" if name else "depformer"
+        if any(p and p in full_name for p in skip_filters):
+            skipped += 1
+            continue
+        with torch.no_grad():
+            w = module.weight.detach().to(torch.float32)
+            absmax = w.abs().amax(dim=1, keepdim=True).clamp_min(1e-8)
+            scale = absmax / 127.0
+            q = torch.round(w / scale).clamp(-128, 127).to(torch.int8)
+            w_dq = (q.to(torch.float32) * scale).to(dtype=dtype, device=module.weight.device)
+            module.weight.data.copy_(w_dq)
+        meta[full_name] = {
+            "scheme": "int8_per_out_channel_symmetric",
+            "scale": scale.squeeze(-1).to(torch.float32).cpu(),
+            "weight_shape": list(w.shape),
+            "dtype": str(dtype).replace("torch.", ""),
+        }
+        quantized += 1
+    print(f"[DEPTH-INT8] quantized={quantized} skipped={skipped}")
+    if quantized == 0:
+        raise RuntimeError("Depth INT8 enabled but no Linear modules were quantized")
+    return meta
 
 
 def main() -> None:
@@ -1442,6 +1814,33 @@ def main() -> None:
         help="When --mask-mode block-aligned, how per-element scores are pooled per block.",
     )
     parser.add_argument(
+        "--allocation-mode",
+        choices=["per-weight", "tile-region"],
+        default="per-weight",
+        help="per-weight: legacy per-element tier mask (validated by qat_best.pt). "
+             "tile-region: aggregate sensitivity to tiles, assign one tier per tile. Prepares "
+             "for Tensor-Core-friendly execution; quality is unvalidated at the chosen ratios.",
+    )
+    parser.add_argument(
+        "--tile-size",
+        type=int,
+        default=128,
+        help="Tile granularity in elements (over the output-channel dimension) for tile-region mode.",
+    )
+    parser.add_argument(
+        "--tile-aggregate",
+        choices=["mean", "max", "p95"],
+        default="p95",
+        help="How to aggregate per-element sensitivity scores into a tile-level score.",
+    )
+    parser.add_argument(
+        "--emit-tile-packed",
+        action="store_true",
+        help="Physically reorder weights into contiguous per-tier streams and emit "
+             "tile_packed_streams in the checkpoint. The .pt still loads via get_moshi_lm "
+             "because dense dequantized weights are also stored.",
+    )
+    parser.add_argument(
         "--hessian-damp",
         type=float,
         default=0.0,
@@ -1469,6 +1868,18 @@ def main() -> None:
             "(excluded from quantization), e.g. 'self_attn.out_proj,gating.linear_out'. "
             "Use 'none' to disable."
         ),
+    )
+    parser.add_argument(
+        "--quantize-depth-int8",
+        action="store_true",
+        help="Apply per-output-channel symmetric INT8 to all depth transformer Linear weights. "
+             "Stored dequantized in fp/bf16 in the .pt; INT8 metadata saved as `depth_int8_meta` "
+             "for future GGUF export.",
+    )
+    parser.add_argument(
+        "--depth-int8-skip-modules",
+        default="",
+        help="Comma-separated substrings of depth-side module names to KEEP at original precision.",
     )
     parser.add_argument(
         "--collect-progress-every-tokens",
@@ -1501,6 +1912,12 @@ def main() -> None:
 
     if args.block_size <= 0:
         print("[ERROR] --block-size must be > 0")
+        sys.exit(1)
+    if args.tile_size <= 0:
+        print("[ERROR] --tile-size must be > 0")
+        sys.exit(1)
+    if bool(args.emit_tile_packed) and str(args.allocation_mode) != "tile-region":
+        print("[ERROR] --emit-tile-packed requires --allocation-mode tile-region")
         sys.exit(1)
     if args.max_steps_per_clip <= 0:
         print("[ERROR] --max-steps-per-clip must be > 0")
@@ -1564,6 +1981,10 @@ def main() -> None:
         f"ratio_int8={args.ratio_int8} ratio_int4={args.ratio_int4} ratio_lowbit={low_ratio:.6f} "
         f"block_size={args.block_size} mask_mode={args.mask_mode} "
         f"block_mask_aggregate={args.block_mask_aggregate}"
+    )
+    print(
+        f"[INFO] allocation_mode={args.allocation_mode} tile_size={args.tile_size} "
+        f"tile_aggregate={args.tile_aggregate} emit_tile_packed={bool(args.emit_tile_packed)}"
     )
     print(
         f"[INFO] max_clips={args.max_clips} max_steps_per_clip={args.max_steps_per_clip} "
@@ -1677,6 +2098,88 @@ def main() -> None:
         skip_module_filters=skip_module_filters,
     )
 
+    tile_region_metadata: Dict[str, Any] = {}
+    if str(args.allocation_mode) == "tile-region":
+        print("[INFO] tile-region allocation enabled; collecting global tile scores...")
+        tile_region_scores: Dict[str, Dict[str, Any]] = {}
+        for layer_idx in selected_indices:
+            layer_name = layer_plan[layer_idx]["layer_name"]
+            entries = layer_plan[layer_idx]["entries"]
+            if not entries:
+                continue
+
+            print(
+                f"[INFO] Tile-score pass for layer {layer_idx}: {layer_name} "
+                f"({len(entries)} module(s))"
+            )
+            collect_t0 = time.perf_counter()
+            inputs = collect_inputs_for_entries(
+                model=model,
+                sequences=sequences,
+                entries=entries,
+                device=str(args.device),
+                max_samples=int(args.max_calibration_samples),
+                collect_progress_every_tokens=int(args.collect_progress_every_tokens),
+                progress_label=f"{layer_name}.tile_scores",
+            )
+            collect_elapsed = time.perf_counter() - collect_t0
+            print(
+                f"[INFO] Tile-score inputs for {layer_name}: modules={len(inputs)} "
+                f"elapsed={collect_elapsed:.1f}s"
+            )
+
+            for entry in entries:
+                name = entry["name"]
+                weight = get_entry_weight_tensor(entry)
+                x = inputs.get(name)
+                if x is None or x.numel() == 0:
+                    print(f"[WARN] Missing calibration inputs for tile scoring {name}; skipping module")
+                    continue
+                if x.shape[1] != weight.shape[1]:
+                    print(
+                        f"[WARN] Activation width mismatch for tile scoring {name}: "
+                        f"X={tuple(x.shape)} W={tuple(weight.shape)}; skipping module"
+                    )
+                    continue
+
+                score_t0 = time.perf_counter()
+                tile_region_scores[name] = compute_tile_region_scores(
+                    weight=weight,
+                    activations=x,
+                    low_bits=int(args.bits),
+                    hessian_damp=float(args.hessian_damp),
+                    quant_min_range=float(args.quant_min_range),
+                    tile_size=int(args.tile_size),
+                    tile_aggregate=str(args.tile_aggregate),
+                    device=str(args.device),
+                )
+                print(
+                    f"[INFO]   tile scores {name}: "
+                    f"tiles={tile_region_scores[name]['n_tiles_total']} "
+                    f"elapsed={time.perf_counter() - score_t0:.1f}s"
+                )
+
+        tile_assignments = assign_global_tile_region_tiers(
+            tile_region_scores=tile_region_scores,
+            ratio_fp16=float(args.ratio_fp16),
+            ratio_int8=float(args.ratio_int8),
+            ratio_int4=float(args.ratio_int4),
+        )
+        if not tile_assignments:
+            print("[ERROR] tile-region allocation produced no tile assignments")
+            sys.exit(1)
+        tile_region_metadata = {
+            "version": 1,
+            "tile_size": int(args.tile_size),
+            "aggregate": str(args.tile_aggregate),
+            "tiles": tile_assignments,
+        }
+        total_tiles = int(sum(int(v["n_tiles_total"]) for v in tile_assignments.values()))
+        print(
+            f"[INFO] tile_region_metadata prepared: tensors={len(tile_assignments)} "
+            f"total_tiles={total_tiles}"
+        )
+
     layer_stats: List[Dict[str, Any]] = []
     quantized_modules = 0
     skipped_modules: List[str] = []
@@ -1684,6 +2187,7 @@ def main() -> None:
     tier_masks_uint2: Dict[str, torch.Tensor] = {}
     block_tier_map: Dict[str, torch.Tensor] = {}
     tier_masks_meta: Dict[str, Dict[str, Any]] = {}
+    module_stats_by_name: Dict[str, Dict[str, Any]] = {}
     agg_total_elements = 0
     agg_fp16_elements = 0
     agg_int8_elements = 0
@@ -1772,6 +2276,19 @@ def main() -> None:
                 f"[INFO]   -> Quantizing {name}: X={tuple(x.shape)} W={tuple(weight.shape)}"
             )
             module_t0 = time.perf_counter()
+            forced_tier_mask = None
+            if str(args.allocation_mode) == "tile-region":
+                tiles = tile_region_metadata.get("tiles", {})
+                tile_info = tiles.get(name) if isinstance(tiles, dict) else None
+                if not isinstance(tile_info, dict) or not torch.is_tensor(tile_info.get("tile_tiers")):
+                    print(f"[ERROR] Missing tile-region tier assignment for {name}")
+                    sys.exit(1)
+                forced_tier_mask = expand_output_dim_tile_tiers(
+                    tile_tiers=tile_info["tile_tiers"],
+                    shape=[int(weight.shape[0]), int(weight.shape[1])],
+                    tile_size=int(args.tile_size),
+                    device=weight.device,
+                )
 
             q_weight, tier_mask_packed, stats = septq_quantize_weight(
                 weight=weight,
@@ -1788,6 +2305,7 @@ def main() -> None:
                 mask_mode=str(args.mask_mode),
                 block_mask_aggregate=str(args.block_mask_aggregate),
                 module_name=name,
+                forced_tier_mask=forced_tier_mask,
             )
             module_elapsed = time.perf_counter() - module_t0
 
@@ -1860,7 +2378,11 @@ def main() -> None:
                 "calibration_samples": int(x.shape[0]),
                 "mask_mode": str(stats.get("mask_mode", args.mask_mode)),
                 "block_mask_aggregate": stats.get("block_mask_aggregate"),
+                "allocation_mode": str(args.allocation_mode),
+                "tile_size": int(args.tile_size) if str(args.allocation_mode) == "tile-region" else 0,
+                "tile_aggregate": str(args.tile_aggregate) if str(args.allocation_mode) == "tile-region" else None,
             }
+            module_stats_by_name[name] = mod
             module_stats.append(mod)
             quantized_modules += 1
             print(
@@ -1889,6 +2411,12 @@ def main() -> None:
                 "modules": module_stats,
             }
         )
+
+    depth_int8_meta: Dict[str, Dict[str, Any]] = {}
+    if bool(args.quantize_depth_int8):
+        print("[INFO] Applying per-output-channel INT8 to depth transformer...")
+        depth_skip_filters = parse_skip_module_filters(args.depth_int8_skip_modules)
+        depth_int8_meta = quantize_depth_int8(model=model, skip_filters=depth_skip_filters, dtype=dtype)
 
     export_sd = {
         key: tensor.detach().to(device="cpu").contiguous()
@@ -1925,15 +2453,23 @@ def main() -> None:
         "config_override": source_cfg,
         "model_mode": "septq_multitier_dense",
         "force_dense": True,
+        "allocation_mode": str(args.allocation_mode),
         "septq_meta": {
             "source_checkpoint": str(input_path),
-            "quant_scheme": "septq_multitier_per_weight",
+            "quant_scheme": (
+                "septq_multitier_tile_region"
+                if str(args.allocation_mode) == "tile-region"
+                else "septq_multitier_per_weight"
+            ),
+            "allocation_mode": str(args.allocation_mode),
             "mask_mode": str(args.mask_mode),
             "block_mask_aggregate": (
                 str(args.block_mask_aggregate)
                 if str(args.mask_mode).strip().lower() == "block-aligned"
                 else None
             ),
+            "tile_size": int(args.tile_size) if str(args.allocation_mode) == "tile-region" else None,
+            "tile_aggregate": str(args.tile_aggregate) if str(args.allocation_mode) == "tile-region" else None,
             "low_bits": int(args.bits),
             "ratio_fp16": float(args.ratio_fp16),
             "ratio_int8": float(args.ratio_int8),
@@ -1973,6 +2509,23 @@ def main() -> None:
             "removed_state_keys": removed_keys,
         },
     }
+    if tile_region_metadata:
+        payload["tile_region_metadata"] = tile_region_metadata
+        print("[INFO] tile_region_metadata saved in checkpoint payload")
+        if bool(args.emit_tile_packed):
+            payload["tile_packed_streams"] = build_tile_packed_streams(
+                export_state_dict=export_sd,
+                tile_region_metadata=tile_region_metadata,
+                module_stats_by_name=module_stats_by_name,
+                tile_size=int(args.tile_size),
+                low_bits=int(args.bits),
+            )
+            print(
+                f"[INFO] tile_packed_streams saved for "
+                f"{len(payload['tile_packed_streams'])} tensor(s)"
+            )
+    if depth_int8_meta:
+        payload["depth_int8_meta"] = depth_int8_meta
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, str(output_path))
