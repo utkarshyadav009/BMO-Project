@@ -3,18 +3,17 @@
 ## Files Modified
 
 ### apply_septq_multitier.py
-- Added `--quantize-depth-int8` and `--depth-int8-skip-modules` flags (Part 1)
-- Added `quantize_depth_int8()` helper function (Part 1)
-- Wired depth-INT8 into `main()` after temporal SEPTQ loop (Part 1)
-- Added `--allocation-mode`, `--tile-size`, `--tile-aggregate`, `--emit-tile-packed` flags (Part 2)
-- Added tile-region global tile-score collection and tile-mask branch in the SEPTQ quantization flow (Part 2)
-- Added `tile_region_metadata` plus optional `tile_packed_streams` to saved payload (Part 2)
-
-### qat_septq.py
-- Added `freeze_all_params(student)` log before fake-quant registration (Part 1)
-- Added `depth_int8_meta` carry-through in QAT save block (Part 1)
+- Added `--tile-shape`, `--tile-layout-target`, and `--int2-storage` flags for hardware-aware tile-region export preparation.
+- Replaced 128x1 row-stripe tile aggregation/expansion with padded 2D tile geometry; default `--tile-shape auto --tile-layout-target ampere` resolves to 64x64 tiles.
+- Stored authoritative per-tile tiers in `tile_region_metadata.tiles[name].tile_tiers`, plus `mask_representation="per-tile"` and `tier_masks_authoritative=False` for tile-region mode.
+- Preserved dense dequantized weights and retained `tier_masks_uint2` as a non-authoritative debug/QAT compatibility artifact in tile-region mode.
+- Added tile geometry metadata: `tile_shape_per_tier`, `layout_target`, per-tensor `tile_grid`, `pad_rows`, and `pad_cols`.
+- Added `int2_storage` metadata and projected packed-size/effective-bpw reports for both raw packed INT2 and INT4-container INT2.
+- Reworked `tile_packed_streams` into nested per-tier descriptors with tile indices, tile geometry, region labels, per-tile FP16 scale/zero-point arrays, and simple tile-major packed values.
+- Added `layout_contract_version=1` and a payload contract string documenting that future exporters should implement warp-coalesced/swizzled byte order later.
 
 ## Files NOT modified
 - CUDA/C++ runtime (`bmo.cpp`, `bmo_compute.cpp`, `bmo_cuda_kernels*.cu`, `bmo.h`, etc.)
-- `export_bmo_gguf.py` (touched in a later session)
+- `export_bmo_gguf.py` (later exporter/kernel session)
+- `qat_septq.py`
 - Any test scripts

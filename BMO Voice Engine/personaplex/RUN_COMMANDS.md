@@ -50,27 +50,27 @@ python -u apply_septq_multitier.py \
   --bf16 v5_step1500_split.safetensors \
   --calibration-clips bmo_dataset_clean \
   --bits 2 \
-  --ratio-fp16 0.02 \
-  --ratio-int8 0.12 \
-  --ratio-int4 0.36 \
+  --ratio-fp16 0.02 --ratio-int8 0.12 --ratio-int4 0.36 \
   --allocation-mode tile-region \
-  --tile-size 128 \
+  --tile-shape auto \
+  --tile-layout-target ampere \
   --tile-aggregate p95 \
+  --int2-storage int4-container \
   --block-size 128 \
-  --max-calibration-samples 16384 \
-  --max-steps-per-clip 750 \
-  --max-clips 857 \
+  --max-calibration-samples 16384 --max-steps-per-clip 750 --max-clips 857 \
   --quantize-layers 0-30 \
   --skip-modules "self_attn.out_proj" \
   --quantize-depth-int8 \
-  --out tile_region_experiment/bmo_tile_region_p95.pt \
-  2>&1 | tee tile_region_experiment/ptq_p95.log
+  --emit-tile-packed \
+  --out tile_region_experiment/bmo_tile_region_hw.pt \
+  2>&1 | tee tile_region_experiment/ptq_hw.log
 ```
 
 Sanity-check the log after completion:
 - Look for `[DEPTH-INT8] quantized=N skipped=M` with N > 0
 - Look for tile_region_metadata being saved
-- Check `.pt` size: `ls -lh tile_region_experiment/bmo_tile_region_p95.pt`
+- Look for projected packed-size lines for both `packed` and `int4-container`
+- Check `.pt` size: `ls -lh tile_region_experiment/bmo_tile_region_hw.pt`
 
 ## Step 3 — Verify z_s drift pre-QAT (~10 min)
 
@@ -78,14 +78,16 @@ Sanity-check the log after completion:
 python -u verify_septq_zs_drift.py \
   --device cuda:0 \
   --teacher v5_step1500_split.safetensors \
-  --student tile_region_experiment/bmo_tile_region_p95.pt \
+  --student tile_region_experiment/bmo_tile_region_hw.pt \
   --steps 125 \
   --min-median-cos 0.85 \
-  --save-json tile_region_experiment/zs_p95.json \
-  2>&1 | tee tile_region_experiment/zs_p95.log
+  --save-json tile_region_experiment/zs_hw.json \
+  2>&1 | tee tile_region_experiment/zs_hw.log
 ```
 
 Note: `--min-median-cos 0.85` is the pre-QAT gate, not the ship gate. The Heavy Cushion config hit 0.893 pre-QAT and recovered to 0.973 post-QAT — that's the playbook.
+
+Layout note: `--int2-storage int4-container`, `--emit-tile-packed`, and packed-stream descriptors change storage metadata, not the dense dequantized weights used by this verifier. The z_s result should be identical or near-identical to a run with the same 2D tile assignment and a different INT2 storage mode. If it changes materially when only storage/packing flags change, treat that as a bug in tile expansion or metadata handling.
 
 ## Step 4 — Decision gate
 
@@ -108,29 +110,32 @@ python -u apply_septq_multitier.py \
   --bits 2 \
   --ratio-fp16 0.02 --ratio-int8 0.12 --ratio-int4 0.36 \
   --allocation-mode tile-region \
-  --tile-size 128 \
+  --tile-shape auto \
+  --tile-layout-target ampere \
   --tile-aggregate max \
+  --int2-storage int4-container \
   --block-size 128 \
   --max-calibration-samples 16384 --max-steps-per-clip 750 --max-clips 857 \
   --quantize-layers 0-30 \
   --skip-modules "self_attn.out_proj" \
   --quantize-depth-int8 \
-  --out tile_region_experiment/bmo_tile_region_max.pt \
-  2>&1 | tee tile_region_experiment/ptq_max.log
+  --emit-tile-packed \
+  --out tile_region_experiment/bmo_tile_region_hw_max.pt \
+  2>&1 | tee tile_region_experiment/ptq_hw_max.log
 
 python -u verify_septq_zs_drift.py \
   --device cuda:0 \
   --teacher v5_step1500_split.safetensors \
-  --student tile_region_experiment/bmo_tile_region_max.pt \
+  --student tile_region_experiment/bmo_tile_region_hw_max.pt \
   --steps 125 \
   --min-median-cos 0.85 \
-  --save-json tile_region_experiment/zs_max.json \
-  2>&1 | tee tile_region_experiment/zs_max.log
+  --save-json tile_region_experiment/zs_hw_max.json \
+  2>&1 | tee tile_region_experiment/zs_hw_max.log
 ```
 
 ## Step 5 — QAT (gated on Step 4; ~7 hours)
 
-Only if Step 4 returned ≥ 0.85 pre-QAT. Use whichever .pt won (p95 or max) as the student. The example below uses p95.
+Only if Step 4 returned ≥ 0.85 pre-QAT. Use whichever .pt won (p95 or max) as the student. The example below uses the hardware-aware p95 run.
 
 **Before running:** confirm exact flag names with `python qat_septq.py --help`. The flags below mirror the script that produced qat_best.pt; adjust if the actual script differs.
 
@@ -138,7 +143,7 @@ Only if Step 4 returned ≥ 0.85 pre-QAT. Use whichever .pt won (p95 or max) as 
 python -u qat_septq.py \
   --device cuda:0 \
   --teacher v5_step1500_split.safetensors \
-  --student tile_region_experiment/bmo_tile_region_p95.pt \
+  --student tile_region_experiment/bmo_tile_region_hw.pt \
   --calibration-clips bmo_dataset_clean \
   --max-train-steps 600 \
   --warmup-steps 100 \
@@ -147,7 +152,7 @@ python -u qat_septq.py \
   --out tile_region_experiment/qat_tile_region \
   --teacher-dtype bf16 \
   --student-dtype bf16 \
-  2>&1 | tee tile_region_experiment/qat_p95.log
+  2>&1 | tee tile_region_experiment/qat_hw.log
 ```
 
 Re-verify after QAT:
@@ -159,8 +164,8 @@ python -u verify_septq_zs_drift.py \
   --student tile_region_experiment/qat_tile_region/qat_best.pt \
   --steps 125 \
   --min-median-cos 0.97 \
-  --save-json tile_region_experiment/zs_qat_p95.json \
-  2>&1 | tee tile_region_experiment/zs_qat_p95.log
+  --save-json tile_region_experiment/zs_qat_hw.json \
+  2>&1 | tee tile_region_experiment/zs_qat_hw.log
 ```
 
 ## Step 6 — Pull final .pt back to local for testing
@@ -169,7 +174,7 @@ From local machine:
 
 ```bash
 SERVER_PT="jovyan@linebreaker:/home/jovyan/work/BMO-Project/personaplex_repo/tile_region_experiment/qat_tile_region/qat_best.pt"
-LOCAL_DEST="/path/to/local/BMO-Project/personaplex_repo/tile_region_experiment/qat_best_tile_region.pt"
+LOCAL_DEST="/path/to/local/BMO-Project/personaplex_repo/tile_region_experiment/qat_best_tile_region_hw.pt"
 mkdir -p "$(dirname $LOCAL_DEST)"
 rsync -avz --progress "$SERVER_PT" "$LOCAL_DEST"
 ```
