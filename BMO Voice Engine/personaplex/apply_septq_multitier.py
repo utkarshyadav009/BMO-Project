@@ -993,55 +993,60 @@ def assign_global_tile_region_tiers(
     if not tile_region_scores:
         return {}
 
-    ordered_names = list(tile_region_scores.keys())
-    score_parts = []
-    for name in ordered_names:
-        scores = tile_region_scores[name]["tile_scores"]
-        if not torch.is_tensor(scores):
-            raise ValueError(f"tile_scores for {name} must be a tensor")
-        score_parts.append(scores.reshape(-1).to(dtype=torch.float32, device="cpu"))
-
-    flat_scores = torch.cat(score_parts, dim=0)
-    n = int(flat_scores.numel())
-    if n == 0:
-        return {}
-
+    # Clamp ratios to valid bounds
     ratio_fp16 = float(min(1.0, max(0.0, ratio_fp16)))
     ratio_int8 = float(min(1.0, max(0.0, ratio_int8)))
     ratio_int4 = float(min(1.0, max(0.0, ratio_int4)))
 
-    n_fp16 = max(0, min(n, int(ratio_fp16 * n)))
-    n_int8 = max(0, min(n - n_fp16, int(ratio_int8 * n)))
-    n_int4 = max(0, min(n - n_fp16 - n_int8, int(ratio_int4 * n)))
-
-    sorted_indices = torch.argsort(flat_scores, descending=True)
-    flat_tiers = torch.full((n,), 3, dtype=torch.uint8)
-    if n_fp16 > 0:
-        flat_tiers[sorted_indices[:n_fp16]] = 0
-    if n_int8 > 0:
-        flat_tiers[sorted_indices[n_fp16 : n_fp16 + n_int8]] = 1
-    if n_int4 > 0:
-        start = n_fp16 + n_int8
-        flat_tiers[sorted_indices[start : start + n_int4]] = 2
-
     out: Dict[str, Dict[str, Any]] = {}
-    offset = 0
+    ordered_names = list(tile_region_scores.keys())
+
+    # PER-TENSOR RANKING: Rank and budget within each tensor's own loop
     for name in ordered_names:
         item = tile_region_scores[name]
-        count = int(item["n_tiles_total"])
-        tile_tiers = flat_tiers[offset : offset + count].clone().contiguous()
-        offset += count
+        scores = item["tile_scores"]
+        
+        if not torch.is_tensor(scores):
+            raise ValueError(f"tile_scores for {name} must be a tensor")
+            
+        scores = scores.reshape(-1).to(dtype=torch.float32, device="cpu")
+        n = int(scores.numel())
+        
+        if n == 0:
+            continue
+
+        # Calculate exact budgets for THIS specific tensor
+        n_fp16 = max(0, min(n, int(ratio_fp16 * n)))
+        n_int8 = max(0, min(n - n_fp16, int(ratio_int8 * n)))
+        n_int4 = max(0, min(n - n_fp16 - n_int8, int(ratio_int4 * n)))
+
+        # Sort this tensor's scores
+        sorted_indices = torch.argsort(scores, descending=True)
+        
+        # Initialize all to INT2 (tier 3)
+        tile_tiers = torch.full((n,), 3, dtype=torch.uint8)
+        
+        # Assign upper tiers
+        if n_fp16 > 0:
+            tile_tiers[sorted_indices[:n_fp16]] = 0
+        if n_int8 > 0:
+            tile_tiers[sorted_indices[n_fp16 : n_fp16 + n_int8]] = 1
+        if n_int4 > 0:
+            start = n_fp16 + n_int8
+            tile_tiers[sorted_indices[start : start + n_int4]] = 2
+
+        # Re-pack into the schema the rest of the script expects
         out[name] = {
-            "n_tiles_total": int(count),
+            "n_tiles_total": int(item["n_tiles_total"]),
             "tile_dim": list(item.get("tile_dim", [0, 1])),
             "tile_shape": list(item.get("tile_shape", [0, 0])),
             "tile_grid": list(item.get("tile_grid", [0, 0])),
             "pad_rows": int(item.get("pad_rows", 0)),
             "pad_cols": int(item.get("pad_cols", 0)),
-            "tile_tiers": tile_tiers,
+            "tile_tiers": tile_tiers.contiguous(),
         }
+        
     return out
-
 
 def expand_2d_tile_tiers(
     tile_tiers: torch.Tensor,
@@ -2363,6 +2368,16 @@ def main() -> None:
         if not tile_assignments:
             print("[ERROR] tile-region allocation produced no tile assignments")
             sys.exit(1)
+
+        # --- PRE-FLIGHT SANITY CHECK ---
+        test_layer = "transformer.layers.0.gating.linear_out.weight"
+        if test_layer in tile_assignments:
+            t = tile_assignments[test_layer]["tile_tiers"]
+            vals, counts = torch.unique(t, return_counts=True)
+            dist = {int(v): int(c) for v, c in zip(vals, counts)}
+            print(f"\n[VALIDATION] {test_layer} tier distribution: {dist}")
+            print(f"[VALIDATION] Expected roughly: {{0: 2%, 1: 12%, 2: 36%, 3: 50%}} of {tile_assignments[test_layer]['n_tiles_total']} tiles.\n")
+        # -------------------------------
         tile_region_metadata = {
             "version": 1,
             "layout_contract_version": 1,
