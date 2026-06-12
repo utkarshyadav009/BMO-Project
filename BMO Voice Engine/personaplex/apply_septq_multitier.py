@@ -2300,84 +2300,7 @@ def main() -> None:
 
     tile_region_metadata: Dict[str, Any] = {}
     if str(args.allocation_mode) == "tile-region":
-        print("[INFO] tile-region allocation enabled; collecting global tile scores...")
-        tile_region_scores: Dict[str, Dict[str, Any]] = {}
-        for layer_idx in selected_indices:
-            layer_name = layer_plan[layer_idx]["layer_name"]
-            entries = layer_plan[layer_idx]["entries"]
-            if not entries:
-                continue
-
-            print(
-                f"[INFO] Tile-score pass for layer {layer_idx}: {layer_name} "
-                f"({len(entries)} module(s))"
-            )
-            collect_t0 = time.perf_counter()
-            inputs = collect_inputs_for_entries(
-                model=model,
-                sequences=sequences,
-                entries=entries,
-                device=str(args.device),
-                max_samples=int(args.max_calibration_samples),
-                collect_progress_every_tokens=int(args.collect_progress_every_tokens),
-                progress_label=f"{layer_name}.tile_scores",
-            )
-            collect_elapsed = time.perf_counter() - collect_t0
-            print(
-                f"[INFO] Tile-score inputs for {layer_name}: modules={len(inputs)} "
-                f"elapsed={collect_elapsed:.1f}s"
-            )
-
-            for entry in entries:
-                name = entry["name"]
-                weight = get_entry_weight_tensor(entry)
-                x = inputs.get(name)
-                if x is None or x.numel() == 0:
-                    print(f"[WARN] Missing calibration inputs for tile scoring {name}; skipping module")
-                    continue
-                if x.shape[1] != weight.shape[1]:
-                    print(
-                        f"[WARN] Activation width mismatch for tile scoring {name}: "
-                        f"X={tuple(x.shape)} W={tuple(weight.shape)}; skipping module"
-                    )
-                    continue
-
-                score_t0 = time.perf_counter()
-                tile_region_scores[name] = compute_tile_region_scores(
-                    weight=weight,
-                    activations=x,
-                    low_bits=int(args.bits),
-                    hessian_damp=float(args.hessian_damp),
-                    quant_min_range=float(args.quant_min_range),
-                    tile_shape=tile_shape_common,
-                    tile_aggregate=str(args.tile_aggregate),
-                    device=str(args.device),
-                )
-                print(
-                    f"[INFO]   tile scores {name}: "
-                    f"tiles={tile_region_scores[name]['n_tiles_total']} "
-                    f"elapsed={time.perf_counter() - score_t0:.1f}s"
-                )
-
-        tile_assignments = assign_global_tile_region_tiers(
-            tile_region_scores=tile_region_scores,
-            ratio_fp16=float(args.ratio_fp16),
-            ratio_int8=float(args.ratio_int8),
-            ratio_int4=float(args.ratio_int4),
-        )
-        if not tile_assignments:
-            print("[ERROR] tile-region allocation produced no tile assignments")
-            sys.exit(1)
-
-        # --- PRE-FLIGHT SANITY CHECK ---
-        test_layer = "transformer.layers.0.gating.linear_out.weight"
-        if test_layer in tile_assignments:
-            t = tile_assignments[test_layer]["tile_tiers"]
-            vals, counts = torch.unique(t, return_counts=True)
-            dist = {int(v): int(c) for v, c in zip(vals, counts)}
-            print(f"\n[VALIDATION] {test_layer} tier distribution: {dist}")
-            print(f"[VALIDATION] Expected roughly: {{0: 2%, 1: 12%, 2: 36%, 3: 50%}} of {tile_assignments[test_layer]['n_tiles_total']} tiles.\n")
-        # -------------------------------
+        print("[INFO] tile-region allocation enabled; scoring will be inlined per-tensor during quantization loop.")
         tile_region_metadata = {
             "version": 1,
             "layout_contract_version": 1,
@@ -2394,13 +2317,8 @@ def main() -> None:
             "layout_target": str(args.tile_layout_target),
             "aggregate": str(args.tile_aggregate),
             "int2_storage": str(args.int2_storage),
-            "tiles": tile_assignments,
+            "tiles": {},
         }
-        total_tiles = int(sum(int(v["n_tiles_total"]) for v in tile_assignments.values()))
-        print(
-            f"[INFO] tile_region_metadata prepared: tensors={len(tile_assignments)} "
-            f"total_tiles={total_tiles}"
-        )
 
     layer_stats: List[Dict[str, Any]] = []
     quantized_modules = 0
@@ -2500,17 +2418,46 @@ def main() -> None:
             module_t0 = time.perf_counter()
             forced_tier_mask = None
             if str(args.allocation_mode) == "tile-region":
-                tiles = tile_region_metadata.get("tiles", {})
-                tile_info = tiles.get(name) if isinstance(tiles, dict) else None
-                if not isinstance(tile_info, dict) or not torch.is_tensor(tile_info.get("tile_tiers")):
-                    print(f"[ERROR] Missing tile-region tier assignment for {name}")
+                # Score THIS tensor against the SAME activations the solver will use.
+                # This is the core fix: x is the identical tensor object passed to
+                # septq_quantize_weight below, so tiers reflect current (progressively-
+                # quantized) activations rather than pristine BF16 ones.
+                score_t0 = time.perf_counter()
+                scores_dict = compute_tile_region_scores(
+                    weight=weight,
+                    activations=x,
+                    low_bits=int(args.bits),
+                    hessian_damp=float(args.hessian_damp),
+                    quant_min_range=float(args.quant_min_range),
+                    tile_shape=tile_shape_common,
+                    tile_aggregate=str(args.tile_aggregate),
+                    device=str(args.device),
+                )
+                # Per-tensor tier assignment (single-tensor dict -> per-tensor budget).
+                assigned = assign_global_tile_region_tiers(
+                    {name: scores_dict},
+                    ratio_fp16=float(args.ratio_fp16),
+                    ratio_int8=float(args.ratio_int8),
+                    ratio_int4=float(args.ratio_int4),
+                )
+                if name not in assigned:
+                    print(f"[ERROR] tile-region tier assignment failed for {name}")
                     sys.exit(1)
+                tile_info = assigned[name]
                 forced_tier_mask = expand_2d_tile_tiers(
                     tile_tiers=tile_info["tile_tiers"],
                     shape=[int(weight.shape[0]), int(weight.shape[1])],
                     tile_shape=tile_info.get("tile_shape", [int(tile_shape_common[0]), int(tile_shape_common[1])]),
-                    tile_grid=tile_info.get("tile_grid", [0, 0]),
+                    tile_grid=tile_info["tile_grid"],
                     device=weight.device,
+                )
+                # Accumulate metadata for THIS tensor into the running tile_region_metadata.
+                tile_region_metadata["tiles"][name] = tile_info
+                score_elapsed = time.perf_counter() - score_t0
+                print(
+                    f"[INFO]   tile scores {name}: "
+                    f"tiles={tile_info['n_tiles_total']} "
+                    f"elapsed={score_elapsed:.1f}s"
                 )
 
             q_weight, tier_mask_packed, stats = septq_quantize_weight(
