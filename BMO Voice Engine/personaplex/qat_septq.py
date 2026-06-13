@@ -189,6 +189,48 @@ def unpack_tier_mask_uint2(packed: torch.Tensor, target_shape: tuple[int, int]) 
     return expanded[:total].reshape(target_shape)
 
 
+def force_outlier_tier0_in_masks(
+    tier_masks_uint2: Dict[str, torch.Tensor],
+    tier_masks_meta: Dict[str, Dict[str, Any]],
+    outlier_meta: Dict[str, Dict[str, Any]],
+) -> Dict[str, torch.Tensor]:
+    """Set outlier element positions to tier 0 (FP16) in the packed uint2 masks so
+    MultiTierFakeQuantize leaves them at full precision during QAT. Returns modified
+    tier_masks_uint2 (new dict; does not mutate input). Idempotent if already tier 0."""
+    import numpy as np
+    out = dict(tier_masks_uint2)
+    modified = 0
+    for name, om in outlier_meta.items():
+        if name not in out:
+            continue
+        idx = om["indices"]
+        idx = idx.cpu().numpy() if torch.is_tensor(idx) else np.asarray(idx)
+        packed = out[name].cpu().numpy().astype(np.uint8).flatten()
+        # unpack matching (byte >> (2 * lane)) & 0x3
+        tiers = np.empty(packed.size * 4, dtype=np.uint8)
+        tiers[0::4] = packed & 0x3
+        tiers[1::4] = (packed >> 2) & 0x3
+        tiers[2::4] = (packed >> 4) & 0x3
+        tiers[3::4] = (packed >> 6) & 0x3
+        valid = idx[(idx >= 0) & (idx < tiers.size)]
+        before_lowbit = int((tiers[valid] != 0).sum())
+        tiers[valid] = 0
+        # repack
+        n = tiers.size
+        pad = (-n) % 4
+        if pad:
+            tiers = np.concatenate([tiers, np.zeros(pad, dtype=np.uint8)])
+        rep = (tiers[0::4]
+               | (tiers[1::4] << 2)
+               | (tiers[2::4] << 4)
+               | (tiers[3::4] << 6)).astype(np.uint8)
+        out[name] = torch.from_numpy(rep).to(device=tier_masks_uint2[name].device, dtype=tier_masks_uint2[name].dtype)
+        modified += before_lowbit
+    print(f"[INFO] forced {modified} outlier positions to tier0(FP16) across {len(outlier_meta)} tensors")
+    return out
+
+
+
 def _is_multitier_target_entry(name: str) -> bool:
     text = str(name)
     if ".self_attn.out_proj" in text:
@@ -722,8 +764,11 @@ def save_qat_checkpoint(
         "qat_meta": qat_meta,
     }
     src_payload = source_payload
-    if isinstance(src_payload, dict) and "depth_int8_meta" in src_payload:
-        payload["depth_int8_meta"] = src_payload["depth_int8_meta"]
+    if isinstance(src_payload, dict):
+        for k in ("depth_int8_meta", "outlier_metadata", "tile_region_metadata",
+                  "allocation_mode", "mask_representation", "outlier_extraction"):
+            if k in src_payload and k not in payload:
+                payload[k] = src_payload[k]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, str(out_path))
 
@@ -836,6 +881,18 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Multiply optimizer LR by this factor after an automatic rollback.",
     )
+    parser.add_argument(
+        "--outlier-meta", default="auto",
+        help="Path to a checkpoint containing outlier_metadata, or 'auto' to read it from "
+             "--student-quant-meta. 'none' disables outlier handling. Outlier positions are "
+             "forced to FP16 (tier 0) in the fake-quant mask so QAT does not re-quantize them.",
+    )
+    parser.add_argument(
+        "--freeze-outliers", action="store_true", default=True,
+        help="Hold extracted outlier weights at FP16 during QAT (force tier 0 in mask). "
+             "Default on. Use --no-freeze-outliers to allow training them (not recommended).",
+    )
+    parser.add_argument("--no-freeze-outliers", dest="freeze_outliers", action="store_false")
     parser.add_argument("--no-copy-missing-weights", action="store_true")
     return parser.parse_args()
 
@@ -939,6 +996,22 @@ def main() -> None:
     quant_checkpoint = quant_meta["checkpoint_payload"]
     tier_masks_uint2 = quant_meta["tier_masks_uint2"]
     tier_masks_meta = quant_meta["tier_masks_meta"]
+
+    # Load outlier metadata
+    outlier_meta = {}
+    if str(args.outlier_meta) != "none":
+        if str(args.outlier_meta) == "auto":
+            outlier_meta = quant_checkpoint.get("outlier_metadata", {}) or {}
+        else:
+            import torch as _t
+            om_ck = _t.load(args.outlier_meta, map_location="cpu")
+            outlier_meta = om_ck.get("outlier_metadata", {}) or {}
+        print(f"[INFO] outlier_metadata: {len(outlier_meta)} tensors")
+
+    if args.freeze_outliers and outlier_meta:
+        tier_masks_uint2 = force_outlier_tier0_in_masks(
+            tier_masks_uint2, tier_masks_meta, outlier_meta
+        )
 
     temporal_layers = get_temporal_layers(student)
     if not temporal_layers:

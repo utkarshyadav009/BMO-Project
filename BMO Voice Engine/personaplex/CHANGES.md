@@ -1,102 +1,36 @@
-# CHANGES.md — Tile-Region Activation Mismatch Fix
+# Local Edits Summary
 
-**Date:** 2026-06-12
-**File:** `apply_septq_multitier.py`
+## Files Modified
 
-<<<<<<< Updated upstream
-## Problem
+### qat_septq.py
 
-In `--allocation-mode tile-region`, tile tiers were computed in a **pre-pass** over all
-layers on the pristine BF16 model, then applied during a separate sequential quantization
-loop that modifies the model in place. By layer 3+ the solver ran on progressively-quantized
-activations while the tiers were optimized for clean BF16 ones. This mismatch caused an
-early quality cliff (z_s median 0.29). The per-element path was immune because it computes
-its mask from the same activations it solves against (validated: 0.893, graceful decay).
+#### New: Outlier-Aware QAT Support (2026-06-13)
 
-## Fix Summary
+**Problem:** QAT fake-quantization re-quantizes weights every forward pass based on a per-element tier mask. Magnitude outliers (which PTQ protected at FP16 precision) would normally be crushed back to low-bit grids in QAT if their mask positions carry low-bit tiers. This destroys the absmax preservation.
 
-### 1. Pre-pass deleted
+**Solution:** Force outlier positions to tier 0 (FP16) in the per-element mask before QAT fake-quantization registration. This ensures the fake-quant leaves them at full precision.
 
-The entire block that began with:
-```
-if str(args.allocation_mode) == "tile-region":
-    print("[INFO] tile-region allocation enabled; collecting global tile scores...")
-```
-…including the `collect_inputs_for_entries` loop over all layers, `compute_tile_region_scores`
-per entry, `assign_global_tile_region_tiers` consuming the collected scores, and the
-pre-flight sanity check — has been **deleted**.
+**New CLI flags:**
+- `--outlier-meta PATH` (default: `"auto"`): Path to student checkpoint or `'auto'` to read it from `--student-quant-meta`. Set to `'none'` to disable outlier remapping.
+- `--freeze-outliers` / `--no-freeze-outliers` (default: `True`): Force outlier positions to tier 0 in QAT.
 
-### 2. Scoring inlined into the quantization loop
+**New helper function added:**
+- `force_outlier_tier0_in_masks(tier_masks_uint2, tier_masks_meta, outlier_meta)`: Unpacks the uint2 masks, sets outlier indices to tier 0 (FP16), repacks, and prints the total number of forced positions.
 
-For each tensor `name`, **after** `x = inputs.get(name)` is captured (the same `x` passed to
-`septq_quantize_weight`) and **before** calling `septq_quantize_weight`, when
-`allocation_mode == "tile-region"`:
+**Verification log output:**
+- Prints at initialization: `[INFO] forced X outlier positions to tier0(FP16) across Y tensors`.
 
-1. `compute_tile_region_scores(weight=weight, activations=x, ...)` — scores this tensor
-   against the **identical** `x` the solver will use.
-2. `assign_global_tile_region_tiers({name: scores_dict}, ...)` — per-tensor tier assignment
-   via single-tensor dict; produces the correct 2/12/36/50 split for this tensor alone.
-3. `expand_2d_tile_tiers(...)` — expands tile tiers to per-element `forced_tier_mask`.
-4. `tile_region_metadata["tiles"][name] = tile_info` — accumulates into running metadata.
+**Sanity check reference (PTQ statistics):**
+- Total model-wide outliers: `29,255,258`.
+- Model-wide forced count expectation: `~24M - 25M` remapped positions (approx. 84% of outliers).
+- Representative single tensor expectation: `~250k` total outliers, of which `~210k` are forced to tier 0.
+- A forced count of `0` or an implausibly small value will trigger a QAT validation failure.
 
-### 3. Activation identity guaranteed
+**Metadata Pass-Through on Checkpoint Save:**
+- Inside `save_qat_checkpoint()`, all core PTQ layout/outlier metadata keys (`depth_int8_meta`, `outlier_metadata`, `tile_region_metadata`, `allocation_mode`, `mask_representation`, `outlier_extraction`) are copied from the original student quantized checkpoint and preserved in the saved QAT checkpoint payload.
 
-The `x` tensor object used for `compute_tile_region_scores` is the **exact same Python
-object** passed to `septq_quantize_weight`. No re-capture, no re-collection between scoring
-and quantizing. This identity is the entire fix.
+---
 
-### 4. `assign_global_tile_region_tiers` confirmed per-tensor
-
-The function already implements per-tensor ranking (iterates `for name in ordered_names` and
-computes budgets `n_fp16 = int(ratio * n)` within each tensor). Calling it with a
-single-tensor dict `{name: scores_dict}` correctly produces that tensor's own ratio split.
-No global-pool logic exists that would misbehave with one entry.
-
-### 5. Metadata completeness
-
-`tile_region_metadata` is initialized before the loop with all static fields:
-- `version`, `layout_contract_version`, `layout_contract`
-- `tile_size`, `tile_shape`, `tile_shape_per_tier`
-- `layout_target`, `aggregate`, `int2_storage`
-- `"tiles": {}` — populated per-tensor during the loop
-
-After the loop, `tile_region_metadata["tiles"]` contains an entry for every quantized tensor
-with identical structure to what the old pre-pass produced:
-`n_tiles_total`, `tile_dim`, `tile_shape`, `tile_grid`, `pad_rows`, `pad_cols`, `tile_tiers`.
-
-All downstream consumers (`tile_packed_streams`, projected sizes, reports, payload build)
-read from `tile_region_metadata` unchanged.
-
-### 6. Dangling references
-
-- `tile_region_scores` — only exists as function parameter names and the inline call; no
-  stale variable references remain in `main()`.
-- `tile_assignments` — completely removed (zero hits in file).
-- `"collecting global tile scores"` print — removed.
-
-### 7. What was NOT touched
-
-- `compute_tile_region_scores`, `aggregate_2d_tile_scores`, `expand_2d_tile_tiers`,
-  `septq_quantize_weight` internals — unchanged.
-- The per-element / block-aligned / block-max-tier paths — unchanged.
-- Depth-INT8, QAT script, CUDA, GGUF export — unchanged.
-- Dense weights still stored for eval.
-
-**Per-element mode dequantized values are unaffected** — that code path was not modified.
-
-## Verification
-
-```
-python -c "import ast; ast.parse(open('apply_septq_multitier.py').read()); print('SYNTAX OK')"
-# Output: SYNTAX OK
-
-findstr "tile_assignments" apply_septq_multitier.py
-# Output: (empty — no hits)
-
-findstr "collecting global tile scores" apply_septq_multitier.py
-# Output: (empty — no hits)
-```
-=======
 ### apply_septq_multitier.py
 
 #### Previous changes (preserved)
@@ -109,53 +43,49 @@ findstr "collecting global tile scores" apply_septq_multitier.py
 - Reworked `tile_packed_streams` into nested per-tier descriptors with tile indices, tile geometry, region labels, per-tile FP16 scale/zero-point arrays, and simple tile-major packed values.
 - Added `layout_contract_version=1` and a payload contract string documenting that future exporters should implement warp-coalesced/swizzled byte order later.
 
-#### New: Outlier extraction for tile-region mode (2026-06-13)
+#### Outlier extraction for tile-region mode (2026-06-13)
+- Magnitude-based per-tensor outlier extraction (paper 2311.16442 two-region split). Before bulk quantization, the top-k outliers by |w| are pulled into a separate FP16 sidecar, zeroed in the bulk, then written back exactly into the dense `state_dict` weights that PyTorch eval loads.
+- Added CLI flags: `--outlier-extraction {none,magnitude}` (default: `none`) and `--outlier-threshold-pct FLOAT` (default: `0.005`).
+- Added helper functions: `extract_outliers_by_magnitude()`, `apply_outlier_zeroing()`, and `restore_outlier_values()`.
+- Updated effective-bpw accounting and checkpoint payload saving.
 
-**Problem:** In tile-region mode, precision tier is assigned per tile. Single highest-magnitude weights (outliers) inside low-bit tiles get crushed to the low-bit grid because one outlier doesn't lift its tile's aggregate score. This flattens z_s while keeping bulk weight-cosine deceptively high.
+---
 
-**Solution:** Magnitude-based per-tensor outlier extraction (paper 2311.16442 two-region split). Before bulk quantization, the top-k outliers by |w| are pulled into a separate FP16 sidecar, zeroed in the bulk, then written back exactly into the dense `state_dict` weights that PyTorch eval loads.
+## Mask Packing Convention Verification
 
-**New CLI flags:**
-- `--outlier-extraction {none,magnitude}` (default: `none`). Only applies when `--allocation-mode tile-region`.
-- `--outlier-threshold-pct FLOAT` (default: `0.005`). Fraction of each tensor's weights to extract (0.005 = top 0.5%).
+As part of the correctness requirements, the uint2 packed mask layout was explicitly cross-checked and verified between the packing, unpacking, and remapping code paths:
 
-**New helper functions added:**
-- `extract_outliers_by_magnitude(weight, threshold_pct)` — identifies top-k elements by |w|, returns flat indices + exact BF16 values.
-- `apply_outlier_zeroing(weight, outlier_info)` — returns `W` with outlier positions set to 0.0.
-- `restore_outlier_values(q_weight, outlier_info, original_weight)` — overwrites outlier positions in the dequantized weight with exact original values.
+1. **Packing File & Implementation**:
+   - Verified in [apply_septq_multitier.py](file:///c:/Users/raouy/OneDrive/Documents/GitHub/BMO%20Project/BMO-Project/BMO%20Voice%20Engine/personaplex/apply_septq_multitier.py) under `pack_tier_mask_uint2` (lines 1259-1283):
+     ```python
+     packed = (
+         flat[0::4]
+         | (flat[1::4] << 2)
+         | (flat[2::4] << 4)
+         | (flat[3::4] << 6)
+     ).to(dtype=torch.uint8)
+     ```
 
-**Acceptance signal — per-tensor log line:**
-```
-[OUTLIER] {name}: extracted={N} ({pct:.3f}%) threshold_mag={mag:.6f}
-[OUTLIER] {name}: orig_absmax={a:.4f} stored_absmax={b:.4f}
-```
-`orig_absmax` and `stored_absmax` must match closely when extraction is on. If they don't match, extraction didn't work.
+2. **Unpacking Files & Implementations**:
+   - Verified in [compare_fakequant_vs_gguf_weights.py](file:///c:/Users/raouy/OneDrive/Documents/GitHub/BMO%20Project/BMO-Project/BMO%20Voice%20Engine/personaplex/compare_fakequant_vs_gguf_weights.py) under `_tier_per_block_numpy` (lines 156-162):
+     ```python
+     shifts = np.tile(np.array([0, 2, 4, 6], dtype=np.uint8), n_mask_bytes)[:n_blocks]
+     return ((pm_rep >> shifts) & np.uint8(0x3)).astype(np.int64)
+     ```
+   - Verified in [qat_septq.py](file:///c:/Users/raouy/OneDrive/Documents/GitHub/BMO%20Project/BMO-Project/BMO%20Voice%20Engine/personaplex/qat_septq.py) under `unpack_tier_mask_uint2` (lines 183-190):
+     ```python
+     for i in range(4):
+         expanded[i::4] = (packed >> (i * 2)) & 0b11
+     ```
 
-**Effective-BPW accounting update:**
-- Outlier FP16 values (16 bits) + int32 flat indices (32 bits) per outlier are included in a new `outlier_bpw_overhead` metric.
-- New RESULT lines: `outlier_total_count`, `outlier_total_bytes`, `outlier_bpw_overhead`, `effective_bpw_with_outliers`, `estimated_weight_gib_with_outliers`.
+**Confirmed Convention:**
+The mask uses a **little-endian (LE)** bitwise packing ordering where 4 tiers (values 0-3) are packed per byte:
+- `tier = (byte >> (2 * lane)) & 0x3`
+- lane 0 = lowest 2 bits (bits 0-1)
+- lane 1 = bits 2-3
+- lane 2 = bits 4-5
+- lane 3 = highest 2 bits (bits 6-7)
+- byte index = block_idx // 4
+- lane index = block_idx % 4
 
-**Checkpoint payload additions:**
-- `payload["outlier_metadata"]` — per-tensor dict of `{indices, values, count, threshold_pct, threshold_value, orig_absmax, stored_absmax}`.
-- `payload["outlier_extraction"]` — the extraction mode string.
-
-#### Confirmed: 32x32 tile shape already fully functional
-
-`parse_tile_shape("32x32")` correctly parses explicit `RxC` (line 797). `resolve_tile_shape_per_tier` applies it to all tiers (line 821). `aggregate_2d_tile_scores` uses generic padding math with no hardcoded 64 — validated for arbitrary tile shapes including 32x32. `expand_2d_tile_tiers` uses `repeat_interleave` + crop, also fully generic. No code changes needed.
-
-#### Confirmed: `--int2-storage packed` is the default and fully working
-
-Default is `"packed"` (line 2018). The packed path uses `_pack_uint2()` for raw 2-bit packing (16 weights per uint32). The int4-container path uses `_pack_uint4()`. Dense `state_dict` weights (what eval loads) are identical regardless of `int2-storage` choice — the choice only affects `tile_packed_streams`. Both paths in `build_tile_packed_streams` are complete.
-
-#### Confirmed: `--tile-aggregate max` handles padding correctly
-
-`aggregate_2d_tile_scores` with `agg == "max"` pads with `float("-inf")` (line 873) and masks via `masked_fill(~valid_tiles, float("-inf")).amax(dim=-1)` (line 905). Padding elements are excluded from the max. No code changes needed.
-
-## Files NOT modified
-- Per-element / block-aligned / block-max-tier quantization paths — completely untouched.
-- `verify_septq_zs_drift.py` — the eval path loads dense weights which now contain corrected outliers via the state_dict. No changes needed.
-- CUDA/C++ runtime (`bmo.cpp`, `bmo_compute.cpp`, `bmo_cuda_kernels*.cu`, `bmo.h`, etc.)
-- `export_bmo_gguf.py` (later exporter/kernel session)
-- `qat_septq.py`
-- Any test scripts
->>>>>>> Stashed changes
+The newly implemented helper `force_outlier_tier0_in_masks()` uses this exact convention to unpack, zero-out outlier positions, and repack correctly.
