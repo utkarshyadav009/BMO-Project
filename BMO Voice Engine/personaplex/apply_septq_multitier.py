@@ -1926,6 +1926,70 @@ def quantize_depth_int8(
     return meta
 
 
+def extract_outliers_by_magnitude(
+    weight: torch.Tensor,
+    threshold_pct: float,
+) -> Dict[str, Any] | None:
+    """Identify per-tensor magnitude outliers for FP16 sidecar extraction.
+
+    Returns None if threshold_pct <= 0 or the tensor has no elements.
+    Otherwise returns a dict with:
+      - indices: int32 flat indices of outlier positions
+      - values: original BF16/FP16 values at those positions
+      - count: number of outliers
+      - threshold_pct: the fraction used
+      - threshold_value: the magnitude cutoff
+    """
+    if threshold_pct <= 0.0:
+        return None
+    numel = int(weight.numel())
+    if numel == 0:
+        return None
+    n_outliers = max(1, int(round(threshold_pct * numel)))
+    n_outliers = min(n_outliers, numel)
+
+    flat = weight.detach().reshape(-1)
+    abs_flat = flat.abs().to(dtype=torch.float32)
+    _, topk_indices = torch.topk(abs_flat, k=n_outliers, largest=True, sorted=False)
+    topk_indices = topk_indices.to(dtype=torch.int32, device="cpu").contiguous()
+    outlier_values = flat[topk_indices.to(dtype=torch.long)].to(device="cpu").contiguous()
+
+    threshold_value = float(abs_flat[topk_indices.to(dtype=torch.long)].min().item())
+
+    return {
+        "indices": topk_indices,
+        "values": outlier_values,
+        "count": int(n_outliers),
+        "threshold_pct": float(threshold_pct),
+        "threshold_value": float(threshold_value),
+    }
+
+
+def apply_outlier_zeroing(
+    weight: torch.Tensor,
+    outlier_info: Dict[str, Any],
+) -> torch.Tensor:
+    """Return a copy of weight with outlier positions set to 0.0."""
+    w_bulk = weight.clone()
+    indices = outlier_info["indices"].to(dtype=torch.long, device=w_bulk.device)
+    w_bulk.reshape(-1)[indices] = 0.0
+    return w_bulk
+
+
+def restore_outlier_values(
+    q_weight: torch.Tensor,
+    outlier_info: Dict[str, Any],
+    original_weight: torch.Tensor,
+) -> torch.Tensor:
+    """Overwrite outlier positions in quantized weight with exact original values."""
+    out = q_weight.clone()
+    indices = outlier_info["indices"].to(dtype=torch.long, device=out.device)
+    orig_flat = original_weight.detach().reshape(-1)
+    outlier_vals = orig_flat[indices.to(device=orig_flat.device)]
+    out.reshape(-1)[indices.to(device=out.device)] = outlier_vals.to(device=out.device, dtype=out.dtype)
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -2096,6 +2160,22 @@ def main() -> None:
         action="store_true",
         help="Skip strict state_dict verification against LMModel skeleton.",
     )
+    parser.add_argument(
+        "--outlier-extraction",
+        choices=["none", "magnitude"],
+        default="none",
+        help="tile-region only. 'magnitude': before low-bit quantizing a tile, extract "
+             "per-tensor outlier weights (by absolute magnitude) into a separate FP16 sidecar, "
+             "zero them in the bulk, quantize the bulk, then restore outliers exactly at eval. "
+             "Preserves absmax that coarse tiles otherwise crush.",
+    )
+    parser.add_argument(
+        "--outlier-threshold-pct",
+        type=float,
+        default=0.005,
+        help="Fraction of each tensor's weights (by largest |w|) to extract as FP16 outliers. "
+             "0.005 = top 0.5%%. Applied per quantized tensor.",
+    )
     args = parser.parse_args()
 
     if args.block_size <= 0:
@@ -2184,7 +2264,8 @@ def main() -> None:
         f"[INFO] allocation_mode={args.allocation_mode} tile_size={args.tile_size} "
         f"tile_aggregate={args.tile_aggregate} tile_shape={args.tile_shape} "
         f"tile_layout_target={args.tile_layout_target} resolved_tile_shape={tile_shape_common} "
-        f"int2_storage={args.int2_storage} emit_tile_packed={bool(args.emit_tile_packed)}"
+        f"int2_storage={args.int2_storage} emit_tile_packed={bool(args.emit_tile_packed)} "
+        f"outlier_extraction={args.outlier_extraction} outlier_threshold_pct={args.outlier_threshold_pct}"
     )
     print(
         f"[INFO] max_clips={args.max_clips} max_steps_per_clip={args.max_steps_per_clip} "
@@ -2328,12 +2409,15 @@ def main() -> None:
     block_tier_map: Dict[str, torch.Tensor] = {}
     tier_masks_meta: Dict[str, Dict[str, Any]] = {}
     module_stats_by_name: Dict[str, Dict[str, Any]] = {}
+    outlier_metadata: Dict[str, Dict[str, Any]] = {}
     agg_total_elements = 0
     agg_fp16_elements = 0
     agg_int8_elements = 0
     agg_int4_elements = 0
     agg_lowbit_elements = 0
     agg_estimated_weight_bytes = 0.0
+    agg_outlier_count = 0
+    agg_outlier_bytes = 0.0
 
     for layer_idx in selected_indices:
         layer_name = layer_plan[layer_idx]["layer_name"]
@@ -2417,6 +2501,11 @@ def main() -> None:
             )
             module_t0 = time.perf_counter()
             forced_tier_mask = None
+            outlier_info = None
+            weight_for_quant = weight
+            orig_weight_cpu = weight.detach().to(device="cpu").contiguous()
+            orig_absmax = float(orig_weight_cpu.abs().max().item()) if orig_weight_cpu.numel() > 0 else 0.0
+
             if str(args.allocation_mode) == "tile-region":
                 # Score THIS tensor against the SAME activations the solver will use.
                 # This is the core fix: x is the identical tensor object passed to
@@ -2460,8 +2549,22 @@ def main() -> None:
                     f"elapsed={score_elapsed:.1f}s"
                 )
 
+                # --- Outlier extraction (tile-region only) ---
+                if str(args.outlier_extraction) == "magnitude":
+                    outlier_info = extract_outliers_by_magnitude(
+                        weight=weight,
+                        threshold_pct=float(args.outlier_threshold_pct),
+                    )
+                    if outlier_info is not None and int(outlier_info["count"]) > 0:
+                        weight_for_quant = apply_outlier_zeroing(weight, outlier_info)
+                        print(
+                            f"[OUTLIER] {name}: extracted={outlier_info['count']} "
+                            f"({outlier_info['count'] / max(1, weight.numel()) * 100.0:.3f}%) "
+                            f"threshold_mag={outlier_info['threshold_value']:.6f}"
+                        )
+
             q_weight, tier_mask_packed, stats = septq_quantize_weight(
-                weight=weight,
+                weight=weight_for_quant,
                 activations=x,
                 low_bits=int(args.bits),
                 ratio_fp16=float(args.ratio_fp16),
@@ -2477,6 +2580,35 @@ def main() -> None:
                 module_name=name,
                 forced_tier_mask=forced_tier_mask,
             )
+
+            # --- Restore outlier values into the dense dequantized weight ---
+            if outlier_info is not None and int(outlier_info["count"]) > 0:
+                q_weight = restore_outlier_values(
+                    q_weight=q_weight,
+                    outlier_info=outlier_info,
+                    original_weight=orig_weight_cpu,
+                )
+                stored_absmax = float(q_weight.abs().max().item()) if q_weight.numel() > 0 else 0.0
+                print(
+                    f"[OUTLIER] {name}: "
+                    f"orig_absmax={orig_absmax:.4f} stored_absmax={stored_absmax:.4f}"
+                )
+                # Track per-tensor outlier sidecar for future GGUF exporter
+                outlier_metadata[name] = {
+                    "indices": outlier_info["indices"],
+                    "values": outlier_info["values"].to(dtype=torch.bfloat16),
+                    "count": int(outlier_info["count"]),
+                    "threshold_pct": float(outlier_info["threshold_pct"]),
+                    "threshold_value": float(outlier_info["threshold_value"]),
+                    "orig_absmax": float(orig_absmax),
+                    "stored_absmax": float(stored_absmax),
+                }
+                # Accumulate outlier cost for bpw accounting
+                n_out = int(outlier_info["count"])
+                agg_outlier_count += n_out
+                # 16 bits per FP16 value + 32 bits per int32 index
+                agg_outlier_bytes += float(n_out) * (16.0 + 32.0) / 8.0
+
             module_elapsed = time.perf_counter() - module_t0
 
             if int(stats.get("unquantized_cols", 0)) > 0:
@@ -2725,6 +2857,9 @@ def main() -> None:
             )
     if depth_int8_meta:
         payload["depth_int8_meta"] = depth_int8_meta
+    if outlier_metadata:
+        payload["outlier_metadata"] = outlier_metadata
+        payload["outlier_extraction"] = str(args.outlier_extraction)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, str(output_path))
@@ -2792,6 +2927,16 @@ def main() -> None:
                 f"[RESULT] projected_int4_container_size_gib = "
                 f"{float(container_est.get('total_gib', 0.0)):.6f}"
             )
+    if agg_outlier_count > 0 and agg_total_elements > 0:
+        outlier_bpw_overhead = (agg_outlier_bytes * 8.0) / float(agg_total_elements)
+        adjusted_bpw = agg_effective_bpw + outlier_bpw_overhead
+        adjusted_weight_bytes = agg_estimated_weight_bytes + agg_outlier_bytes
+        adjusted_weight_gib = adjusted_weight_bytes / (1024.0 ** 3)
+        print(f"[RESULT] outlier_total_count = {agg_outlier_count}")
+        print(f"[RESULT] outlier_total_bytes = {agg_outlier_bytes:.0f}")
+        print(f"[RESULT] outlier_bpw_overhead = {outlier_bpw_overhead:.6f}")
+        print(f"[RESULT] effective_bpw_with_outliers = {adjusted_bpw:.6f}")
+        print(f"[RESULT] estimated_weight_gib_with_outliers = {adjusted_weight_gib:.6f}")
     print(f"[RESULT] effective_bpw = {agg_effective_bpw:.6f}")
     print(f"[RESULT] estimated_weight_gib = {agg_estimated_weight_gib:.6f}")
     print(f"[RESULT] tier_mask_total_bytes = {tier_mask_total_bytes}")
@@ -2800,6 +2945,7 @@ def main() -> None:
     print(f"[RESULT] quantized_temporal_layers = {quant_layer_count}")
     print(f"[RESULT] quantized_modules = {quantized_modules}")
     print(f"[RESULT] excluded_modules = {len(excluded_modules)}")
+    print(f"[RESULT] outlier_extraction = {args.outlier_extraction}")
     print(f"[RESULT] elapsed_sec = {elapsed:.3f}")
 
 
