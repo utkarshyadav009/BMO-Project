@@ -82,6 +82,35 @@ def resolve_runtime_device(requested: str) -> str:
     return f"cuda:{ordinal}"
 
 
+def resolve_teacher_device(requested: str, student_device: str) -> str:
+    """Pick a device for the frozen teacher model.
+
+    'auto' (default) places the teacher on a *different* GPU than the student
+    when 2+ GPUs are visible, freeing ~12 GB VRAM on the training GPU.
+    Falls back to the student device when only 1 GPU is available.
+    """
+    dev = str(requested).strip().lower()
+    if dev not in ("", "auto"):
+        return resolve_runtime_device(dev)
+
+    if not torch.cuda.is_available():
+        return student_device
+
+    n_gpus = int(torch.cuda.device_count())
+    if n_gpus >= 2:
+        student_ord = 0
+        if ":" in student_device:
+            try:
+                student_ord = int(student_device.split(":")[1])
+            except ValueError:
+                student_ord = 0
+        teacher_ord = 1 if student_ord == 0 else 0
+        if teacher_ord < n_gpus:
+            return f"cuda:{teacher_ord}"
+
+    return student_device
+
+
 def unwrap_zs(z: torch.Tensor) -> torch.Tensor:
     if z.ndim == 1:
         return z.view(1, -1)
@@ -656,7 +685,8 @@ def evaluate_zs_drift(
     *,
     teacher_cache: Dict[str, torch.Tensor | None],
     student_cache: Dict[str, torch.Tensor | None],
-    device: str,
+    student_device: str,
+    teacher_device: str,
     max_eval_clips: int,
     max_eval_steps_per_clip: int,
     temperature: float,
@@ -664,6 +694,8 @@ def evaluate_zs_drift(
     was_student_training = bool(student.training)
     teacher.eval()
     student.eval()
+
+    cross_device = str(teacher_device) != str(student_device)
 
     clip_count = len(sequences) if int(max_eval_clips) <= 0 else min(int(max_eval_clips), len(sequences))
     if clip_count <= 0:
@@ -683,17 +715,21 @@ def evaluate_zs_drift(
 
             with teacher.streaming(batch_size=1), student.streaming(batch_size=1):
                 for t in range(steps):
-                    token = seq[t].view(1, seq.shape[1], 1).to(device=device)
+                    token_s = seq[t].view(1, seq.shape[1], 1).to(device=student_device)
                     teacher_cache["value"] = None
                     student_cache["value"] = None
 
-                    teacher.forward_codes(token)
-                    student.forward_codes(token)
+                    token_t = token_s.to(device=teacher_device) if cross_device else token_s
+                    teacher.forward_codes(token_t)
+                    student.forward_codes(token_s)
 
                     t_z = teacher_cache.get("value")
                     s_z = student_cache.get("value")
                     if t_z is None or s_z is None:
                         continue
+
+                    if cross_device:
+                        t_z = t_z.to(device=student_device)
 
                     cos_values.append(zs_cosine(s_z, t_z))
                     kl_values.append(float(zs_kl_div(s_z, t_z, temperature=temperature).item()))
@@ -893,6 +929,11 @@ def parse_args() -> argparse.Namespace:
              "Default on. Use --no-freeze-outliers to allow training them (not recommended).",
     )
     parser.add_argument("--no-freeze-outliers", dest="freeze_outliers", action="store_false")
+    parser.add_argument(
+        "--teacher-device", default="auto",
+        help="Device for frozen teacher model. 'auto' uses cuda:1 if 2+ GPUs visible, "
+             "else same as --device. Offloading teacher frees ~12 GB VRAM for QAT training.",
+    )
     parser.add_argument("--no-copy-missing-weights", action="store_true")
     return parser.parse_args()
 
@@ -1071,6 +1112,16 @@ def main() -> None:
         f"[INFO] sequence_count={len(sequences)} total_steps_from_clips={total_steps_from_clips}"
     )
 
+    # --- Offload teacher to second GPU (frees ~12 GB on training GPU) ---
+    teacher_device = resolve_teacher_device(str(args.teacher_device), runtime_device)
+    if teacher_device != runtime_device:
+        teacher = teacher.to(device=teacher_device)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print(f"[INFO] teacher offloaded to {teacher_device} (student trains on {runtime_device})")
+    else:
+        print(f"[INFO] teacher and student share device {runtime_device}")
+
     optimizer = bnb.optim.AdamW8bit(
         trainable_params,
         lr=float(args.lr),
@@ -1118,7 +1169,8 @@ def main() -> None:
             sequences=sequences,
             teacher_cache=teacher_cache,
             student_cache=student_cache,
-            device=runtime_device,
+            student_device=runtime_device,
+            teacher_device=teacher_device,
             max_eval_clips=int(args.eval_clips),
             max_eval_steps_per_clip=int(args.eval_max_steps_per_clip),
             temperature=float(args.temperature),
@@ -1163,20 +1215,25 @@ def main() -> None:
                 kl_accum: torch.Tensor | None = None
 
                 with teacher.streaming(batch_size=1), student.streaming(batch_size=1):
+                    cross_device = str(teacher_device) != str(runtime_device)
                     for t in range(seq_steps):
-                        token = seq[t].view(1, seq.shape[1], 1).to(device=runtime_device)
+                        token_s = seq[t].view(1, seq.shape[1], 1).to(device=runtime_device)
 
                         teacher_cache["value"] = None
                         student_cache["value"] = None
 
                         with torch.no_grad():
-                            teacher.forward_codes(token)
-                        student.forward_codes(token)
+                            token_t = token_s.to(device=teacher_device) if cross_device else token_s
+                            teacher.forward_codes(token_t)
+                        student.forward_codes(token_s)
 
                         t_z = teacher_cache.get("value")
                         s_z = student_cache.get("value")
                         if t_z is None or s_z is None:
                             continue
+
+                        if cross_device:
+                            t_z = t_z.to(device=runtime_device)
 
                         kl_t = zs_kl_div(s_z, t_z, temperature=float(args.temperature))
                         if not torch.isfinite(kl_t):
@@ -1235,7 +1292,8 @@ def main() -> None:
                     sequences=sequences,
                     teacher_cache=teacher_cache,
                     student_cache=student_cache,
-                    device=runtime_device,
+                    student_device=runtime_device,
+                    teacher_device=teacher_device,
                     max_eval_clips=int(args.eval_clips),
                     max_eval_steps_per_clip=int(args.eval_max_steps_per_clip),
                     temperature=float(args.temperature),
