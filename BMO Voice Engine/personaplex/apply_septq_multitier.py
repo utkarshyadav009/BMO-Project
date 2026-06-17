@@ -1990,6 +1990,44 @@ def restore_outlier_values(
     return out
 
 
+def quantize_uniform_int4_pergroup(
+    weight: torch.Tensor,        # (out, in), bf16
+    group_size: int,
+    quant_min_range: float,
+    device: str,
+) -> tuple[torch.Tensor, dict]:
+    """Per-group affine INT4 (4-bit, 16 levels) along the input dimension.
+    Returns dequantized weights (bf16, same shape) for the dense state_dict, plus
+    metadata (per-group scale/zero) for GGUF export. No tiling, no INT2, no outliers.
+    """
+    w = weight.detach().to(torch.float32).to(device)
+    out_dim, in_dim = w.shape
+    gs = int(group_size)
+    pad = (-in_dim) % gs
+    if pad:
+        w = torch.nn.functional.pad(w, (0, pad))
+    n_groups = w.shape[1] // gs
+    wg = w.view(out_dim, n_groups, gs)
+    wmin = wg.amin(dim=2, keepdim=True)
+    wmax = wg.amax(dim=2, keepdim=True)
+    rng = (wmax - wmin).clamp_min(quant_min_range)
+    scale = rng / 15.0                      # 4-bit affine, 16 levels [0..15]
+    zero = wmin
+    q = torch.clamp(torch.round((wg - zero) / scale), 0, 15)
+    w_dq = (q * scale + zero).view(out_dim, w.shape[1])
+    if pad:
+        w_dq = w_dq[:, :in_dim]
+    meta = {
+        "scheme": "uniform_int4_pergroup_affine",
+        "group_size": gs,
+        "n_groups": n_groups,
+        "scale": scale.squeeze(-1).to(torch.float32).cpu(),   # (out, n_groups)
+        "zero": zero.squeeze(-1).to(torch.float32).cpu(),
+        "in_dim": in_dim, "out_dim": out_dim, "pad": pad,
+    }
+    return w_dq.to(weight.dtype).cpu(), meta
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -2122,6 +2160,22 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--attn-proj-mode",
+        choices=["tile-region", "uniform-int4", "skip"],
+        default="tile-region",
+        help="How to quantize self_attn.in_proj_weight (and any attn projection not in "
+             "--skip-modules). 'uniform-int4': single-tier symmetric/affine INT4 with per-group "
+             "scales, NO tiling, NO INT2, NO outlier extraction — gentle, attention-safe, matches "
+             "Q4_K behavior. 'tile-region': use the aggressive multi-tier path (known to break "
+             "in_proj). 'skip': leave at BF16.",
+    )
+    parser.add_argument(
+        "--attn-int4-group-size",
+        type=int,
+        default=128,
+        help="Group size for per-group scales in uniform-int4 attention quantization.",
+    )
+    parser.add_argument(
         "--quantize-depth-int8",
         action="store_true",
         help="Apply per-output-channel symmetric INT8 to all depth transformer Linear weights. "
@@ -2180,6 +2234,9 @@ def main() -> None:
 
     if args.block_size <= 0:
         print("[ERROR] --block-size must be > 0")
+        sys.exit(1)
+    if args.attn_int4_group_size <= 0:
+        print("[ERROR] --attn-int4-group-size must be > 0")
         sys.exit(1)
     if args.tile_size <= 0:
         print("[ERROR] --tile-size must be > 0")
@@ -2277,6 +2334,9 @@ def main() -> None:
     )
     print(
         f"[INFO] collect_progress_every_tokens={args.collect_progress_every_tokens}"
+    )
+    print(
+        f"[INFO] attn_proj_mode={args.attn_proj_mode} attn_int4_group_size={args.attn_int4_group_size}"
     )
     if os.environ.get("SEPTQ_LOG_HESSIAN_COND", "0").strip().lower() in {"1", "true", "yes", "on"}:
         cond_mode = "exact" if os.environ.get("SEPTQ_HESSIAN_COND_EXACT", "0").strip().lower() in {
@@ -2408,6 +2468,7 @@ def main() -> None:
     tier_masks_uint2: Dict[str, torch.Tensor] = {}
     block_tier_map: Dict[str, torch.Tensor] = {}
     tier_masks_meta: Dict[str, Dict[str, Any]] = {}
+    attn_int4_meta: Dict[str, Dict[str, Any]] = {}
     module_stats_by_name: Dict[str, Dict[str, Any]] = {}
     outlier_metadata: Dict[str, Dict[str, Any]] = {}
     agg_total_elements = 0
@@ -2500,6 +2561,132 @@ def main() -> None:
                 f"[INFO]   -> Quantizing {name}: X={tuple(x.shape)} W={tuple(weight.shape)}"
             )
             module_t0 = time.perf_counter()
+
+            is_attn_proj = "self_attn.in_proj_weight" in name or "self_attn.in_proj.weight" in name
+
+            if is_attn_proj and str(args.attn_proj_mode) == "uniform-int4":
+                w_dq, attn_meta = quantize_uniform_int4_pergroup(
+                    weight=weight,
+                    group_size=int(args.attn_int4_group_size),
+                    quant_min_range=float(args.quant_min_range),
+                    device=str(args.device),
+                )
+                assign_entry_weight(entry, w_dq)
+                attn_int4_meta[name] = attn_meta
+                print(f"[ATTN-INT4] {name}: pergroup INT4 gs={args.attn_int4_group_size} "
+                      f"orig_absmax={weight.abs().max():.4f} dq_absmax={w_dq.abs().max():.4f}")
+
+                mse = float(torch.mean((weight.to(torch.float32) - w_dq.to(torch.float32)) ** 2).item())
+                denom = float((torch.norm(weight.to(torch.float32)) * torch.norm(w_dq.to(torch.float32))).item())
+                cos = 1.0 if denom <= 0.0 else float(torch.sum(weight.to(torch.float32) * w_dq.to(torch.float32)).item() / denom)
+                cos = max(-1.0, min(1.0, cos))
+
+                mod = {
+                    "name": name,
+                    "cos": cos,
+                    "mse": mse,
+                    "salient_cols": 0,
+                    "total_cols": int(weight.numel()),
+                    "reserved_elements": 0,
+                    "total_elements": int(weight.numel()),
+                    "hessian_damp": 0.0,
+                    "quant_scale": 0.0,
+                    "quant_zero_point": 0.0,
+                    "quant_scale_low": 0.0,
+                    "quant_zero_point_low": 0.0,
+                    "quant_scale_int8": 0.0,
+                    "quant_zero_point_int8": 0.0,
+                    "quant_scale_int4": 0.0,
+                    "quant_zero_point_int4": 0.0,
+                    "low_bits": 4,
+                    "fp16_elements": 0,
+                    "int8_elements": 0,
+                    "int4_elements": int(weight.numel()),
+                    "lowbit_elements": 0,
+                    "fp16_ratio_real": 0.0,
+                    "int8_ratio_real": 0.0,
+                    "int4_ratio_real": 1.0,
+                    "lowbit_ratio_real": 0.0,
+                    "effective_bpw_no_tier": 4.5,
+                    "tier_mask_bpw": 0.0,
+                    "effective_bpw": 4.5,
+                    "estimated_weight_bytes": float(weight.numel() * 4.5 / 8.0),
+                    "tier_numel": 0,
+                    "tier_pack_bytes": 0,
+                    "unquantized_cols": 0,
+                    "min_col_range": 0.0,
+                    "col_range_median": 0.0,
+                    "col_range_max": 0.0,
+                    "calibration_samples": int(x.shape[0]),
+                    "mask_mode": "uniform-int4",
+                    "block_mask_aggregate": None,
+                    "allocation_mode": "uniform-int4",
+                    "tile_size": 0,
+                    "tile_aggregate": None,
+                    "tile_shape": None,
+                    "tile_layout_target": None,
+                    "int2_storage": None,
+                }
+                module_stats_by_name[name] = mod
+                module_stats.append(mod)
+                quantized_modules += 1
+                continue
+
+            elif is_attn_proj and str(args.attn_proj_mode) == "skip":
+                assign_entry_weight(entry, weight.to(dtype).cpu())
+                print(f"[ATTN-SKIP] {name}: kept BF16")
+
+                mod = {
+                    "name": name,
+                    "cos": 1.0,
+                    "mse": 0.0,
+                    "salient_cols": int(weight.numel()),
+                    "total_cols": int(weight.numel()),
+                    "reserved_elements": int(weight.numel()),
+                    "total_elements": int(weight.numel()),
+                    "hessian_damp": 0.0,
+                    "quant_scale": 0.0,
+                    "quant_zero_point": 0.0,
+                    "quant_scale_low": 0.0,
+                    "quant_zero_point_low": 0.0,
+                    "quant_scale_int8": 0.0,
+                    "quant_zero_point_int8": 0.0,
+                    "quant_scale_int4": 0.0,
+                    "quant_zero_point_int4": 0.0,
+                    "low_bits": 16,
+                    "fp16_elements": int(weight.numel()),
+                    "int8_elements": 0,
+                    "int4_elements": 0,
+                    "lowbit_elements": 0,
+                    "fp16_ratio_real": 1.0,
+                    "int8_ratio_real": 0.0,
+                    "int4_ratio_real": 0.0,
+                    "lowbit_ratio_real": 0.0,
+                    "effective_bpw_no_tier": 16.0,
+                    "tier_mask_bpw": 0.0,
+                    "effective_bpw": 16.0,
+                    "estimated_weight_bytes": float(weight.numel() * 2.0),
+                    "tier_numel": 0,
+                    "tier_pack_bytes": 0,
+                    "unquantized_cols": 0,
+                    "min_col_range": 0.0,
+                    "col_range_median": 0.0,
+                    "col_range_max": 0.0,
+                    "calibration_samples": int(x.shape[0]),
+                    "mask_mode": "skip",
+                    "block_mask_aggregate": None,
+                    "allocation_mode": "skip",
+                    "tile_size": 0,
+                    "tile_aggregate": None,
+                    "tile_shape": None,
+                    "tile_layout_target": None,
+                    "int2_storage": None,
+                }
+                module_stats_by_name[name] = mod
+                module_stats.append(mod)
+                quantized_modules += 1
+                continue
+
             forced_tier_mask = None
             outlier_info = None
             weight_for_quant = weight
@@ -2860,6 +3047,9 @@ def main() -> None:
     if outlier_metadata:
         payload["outlier_metadata"] = outlier_metadata
         payload["outlier_extraction"] = str(args.outlier_extraction)
+    if attn_int4_meta:
+        payload["attn_int4_meta"] = attn_int4_meta
+        payload["attn_proj_mode"] = str(args.attn_proj_mode)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, str(output_path))
@@ -2937,6 +3127,26 @@ def main() -> None:
         print(f"[RESULT] outlier_bpw_overhead = {outlier_bpw_overhead:.6f}")
         print(f"[RESULT] effective_bpw_with_outliers = {adjusted_bpw:.6f}")
         print(f"[RESULT] estimated_weight_gib_with_outliers = {adjusted_weight_gib:.6f}")
+
+    if attn_int4_meta:
+        total_attn_elements = 0
+        total_attn_bits = 0
+        for name, meta in attn_int4_meta.items():
+            in_dim = int(meta["in_dim"])
+            out_dim = int(meta["out_dim"])
+            gs = int(meta["group_size"])
+            n_groups = int(meta["n_groups"])
+            w_bits = out_dim * in_dim * 4
+            sz_bits = out_dim * n_groups * 64
+            total_attn_elements += out_dim * in_dim
+            total_attn_bits += w_bits + sz_bits
+        attn_bpw = float(total_attn_bits) / float(max(1, total_attn_elements))
+        attn_bytes = float(total_attn_bits) / 8.0
+        attn_gib = attn_bytes / (1024.0 ** 3)
+        print(f"[RESULT] attn_proj_mode = {args.attn_proj_mode}")
+        print(f"[RESULT] attn_int4_total_elements = {total_attn_elements}")
+        print(f"[RESULT] attn_int4_effective_bpw = {attn_bpw:.6f}")
+        print(f"[RESULT] attn_int4_size_gib = {attn_gib:.6f}")
     print(f"[RESULT] effective_bpw = {agg_effective_bpw:.6f}")
     print(f"[RESULT] estimated_weight_gib = {agg_estimated_weight_gib:.6f}")
     print(f"[RESULT] tier_mask_total_bytes = {tier_mask_total_bytes}")
