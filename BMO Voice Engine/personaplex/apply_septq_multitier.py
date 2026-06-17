@@ -2576,9 +2576,11 @@ def main() -> None:
                 print(f"[ATTN-INT4] {name}: pergroup INT4 gs={args.attn_int4_group_size} "
                       f"orig_absmax={weight.abs().max():.4f} dq_absmax={w_dq.abs().max():.4f}")
 
-                mse = float(torch.mean((weight.to(torch.float32) - w_dq.to(torch.float32)) ** 2).item())
-                denom = float((torch.norm(weight.to(torch.float32)) * torch.norm(w_dq.to(torch.float32))).item())
-                cos = 1.0 if denom <= 0.0 else float(torch.sum(weight.to(torch.float32) * w_dq.to(torch.float32)).item() / denom)
+                weight_f = weight.to(torch.float32)
+                w_dq_f = w_dq.to(torch.float32).to(weight.device)
+                mse = float(torch.mean((weight_f - w_dq_f) ** 2).item())
+                denom = float((torch.norm(weight_f) * torch.norm(w_dq_f)).item())
+                cos = 1.0 if denom <= 0.0 else float(torch.sum(weight_f * w_dq_f).item() / denom)
                 cos = max(-1.0, min(1.0, cos))
 
                 mod = {
