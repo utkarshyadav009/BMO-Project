@@ -2354,6 +2354,9 @@ def main() -> None:
     if str(args.quantize_layers).strip():
         print(f"[INFO] quantize_layers={str(args.quantize_layers).strip()}")
     skip_module_filters = parse_skip_module_filters(args.skip_modules)
+    if args.attn_proj_mode == "uniform-int4" and "self_attn.out_proj" in skip_module_filters:
+        skip_module_filters = [f for f in skip_module_filters if f != "self_attn.out_proj"]
+        print("[INFO] Removed 'self_attn.out_proj' from skip_modules because --attn-proj-mode is 'uniform-int4'")
     print(f"[INFO] skip_modules={skip_module_filters if skip_module_filters else []}")
     print(f"[INFO] calibration files selected: {len(calibration_files)}")
 
@@ -2562,7 +2565,7 @@ def main() -> None:
             )
             module_t0 = time.perf_counter()
 
-            is_attn_proj = "self_attn.in_proj_weight" in name or "self_attn.in_proj.weight" in name
+            is_attn_proj = ("self_attn.in_proj_weight" in name or "self_attn.in_proj.weight" in name or "self_attn.out_proj.weight" in name or "self_attn.out_proj_weight" in name)
 
             if is_attn_proj and str(args.attn_proj_mode) == "uniform-int4":
                 w_dq, attn_meta = quantize_uniform_int4_pergroup(

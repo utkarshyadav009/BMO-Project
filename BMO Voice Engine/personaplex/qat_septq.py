@@ -899,6 +899,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-median-cos", type=float, default=0.997)
     parser.add_argument("--flatline-median-cos", type=float, default=0.99)
     parser.add_argument("--flatline-window", type=int, default=3)
+    parser.add_argument(
+        "--min-baseline-cos",
+        type=float,
+        default=0.90,
+        help="Minimum baseline median cosine threshold. QAT aborts if baseline evaluation is below this.",
+    )
 
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--verify-load-on-checkpoint", action="store_true")
@@ -1179,9 +1185,9 @@ def main() -> None:
             f"[RESULT] baseline_eval: cos_median={baseline_eval['cos_median']:.6f} "
             f"cos_min={baseline_eval['cos_min']:.6f} kl_median={baseline_eval['kl_median']:.6e}"
         )
-        if baseline_eval["cos_median"] < 0.90:
+        if baseline_eval["cos_median"] < float(args.min_baseline_cos):
             raise SystemExit(
-                "[ERROR] Baseline median cosine is below 0.90 "
+                f"[ERROR] Baseline median cosine is below {float(args.min_baseline_cos):.2f} "
                 f"({baseline_eval['cos_median']:.6f}). "
                 "Multi-tier fake quantization was likely applied incorrectly. Aborting."
             )

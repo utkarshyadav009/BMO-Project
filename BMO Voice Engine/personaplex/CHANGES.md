@@ -1,3 +1,35 @@
+# CHANGES.md — Route Attention Projections to Uniform INT4
+
+**Date:** 2026-06-17
+**File:** `apply_septq_multitier.py`
+
+## Problem
+
+Applying tile-region multi-tier quantization (2%/12%/36%/50% FP16/INT8/INT4/INT2) to `self_attn.in_proj_weight` breaks attention because the fused QKV projection is highly quantization-sensitive. Small scale errors in Q/K rows saturate the attention softmax, producing garbage outputs. However, FFN modules are robust to this aggressive quantization.
+
+## Fix Summary
+
+1. **New CLI Flags Added**:
+   - `--attn-proj-mode`: `"tile-region"`, `"uniform-int4"`, or `"skip"`. Default is `"tile-region"`.
+   - `--attn-int4-group-size`: Default `128`.
+
+2. **Uniform INT4 Quantization Helper**:
+   - Implemented `quantize_uniform_int4_pergroup` for per-group affine INT4 (16 levels, group-wise min/max scaling) along the input dimension.
+   - No tiling, no INT2, no outliers.
+
+3. **Routing in the Quantization Loop**:
+   - Inside the entry loop, if a tensor is identified as an attention projection (`"self_attn.in_proj_weight" in name or "self_attn.in_proj.weight" in name`), it is routed according to `--attn-proj-mode`.
+   - If `--attn-proj-mode` is `uniform-int4`, it quantizes the weight using the helper, updates the state_dict, and skips the rest of the loop, thereby excluding the tensor from `tier_masks_uint2`, `tile_region_metadata`, and `tile_packed_streams`.
+   - If `--attn-proj-mode` is `skip`, it preserves original weights (BF16/F32) and skips the rest of the loop.
+
+4. **Payload Update**:
+   - Collected `attn_int4_meta` and saved it to the checkpoint `payload` along with `attn_proj_mode`.
+
+5. **QAT Compatibility**:
+   - No crash since `register_fake_quant_for_entries` in `qat_septq.py` automatically ignores modules absent from `tier_masks_uint2`, keeping attention weights frozen full-precision-ish.
+
+---
+
 # Local Edits Summary
 
 ## Files Modified
