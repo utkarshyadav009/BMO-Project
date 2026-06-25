@@ -96,16 +96,22 @@ struct tokenizer_t {
 // MARK: Moshi Context
 
 moshi_context_t * moshi_alloc( ggml_backend * backend, ggml_backend * backend_cpu ) {
+    printf("DEBUG: moshi_alloc starting\n"); fflush(stdout);
     assert( backend );
     assert( backend_cpu );
     auto dev_cpu = ggml_backend_get_device( backend_cpu );
+    printf("DEBUG: dev_cpu=%p\n", (void*)dev_cpu); fflush(stdout);
     assert ( ggml_backend_dev_type( dev_cpu ) == GGML_BACKEND_DEVICE_TYPE_CPU );
+    printf("DEBUG: dev_cpu type check passed\n"); fflush(stdout);
 
     auto moshi = new moshi_context_t;
     moshi->backend_cpu = backend_cpu;
     moshi->backend = backend;
+    printf("DEBUG: allocating scratch_cpu\n"); fflush(stdout);
     moshi->scratch_cpu = new ScratchContext( 256, backend_cpu );
+    printf("DEBUG: allocating scratch\n"); fflush(stdout);
     moshi->scratch = new ScratchContext( 256, backend );
+    printf("DEBUG: moshi_alloc ending\n"); fflush(stdout);
     return moshi;
 }
 
@@ -606,6 +612,7 @@ struct moshi_lm_t {
     own_ptr<WeightLoader> weights;
     own_ptr<conditioners_t> cond;
     bool second_stream_ahead;
+    ggml_type kv_cache_type = GGML_TYPE_BF16;
 };
 
 moshi_lm_t * moshi_lm_from_files(
@@ -613,25 +620,37 @@ moshi_lm_t * moshi_lm_from_files(
     moshi_config_t * config,
     const char * filepath
 ) {
+    printf("DEBUG: moshi_lm_from_files starting, filepath=%s\n", filepath); fflush(stdout);
     auto lm = new moshi_lm_t;
 
     lm->filepath = filepath;
 
     if ( lm->filepath.ends_with( ".safetensors" ) ) {
+        printf("DEBUG: loading safetensors weights\n"); fflush(stdout);
         lm->weights = WeightLoader::from_safetensor( filepath, moshi->scratch_cpu, moshi->backend );
-        if ( ! lm->weights )
+        if ( ! lm->weights ) {
+            printf("DEBUG: safetensors weights load failed\n"); fflush(stdout);
             return NULL;
+        }
     } else {
+        printf("DEBUG: loading gguf weights\n"); fflush(stdout);
         lm->weights = WeightLoader::from_gguf( filepath, moshi->scratch_cpu, moshi->backend );
-        if ( ! lm->weights )
+        if ( ! lm->weights ) {
+            printf("DEBUG: gguf weights load failed\n"); fflush(stdout);
             return NULL;
+        }
     }
+    printf("DEBUG: weights loaded successfully\n"); fflush(stdout);
 
+    printf("DEBUG: calling moshi_lmmodel_alloc_default\n"); fflush(stdout);
     lm->model = moshi_lmmodel_alloc_default( config );
+    printf("DEBUG: moshi_lmmodel_alloc_default returned successfully\n"); fflush(stdout);
 
     lm->uses_cross = config->cross_attention;
     lm->second_stream_ahead = config->tts_config.second_stream_ahead;
+    lm->kv_cache_type = (ggml_type)config->kv_cache_type;
 
+    printf("DEBUG: moshi_lm_from_files ending\n"); fflush(stdout);
     return lm;
 }
 
@@ -849,10 +868,15 @@ int moshi_lm_personaplex_system_prompt(
 }
 
 void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging ) {
+    printf("DEBUG: moshi_lm_start starting\n"); fflush(stdout);
     const int max_padding = 8;
     const int initial_padding = 2;
     const int second_stream_ahead = gen->lm->second_stream_ahead;
+    printf("DEBUG: creating StateContext, backend=%p\n", (void*)moshi->backend); fflush(stdout);
     gen->state_ctx = new StateContext( moshi->backend );
+    printf("DEBUG: state_ctx created\n"); fflush(stdout);
+    gen->state_ctx->kv_cache_type = gen->lm->kv_cache_type;
+    printf("DEBUG: kv_cache_type set to %d\n", (int)gen->state_ctx->kv_cache_type); fflush(stdout);
     ggml_tensor * condition_cross = NULL;
     if ( gen->voice && ! gen->lm->model->personaplex ) {
         condition_cross = gen->voice->cross;
@@ -866,6 +890,7 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             gen->voice->sum,
             &gen->voice->text_prefixes, &gen->voice->audio_prefixes
         };
+        printf("DEBUG: calling moshi_lmmodel_states (voice path)\n"); fflush(stdout);
         gen->lm_states = moshi_lmmodel_states( gen->state_ctx, gen->lm->model, gen->voice->cross );
     } else {
         gen->lmgen = moshi_lmgen_t{
@@ -875,18 +900,26 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             NULL, // no cross
             NULL, NULL, // empty prefixes
         };
+        printf("DEBUG: calling moshi_lmmodel_states (default path)\n"); fflush(stdout);
         gen->lm_states = moshi_lmmodel_states( gen->state_ctx, gen->lm->model, NULL );
     }
+    printf("DEBUG: moshi_lmmodel_states returned successfully\n"); fflush(stdout);
     gen->lmgen_state = moshi_lmgen_state( gen->lm->model );
+    printf("DEBUG: calling state_ctx->alloc()\n"); fflush(stdout);
     gen->state_ctx->alloc();
+    printf("DEBUG: calling state_ctx->init()\n"); fflush(stdout);
     gen->state_ctx->init();
+    printf("DEBUG: calling init (scratch)\n"); fflush(stdout);
     init( moshi->scratch, gen->lm_states, gen->lm->model, condition_cross );
+    printf("DEBUG: creating gen->ctx ScratchContext\n"); fflush(stdout);
 
     gen->ctx = new ScratchContext( 256, moshi->backend );
     gen->audio_tokens.resize( gen->lm->model->num_audio_codebooks );
+    printf("DEBUG: ScratchContext created\n"); fflush(stdout);
 
     // personaplex process system prompts
     if ( gen->lm->model->personaplex ) {
+        printf("DEBUG: processing system prompts\n"); fflush(stdout);
         moshi_lmgen_step_system_prompts(
             *gen->ctx,
             &gen->lmgen, gen->lmgen_state,
@@ -894,7 +927,9 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             gen->voice,
             gen->text_prompt_tokens
         );
+        printf("DEBUG: system prompts processed successfully\n"); fflush(stdout);
     }
+    printf("DEBUG: moshi_lm_start ending\n"); fflush(stdout);
 }
 
 void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry ) {

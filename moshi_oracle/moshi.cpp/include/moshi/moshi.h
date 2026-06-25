@@ -153,6 +153,7 @@ struct moshi_config_t {
     std::string tokenizer_name; // "tokenizer_spm_8k_en_fr_audio.model"
     std::string mimi_name; // "tokenizer-e351c8d8-checkpoint125.safetensors",
     std::string moshi_name; // "dsm_tts_1e68beda@240.safetensors" || "dsm_tts_d6ef30c7@1000.safetensors"
+    int64_t kv_cache_type;
 };
 
 MOSHI_API int moshi_get_config( moshi_config_t * config, const char * filename );

@@ -155,6 +155,7 @@ int moshi_get_config( moshi_config_t * config, const char * filename ) {
     config->depformer_max_period = 0;
     config->depformer_gating = "";
     config->depformer_low_rank_embeddings = 0;
+    config->kv_cache_type = GGML_TYPE_BF16;
     //config->extra_heads_dim = 6;
 
 	auto f = fopen( filename, "rb" );

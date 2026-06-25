@@ -97,14 +97,22 @@ void check_arg_path( std::string & path, bool & found_file, bool & found_dir ) {
     found_file = false;
     found_dir = false;
 
+    std::string clean_path = path;
+    while ( clean_path.size() > 1 && (clean_path.back() == '/' || clean_path.back() == '\\') ) {
+        if ( clean_path.size() == 3 && clean_path[1] == ':' ) {
+            break;
+        }
+        clean_path.pop_back();
+    }
+
 #if _WIN32
     struct __stat64 stats;
-    if ( _stat64( path.c_str(), &stats ) != 0 ) {
+    if ( _stat64( clean_path.c_str(), &stats ) != 0 ) {
         return;
     }
 #else
     struct stat stats;
-    if ( stat( path.c_str(), &stats ) != 0 ) {
+    if ( stat( clean_path.c_str(), &stats ) != 0 ) {
         return;
     }
 #endif

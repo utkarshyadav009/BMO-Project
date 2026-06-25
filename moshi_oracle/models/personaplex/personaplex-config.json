@@ -31,5 +31,5 @@
   "model_type": "personaplex",
   "tokenizer_name": "../moshi-common/tokenizer_spm_32k_3.model",
   "mimi_name": "../moshi-common/mimi-e351c8d8-125.gguf",
-  "moshi_name": "model-q4_k.gguf"
+  "moshi_name": "model-q4_k(mini).gguf"
 }

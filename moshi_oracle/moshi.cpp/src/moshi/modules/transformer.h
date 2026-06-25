@@ -161,13 +161,17 @@ moshi_kv_cache_state_t * moshi_kv_cache_state(
         int batch_size ) {
     auto states = new moshi_kv_cache_state_t;
     NE ne = { dim_per_head, capacity, num_heads, batch_size };
-#ifdef CACHE_BF16
-    state_ctx->fill16( ne, GGML_TYPE_BF16, 0, &states->keys );
-    state_ctx->fill16( ne, GGML_TYPE_BF16, 0, &states->values );
-#else
-    state_ctx->fill( ne, 0.f, &states->keys );
-    state_ctx->fill( ne, 0.f, &states->values );
-#endif
+    ggml_type type = state_ctx->kv_cache_type;
+    if (type == GGML_TYPE_BF16 || type == GGML_TYPE_F16) {
+        state_ctx->fill16( ne, type, 0, &states->keys );
+        state_ctx->fill16( ne, type, 0, &states->values );
+    } else if (type == GGML_TYPE_F32) {
+        state_ctx->fill( ne, 0.f, &states->keys );
+        state_ctx->fill( ne, 0.f, &states->values );
+    } else {
+        state_ctx->fill_quant( ne, type, &states->keys );
+        state_ctx->fill_quant( ne, type, &states->values );
+    }
     return states;
 }
 
@@ -243,6 +247,12 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
         ggml_tensor * k,
         ggml_tensor * v ) {
     assert( indices->ne[0] == k->ne[1] ); // one index per T
+    if ( k->type != GGML_TYPE_F32 ) {
+        k = ggml_cast( ctx, k, GGML_TYPE_F32 );
+    }
+    if ( v->type != GGML_TYPE_F32 ) {
+        v = ggml_cast( ctx, v, GGML_TYPE_F32 );
+    }
     keys = ggml_set_rows( ctx, keys, k, indices );
     values = ggml_set_rows( ctx, values, v, indices );
     return std::make_tuple( keys, values );
@@ -560,6 +570,13 @@ ggml_tensor * moshi_streaming_multihead_attention(
             indices, k, v );
     }
 
+    if ( k->type != q->type ) {
+        k = ggml_cast( ctx, k, q->type );
+    }
+    if ( v->type != q->type ) {
+        v = ggml_cast( ctx, v, q->type );
+    }
+
     assert( attn_bias || ! attn->causal );
 
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
@@ -689,6 +706,13 @@ ggml_tensor * moshi_streaming_multihead_attention(
         std::tie( k, v ) = moshi_kv_cache_insert_kv( ctx,
             state->kv_cache->keys, state->kv_cache->values,
             indices, k, v );
+    }
+
+    if ( k->type != q->type ) {
+        k = ggml_cast( ctx, k, q->type );
+    }
+    if ( v->type != q->type ) {
+        v = ggml_cast( ctx, v, q->type );
     }
 
     assert( attn_bias || ! attn->causal );

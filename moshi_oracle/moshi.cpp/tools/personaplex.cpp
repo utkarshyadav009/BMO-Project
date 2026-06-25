@@ -110,6 +110,7 @@ int main(int argc, char *argv[]) {
 
     std::string personaplex_voice_filepath = "";
     std::string personaplex_system_prompt = "";
+    std::string kv_type_str = "bf16";
 
     //////////////////////
     // MARK: Parse Args
@@ -166,6 +167,14 @@ int main(int argc, char *argv[]) {
         }
         if (arg == "-g" || arg == "--gguf-caching" ) {
             gguf_caching = true;
+            continue;
+        }
+        if (arg == "-k" || arg == "--kv-type") {
+            if (i + 1 >= argc) {
+                fprintf( stderr, "error: \"%s\" requires type (bf16, f16, q8_0, q4_0)\n", argv[i] );
+                exit(1);
+            }
+            kv_type_str = argv[++i];
             continue;
         }
         if (arg == "-c" || arg == "--context") {
@@ -248,11 +257,12 @@ int main(int argc, char *argv[]) {
 
     common_ggml_t ggml;
     init_ggml( ggml, device, n_threads );
-    printf("free memory: %d MiB\n", ggml.memory_free_mb );
+    printf("DEBUG: init_ggml returned successfully, free memory: %d MiB\n", ggml.memory_free_mb ); fflush(stdout);
     const int memory_base = 4990;
     const int memory_ctx = 758;
     const int memory_min = 5368;
     const int memory_spec = 7264;
+    printf("DEBUG: memory limits defined\n"); fflush(stdout);
     if ( ggml.memory_free_mb < memory_min ) {
         fprintf(stderr, "warning: might fail due to low memory!\n");
     } else if ( context == -1 && ggml.memory_free_mb - 100 < memory_spec ) {
@@ -260,15 +270,18 @@ int main(int argc, char *argv[]) {
         context = (ggml.memory_free_mb - 100 - memory_base) * 1000 / memory_ctx;
         fprintf( stderr, "context: %d\n", context );
     }
+    printf("DEBUG: memory check done, context=%d\n", context); fflush(stdout);
 
     if ( input && ! file_exists( input ) ) {
         fprintf( stderr, "error: input file does not exist: %s\n", input );
         exit(1);
     }
+    printf("DEBUG: input file check done\n"); fflush(stdout);
 
     // find model path
     bool found_file, found_dir;
     if ( is_abs_or_rel( model_path ) ) {
+        printf("DEBUG: model_path is abs or rel: %s\n", model_path.c_str()); fflush(stdout);
         check_arg_path( model_path, found_file, found_dir );
         if ( ! found_dir ) {
             if ( found_file ) {
@@ -282,6 +295,7 @@ int main(int argc, char *argv[]) {
             }
         }
     } else if ( ! model_path_set ) {
+        printf("DEBUG: model_path is NOT set, using defaults\n"); fflush(stdout);
         // check defaults
         std::vector<std::string> paths;
         paths.push_back( model_root + "Codes4Fun/personaplex-7b-v1-q4_k-GGUF/" );
@@ -302,17 +316,21 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     } else {
+        printf("DEBUG: model_path is set: %s\n", model_path.c_str()); fflush(stdout);
         std::string full_path = model_root + model_path;
         check_arg_path( full_path, found_file, found_dir );
+        printf("DEBUG: check_arg_path full_path done, found_file=%d, found_dir=%d\n", found_file, found_dir); fflush(stdout);
         if ( found_dir ) {
             model_path = full_path;
         } else {
             full_path = program_path + model_path;
             check_arg_path( full_path, found_file, found_dir );
+            printf("DEBUG: check_arg_path program_path done, found_file=%d, found_dir=%d\n", found_file, found_dir); fflush(stdout);
             if ( found_dir ) {
                 model_path = full_path;
             } else {
                 check_arg_path( model_path, found_file, found_dir );
+                printf("DEBUG: check_arg_path model_path done, found_file=%d, found_dir=%d\n", found_file, found_dir); fflush(stdout);
                 if ( ! found_dir ) {
                     fprintf( stderr, "error: could not find directory: %s\n",
                         model_path.c_str() );
@@ -321,39 +339,59 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    printf( "found model path: %s\n", model_path.c_str() );
+    printf( "found model path: %s\n", model_path.c_str() ); fflush(stdout);
 
     // default config
     moshi_config_t config;
     std::string config_filepath;
     config_filepath = model_path + "personaplex-config.json";
+    printf("DEBUG: config_filepath = %s\n", config_filepath.c_str()); fflush(stdout);
     if ( ! file_exists( config_filepath.c_str() ) ) {
         config_filepath = program_path + "personaplex-config.json";
+        printf("DEBUG: trying program_path config_filepath = %s\n", config_filepath.c_str()); fflush(stdout);
         if ( ! file_exists( config_filepath.c_str() ) ) {
             fprintf( stderr, "error: failed to find a config.json\n" );
             exit(1);
         }
     }
 
+    printf("DEBUG: reading config from %s\n", config_filepath.c_str()); fflush(stdout);
     if ( moshi_get_config( &config, config_filepath.c_str() ) != 0 ) {
         fprintf( stderr, "error: reading config\n");
         exit(1);
     }
+    printf("DEBUG: config loaded successfully\n"); fflush(stdout);
 
     if ( context > 0 ) {
         config.context = context;
     }
 
+    if ( kv_type_str == "q8_0" ) {
+        config.kv_cache_type = GGML_TYPE_Q8_0;
+    } else if ( kv_type_str == "q4_0" ) {
+        config.kv_cache_type = GGML_TYPE_Q4_0;
+    } else if ( kv_type_str == "f16" ) {
+        config.kv_cache_type = GGML_TYPE_F16;
+    } else if ( kv_type_str == "bf16" ) {
+        config.kv_cache_type = GGML_TYPE_BF16;
+    } else {
+        fprintf( stderr, "error: unknown KV cache type \"%s\", must be bf16, f16, q8_0, q4_0\n", kv_type_str.c_str() );
+        exit(1);
+    }
     std::string model_filepath = model_path + config.moshi_name;
     std::string mimi_filepath = model_path + config.mimi_name;
     std::string tokenizer_filepath = model_path + config.tokenizer_name;
 
+    printf("DEBUG: checking moshi file: %s\n", model_filepath.c_str()); fflush(stdout);
     if ( ! file_exists( model_filepath.c_str() ) ) {
         fprintf( stderr, "error: missing moshi file \"%s\"\n", model_filepath.c_str() );
         exit(1);
     }
+    printf("DEBUG: moshi file exists\n"); fflush(stdout);
 
+    printf("DEBUG: checking mimi file: %s\n", mimi_filepath.c_str()); fflush(stdout);
     if ( ! file_exists( mimi_filepath.c_str() ) ) {
+        printf("DEBUG: mimi file does not exist at path, trying defaults\n"); fflush(stdout);
         // files can be deleted or not downloaded to save memory
         bool found = false;
         std::vector<std::string> paths = {
@@ -393,6 +431,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+    printf("DEBUG: mimi file path verified: %s\n", mimi_filepath.c_str()); fflush(stdout);
 
     if ( ! file_exists( tokenizer_filepath.c_str() ) ) {
         // files can be deleted or not downloaded to save memory
@@ -427,6 +466,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+    printf("DEBUG: tokenizer file path verified: %s\n", tokenizer_filepath.c_str()); fflush(stdout);
 
     bool personaplex_voice_embedding = false;
     bool personaplex_voice_mimi = false;
@@ -470,12 +510,14 @@ int main(int argc, char *argv[]) {
     // MARK: Loading
 
     srand( seed );
-    printf( "seed: %d\n", seed );
+    printf( "DEBUG: seed set, seed=%d\n", seed ); fflush(stdout);
 
     // context
+    printf("DEBUG: calling moshi_alloc\n"); fflush(stdout);
     unref_ptr<moshi_context_t> moshi =  moshi_alloc( ggml.backend, ggml.backend_cpu );
+    printf("DEBUG: moshi_alloc returned=%p\n", (void*)moshi.ptr); fflush(stdout);
 
-    printf( "loading...\n" );
+    printf( "loading...\n" ); fflush(stdout);
     auto load_start = ggml_time_ms();
 
     if ( quant ) {
@@ -522,37 +564,50 @@ int main(int argc, char *argv[]) {
     }
 
     // generator
+    printf("DEBUG: calling moshi_lm_generator\n"); fflush(stdout);
     unref_ptr<moshi_lm_gen_t> gen = moshi_lm_generator( lm );
+    printf("DEBUG: moshi_lm_generator returned successfully\n"); fflush(stdout);
 
     // tokenizer
+    printf("DEBUG: calling tokenizer_alloc\n"); fflush(stdout);
     unref_ptr<tokenizer_t> tok = tokenizer_alloc(
         tokenizer_filepath.c_str(),
         config.cross_attention );
+    printf("DEBUG: tokenizer_alloc returned successfully\n"); fflush(stdout);
 
     // codec
     int num_audio_codebooks = 8; // personaplex hard codes this
+    printf("DEBUG: calling mimi_alloc\n"); fflush(stdout);
     unref_ptr<mimi_codec_t> codec = mimi_alloc( moshi,
         mimi_filepath.c_str(),
         num_audio_codebooks );
+    printf("DEBUG: mimi_alloc returned successfully\n"); fflush(stdout);
     float frame_rate = mimi_frame_rate( codec );
     int frame_size = mimi_frame_size( codec );
+    printf("DEBUG: frame_rate=%f, frame_size=%d\n", frame_rate, frame_size); fflush(stdout);
 
     // model
+    printf("DEBUG: calling moshi_lm_load\n"); fflush(stdout);
     moshi_lm_load( lm );
+    printf("DEBUG: moshi_lm_load returned successfully\n"); fflush(stdout);
     if ( model_gguf.size() ) {
         moshi_lm_save_gguf( lm, model_gguf.c_str() );
     }
 
     // encoder
+    printf("DEBUG: calling mimi_encode_alloc_context\n"); fflush(stdout);
     unref_ptr<mimi_encode_context_t> encoder;
     encoder = mimi_encode_alloc_context( codec );
+    printf("DEBUG: mimi_encode_alloc_context returned successfully\n"); fflush(stdout);
 
     // decoder
+    printf("DEBUG: calling mimi_decode_alloc_context\n"); fflush(stdout);
     unref_ptr<mimi_decode_context_t> decoder;
     decoder = mimi_decode_alloc_context( codec );
+    printf("DEBUG: mimi_decode_alloc_context returned successfully\n"); fflush(stdout);
 
     auto load_end = ggml_time_ms();
-    printf("done loading. %f\n", (load_end - load_start) / 1000.f);
+    printf("done loading. %f\n", (load_end - load_start) / 1000.f); fflush(stdout);
 
     Decoder input_decoder;
     Resampler resampler;
@@ -693,7 +748,9 @@ int main(int argc, char *argv[]) {
     /////////////////////////
 
     // model
+    printf("DEBUG: calling moshi_lm_start\n"); fflush(stdout);
     moshi_lm_start( moshi, gen, depth_temperature, text_temperature );
+    printf("DEBUG: moshi_lm_start returned successfully\n"); fflush(stdout);
 
     std::vector<int16_t> tokens(num_audio_codebooks);
     int text_token;

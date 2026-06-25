@@ -667,6 +667,7 @@ class StateContext {
     };
     std::vector<state_tensor_t> states;
 
+    ggml_type kv_cache_type = GGML_TYPE_BF16;
     StateContext( ggml_backend * backend = NULL ) {
         ctx = NULL;
         buffer = NULL;
@@ -718,6 +719,19 @@ class StateContext {
         int16_t * data = (int16_t*)state.data.data();
         for ( int i = 0; i < nelements; i++)
             data[i] = value;
+        *ptensor = NULL;
+    }
+
+    void fill_quant( NE ne, ggml_type type, ggml_tensor ** ptensor ) {
+        states.push_back({ ptensor, type });
+        auto & state = states.back();
+        int64_t nelements = 1;
+        for ( int i = 0; i < GGML_MAX_DIMS; i++ ) {
+            state.ne[i] = ne[i];
+            nelements *= ne[i];
+        }
+        size_t nbytes = ggml_row_size( type, nelements );
+        state.data.resize( nbytes, 0 );
         *ptensor = NULL;
     }
 
