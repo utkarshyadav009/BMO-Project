@@ -31,6 +31,7 @@ options:
                                'Codes4Fun/personaplex-7b-v1-q4_k-GGUF'
   -q QUANT, --quantize QUANT   convert weights to: q8_0, q4_0, q4_k
   -g,       --gguf-caching     loads gguf if exists, saves gguf if it does not.
+  -k TYPE,  --kv-type TYPE     quantization type of the KV cache (bf16, f16, q8_0, q4_0, q2_k)
                                model is saved alongside the original
                                safetensors file.
 
@@ -370,12 +371,14 @@ int main(int argc, char *argv[]) {
         config.kv_cache_type = GGML_TYPE_Q8_0;
     } else if ( kv_type_str == "q4_0" ) {
         config.kv_cache_type = GGML_TYPE_Q4_0;
+    } else if ( kv_type_str == "q2_k" ) {
+        config.kv_cache_type = GGML_TYPE_Q2_K;
     } else if ( kv_type_str == "f16" ) {
         config.kv_cache_type = GGML_TYPE_F16;
     } else if ( kv_type_str == "bf16" ) {
         config.kv_cache_type = GGML_TYPE_BF16;
     } else {
-        fprintf( stderr, "error: unknown KV cache type \"%s\", must be bf16, f16, q8_0, q4_0\n", kv_type_str.c_str() );
+        fprintf( stderr, "error: unknown KV cache type \"%s\", must be bf16, f16, q8_0, q4_0, q2_k\n", kv_type_str.c_str() );
         exit(1);
     }
     std::string model_filepath = model_path + config.moshi_name;

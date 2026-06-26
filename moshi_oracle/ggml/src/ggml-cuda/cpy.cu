@@ -103,6 +103,26 @@ static __device__ void cpy_blck_q8_0_f32(const char * cxi, char * cdsti) {
     }
 }
 
+static __device__ void cpy_blck_q2_K_f32(const char * cxi, char * cdsti) {
+    float * cdstf = (float *)(cdsti);
+    const block_q2_K * x = (const block_q2_K *) cxi;
+
+    float dall = __low2half(x->dm);
+    float dmin = __high2half(x->dm);
+
+    for (int n = 0; n < 2; n++) {
+        for (int l = 0; l < 32; l++) {
+            const int is = 8*n + l/16;
+            const uint8_t q = x->qs[32*n + l];
+            float * y = cdstf + 128*n;
+            y[l+ 0] = dall * (x->scales[is+0] & 0xF) * ((q >> 0) & 3) - dmin * (x->scales[is+0] >> 4);
+            y[l+32] = dall * (x->scales[is+2] & 0xF) * ((q >> 2) & 3) - dmin * (x->scales[is+2] >> 4);
+            y[l+64] = dall * (x->scales[is+4] & 0xF) * ((q >> 4) & 3) - dmin * (x->scales[is+4] >> 4);
+            y[l+96] = dall * (x->scales[is+6] & 0xF) * ((q >> 6) & 3) - dmin * (x->scales[is+6] >> 4);
+        }
+    }
+}
+
 template<dequantize_kernel_t dequant, int qk>
 static __device__ void cpy_blck_q_f32(const char * cxi, char * cdsti) {
     float * cdstf = (float *)(cdsti);
@@ -267,6 +287,20 @@ static void ggml_cpy_q4_0_f32_cuda(
     const int block_size = 256;
     const int num_blocks = (ne / QK4_0 + block_size - 1) / block_size;
     cpy_q_f32<cpy_blck_q_f32<dequantize_q4_0, QK4_0>, QK4_0><<<num_blocks, block_size, 0, stream>>>(
+        cx, cdst, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03,
+         ne10, ne11, ne12, nb10, nb11, nb12, nb13);
+}
+
+static void ggml_cpy_q2_K_f32_cuda(
+    const char * cx, char * cdst, const int ne,
+    const int ne00, const int ne01, const int ne02,
+    const int nb00, const int nb01, const int nb02,
+    const int nb03, const int ne10, const int ne11, const int ne12,
+    const int nb10, const int nb11, const int nb12, const int nb13,
+    cudaStream_t stream) {
+    const int block_size = 256;
+    const int num_blocks = (ne / QK_K + block_size - 1) / block_size;
+    cpy_q_f32<cpy_blck_q2_K_f32, QK_K><<<num_blocks, block_size, 0, stream>>>(
         cx, cdst, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03,
          ne10, ne11, ne12, nb10, nb11, nb12, nb13);
 }
@@ -461,6 +495,9 @@ void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, gg
                 (src0_ddc, src1_ddc, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03, ne10, ne11, ne12, nb10, nb11, nb12, nb13, main_stream);
     } else if (src0->type == GGML_TYPE_Q5_1 && src1->type == GGML_TYPE_F32) {
         ggml_cpy_q5_1_f32_cuda
+                (src0_ddc, src1_ddc, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03, ne10, ne11, ne12, nb10, nb11, nb12, nb13, main_stream);
+    } else if (src0->type == GGML_TYPE_Q2_K && src1->type == GGML_TYPE_F32) {
+        ggml_cpy_q2_K_f32_cuda
                 (src0_ddc, src1_ddc, ne, ne00, ne01, ne02, nb00, nb01, nb02, nb03, ne10, ne11, ne12, nb10, nb11, nb12, nb13, main_stream);
     } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F16) {
         if (can_be_transposed) {

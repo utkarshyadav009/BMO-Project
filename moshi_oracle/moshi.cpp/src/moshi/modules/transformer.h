@@ -160,8 +160,24 @@ moshi_kv_cache_state_t * moshi_kv_cache_state(
         int num_heads,
         int batch_size ) {
     auto states = new moshi_kv_cache_state_t;
-    NE ne = { dim_per_head, capacity, num_heads, batch_size };
     ggml_type type = state_ctx->kv_cache_type;
+
+    if (ggml_is_quantized(type)) {
+        int blck_size = ggml_blck_size(type);
+        if (dim_per_head % blck_size != 0) {
+            static bool warned = false;
+            if (!warned) {
+                fprintf(stderr, "warning: KV cache type %s has block size %d, which is incompatible with head dimension %d. Falling back to q4_0 placeholder.\n",
+                        ggml_type_name(type), blck_size, dim_per_head);
+                warned = true;
+            }
+            type = GGML_TYPE_Q4_0;
+        }
+    }
+
+    int dim_padded = dim_per_head;
+
+    NE ne = { dim_padded, capacity, num_heads, batch_size };
     if (type == GGML_TYPE_BF16 || type == GGML_TYPE_F16) {
         state_ctx->fill16( ne, type, 0, &states->keys );
         state_ctx->fill16( ne, type, 0, &states->values );
@@ -253,6 +269,27 @@ std::tuple<ggml_tensor*,ggml_tensor*> moshi_kv_cache_insert_kv(
     if ( v->type != GGML_TYPE_F32 ) {
         v = ggml_cast( ctx, v, GGML_TYPE_F32 );
     }
+
+    if ( keys->ne[0] > k->ne[0] ) {
+        int dim_padded = keys->ne[0];
+        int dim_per_head = k->ne[0];
+        int T = k->ne[1];
+        int H = k->ne[2];
+        int B = k->ne[3];
+
+        ggml_tensor * k_padded = ggml_new_tensor_4d( ctx, GGML_TYPE_F32, dim_padded, T, H, B );
+        ggml_tensor * k_padded_view = ggml_view_4d( ctx, k_padded, dim_per_head, T, H, B,
+            k_padded->nb[1], k_padded->nb[2], k_padded->nb[3], 0 );
+        k_padded_view = ggml_cpy( ctx, k, k_padded_view );
+        k = k_padded;
+
+        ggml_tensor * v_padded = ggml_new_tensor_4d( ctx, GGML_TYPE_F32, dim_padded, T, H, B );
+        ggml_tensor * v_padded_view = ggml_view_4d( ctx, v_padded, dim_per_head, T, H, B,
+            v_padded->nb[1], v_padded->nb[2], v_padded->nb[3], 0 );
+        v_padded_view = ggml_cpy( ctx, v, v_padded_view );
+        v = v_padded;
+    }
+
     keys = ggml_set_rows( ctx, keys, k, indices );
     values = ggml_set_rows( ctx, values, v, indices );
     return std::make_tuple( keys, values );
@@ -584,7 +621,14 @@ ggml_tensor * moshi_streaming_multihead_attention(
     }
 
     if ( k->type != q->type ) {
-        if ( !ggml_is_quantized( k->type ) ) {
+        if ( ggml_is_quantized( k->type ) ) {
+            // For future 2-bit / custom-2bit types, we might need to dequantize K on the read path
+            // to avoid softmax saturation or if direct MM is not supported.
+            if ( k->type == GGML_TYPE_Q2_K ) {
+                ggml_tensor * k_f32 = ggml_cast( ctx, k, GGML_TYPE_F32 );
+                k = (q->type == GGML_TYPE_F32) ? k_f32 : ggml_cast( ctx, k_f32, q->type );
+            }
+        } else {
             k = ggml_cast( ctx, k, q->type );
         }
     }
@@ -595,6 +639,14 @@ ggml_tensor * moshi_streaming_multihead_attention(
         } else {
             v = ggml_cast( ctx, v, q->type );
         }
+    }
+
+    if ( k->ne[0] > q->ne[0] ) {
+        int dim_per_head = q->ne[0];
+        k = ggml_view_4d( ctx, k, dim_per_head, k->ne[1], k->ne[2], k->ne[3],
+            k->nb[1], k->nb[2], k->nb[3], 0 );
+        v = ggml_view_4d( ctx, v, dim_per_head, v->ne[1], v->ne[2], v->ne[3],
+            v->nb[1], v->nb[2], v->nb[3], 0 );
     }
 
     assert( attn_bias || ! attn->causal );
@@ -742,7 +794,14 @@ ggml_tensor * moshi_streaming_multihead_attention(
 
 
     if ( k->type != q->type ) {
-        if ( !ggml_is_quantized( k->type ) ) {
+        if ( ggml_is_quantized( k->type ) ) {
+            // For future 2-bit / custom-2bit types, we might need to dequantize K on the read path
+            // to avoid softmax saturation or if direct MM is not supported.
+            if ( k->type == GGML_TYPE_Q2_K ) {
+                ggml_tensor * k_f32 = ggml_cast( ctx, k, GGML_TYPE_F32 );
+                k = (q->type == GGML_TYPE_F32) ? k_f32 : ggml_cast( ctx, k_f32, q->type );
+            }
+        } else {
             k = ggml_cast( ctx, k, q->type );
         }
     }
@@ -753,6 +812,14 @@ ggml_tensor * moshi_streaming_multihead_attention(
         } else {
             v = ggml_cast( ctx, v, q->type );
         }
+    }
+
+    if ( k->ne[0] > q->ne[0] ) {
+        int dim_per_head = q->ne[0];
+        k = ggml_view_4d( ctx, k, dim_per_head, k->ne[1], k->ne[2], k->ne[3],
+            k->nb[1], k->nb[2], k->nb[3], 0 );
+        v = ggml_view_4d( ctx, v, dim_per_head, v->ne[1], v->ne[2], v->ne[3],
+            v->nb[1], v->nb[2], v->nb[3], 0 );
     }
 
     assert( attn_bias || ! attn->causal );
