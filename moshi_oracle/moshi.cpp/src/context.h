@@ -668,6 +668,47 @@ class StateContext {
     std::vector<state_tensor_t> states;
 
     ggml_type kv_cache_type = GGML_TYPE_BF16;
+    ggml_tensor * hadamard64 = NULL;
+    ggml_tensor * hadamard128 = NULL;
+
+    void add_hadamard( int head_dim ) {
+        if (head_dim == 64) {
+            if (hadamard64 != NULL) return;
+            NE ne = { 64, 64, 1, 1 };
+            std::vector<float> hadamard_data(64 * 64);
+            float scale = 1.0f / sqrtf(64.0f);
+            for (int i = 0; i < 64; i++) {
+                for (int j = 0; j < 64; j++) {
+                    int val = i & j;
+                    int count = 0;
+                    while (val) {
+                        count ^= (val & 1);
+                        val >>= 1;
+                    }
+                    hadamard_data[i * 64 + j] = (count == 0 ? 1.0f : -1.0f) * scale;
+                }
+            }
+            new_tensor( ne, hadamard_data, &hadamard64 );
+        } else if (head_dim == 128) {
+            if (hadamard128 != NULL) return;
+            NE ne = { 128, 128, 1, 1 };
+            std::vector<float> hadamard_data(128 * 128);
+            float scale = 1.0f / sqrtf(128.0f);
+            for (int i = 0; i < 128; i++) {
+                for (int j = 0; j < 128; j++) {
+                    int val = i & j;
+                    int count = 0;
+                    while (val) {
+                        count ^= (val & 1);
+                        val >>= 1;
+                    }
+                    hadamard_data[i * 128 + j] = (count == 0 ? 1.0f : -1.0f) * scale;
+                }
+            }
+            new_tensor( ne, hadamard_data, &hadamard128 );
+        }
+    }
+
     StateContext( ggml_backend * backend = NULL ) {
         ctx = NULL;
         buffer = NULL;

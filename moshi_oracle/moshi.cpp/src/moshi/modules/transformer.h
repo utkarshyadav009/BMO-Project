@@ -324,6 +324,7 @@ struct moshi_smha_state_t {
     ggml_tensor * k_cross;
     ggml_tensor * v_cross;
     own_ptr<moshi_kv_cache_state_t> kv_cache;
+    ggml_tensor ** hadamard = NULL;
 };
 
 moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
@@ -332,12 +333,16 @@ moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
     int dim_per_head = attn->embed_dim / attn->num_heads;
     int num_heads = attn->num_heads;
     if ( ! attn->cross_attention ) {
+        if ( ggml_is_quantized( state_ctx->kv_cache_type ) ) {
+            state_ctx->add_hadamard( dim_per_head );
+        }
         int capacity = attn->context? attn->context : attn->weights_per_step;
         int batch_size = 1;
         state->kv_cache = moshi_kv_cache_state( state_ctx, dim_per_head, capacity, num_heads,
             batch_size );
         state->k_cross = NULL;
         state->v_cross = NULL;
+        state->hadamard = (dim_per_head == 64) ? &state_ctx->hadamard64 : &state_ctx->hadamard128;
     } else {
         state->k_cross = NULL;
         state->v_cross = NULL;
@@ -562,6 +567,14 @@ ggml_tensor * moshi_streaming_multihead_attention(
         std::tie(q, k) = moshi_apply_rope( ctx, q, k, tsemb, false );
     }
 
+    ggml_tensor * hadamard = state->hadamard ? *state->hadamard : NULL;
+
+    if ( hadamard ) {
+        q = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, q ) );
+        k = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, k ) );
+        v = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, v ) );
+    }
+
     if ( attn->causal && ! attn->cross_attention ) {
         assert( k->ne[1] == T );
 
@@ -589,6 +602,10 @@ ggml_tensor * moshi_streaming_multihead_attention(
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
     auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
+
+    if ( hadamard ) {
+        x = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, x ) );
+    }
 
     //x = rearrange(x, "b h t d -> b t (h d)")
     // b h t d -> b t h d
@@ -707,6 +724,14 @@ ggml_tensor * moshi_streaming_multihead_attention(
         std::tie(q, k) = moshi_apply_rope( ctx, q, k, tsemb, false );
     }
 
+    ggml_tensor * hadamard = state->hadamard ? *state->hadamard : NULL;
+
+    if ( hadamard ) {
+        q = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, q ) );
+        k = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, k ) );
+        v = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, v ) );
+    }
+
     if ( attn->causal && ! attn->cross_attention ) {
         assert( k->ne[1] == T );
 
@@ -735,6 +760,10 @@ ggml_tensor * moshi_streaming_multihead_attention(
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
     auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
+
+    if ( hadamard ) {
+        x = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, x ) );
+    }
 
     //x = rearrange(x, "b h t d -> b t (h d)")
     // b h t d -> b t h d
