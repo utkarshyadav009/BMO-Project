@@ -827,6 +827,8 @@ int main(int argc, char *argv[]) {
 
     auto memory_delta = ggml.memory_free - device_memory_free( ggml.dev );
     printf("\ndevice memory delta: %d MiB", (int)( memory_delta / 1024 / 1024 ) );
+    size_t allocated_bytes = moshi_get_allocated_memory( moshi, lm, codec, gen, encoder, decoder );
+    printf("\nexact tensor VRAM allocation: %d MiB\n", (int)( allocated_bytes / 1024 / 1024 ) );
 
     log_metrics();
 

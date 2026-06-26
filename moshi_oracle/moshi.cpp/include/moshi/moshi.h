@@ -205,6 +205,14 @@ MOSHI_API void moshi_lm_machine_reset( moshi_lm_gen_t * gen );
 
 // MARK: Misc
 
+MOSHI_API size_t moshi_get_allocated_memory(
+    moshi_context_t * moshi,
+    moshi_lm_t * lm,
+    mimi_codec_t * codec,
+    moshi_lm_gen_t * gen,
+    mimi_encode_context_t * encoder,
+    mimi_decode_context_t * decoder
+);
 
 /*int moshi_lm_n_q( moshi_lmmodel_t * lm );
 int moshi_lm_max_delay( moshi_lmmodel_t * lm );

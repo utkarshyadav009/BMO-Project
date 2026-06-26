@@ -987,6 +987,38 @@ void moshi_lm_machine_reset( moshi_lm_gen_t * gen ) {
     gen->machine->reset_state( gen->machine_state );
 }
 
+size_t moshi_get_allocated_memory(
+    moshi_context_t * moshi,
+    moshi_lm_t * lm,
+    mimi_codec_t * codec,
+    moshi_lm_gen_t * gen,
+    mimi_encode_context_t * encoder,
+    mimi_decode_context_t * decoder
+) {
+    size_t total = 0;
+    if (moshi) {
+        if (moshi->scratch && moshi->scratch->buffer) total += ggml_backend_buffer_get_size(moshi->scratch->buffer);
+        if (moshi->scratch_cpu && moshi->scratch_cpu->buffer) total += ggml_backend_buffer_get_size(moshi->scratch_cpu->buffer);
+    }
+    if (lm) {
+        if (lm->weights && lm->weights->buffer) total += ggml_backend_buffer_get_size(lm->weights->buffer);
+    }
+    if (codec) {
+        if (codec->mimi_weights && codec->mimi_weights->buffer) total += ggml_backend_buffer_get_size(codec->mimi_weights->buffer);
+    }
+    if (gen) {
+        if (gen->state_ctx && gen->state_ctx->buffer) total += ggml_backend_buffer_get_size(gen->state_ctx->buffer);
+        if (gen->voice_weights && gen->voice_weights->buffer) total += ggml_backend_buffer_get_size(gen->voice_weights->buffer);
+    }
+    if (encoder) {
+        if (encoder->state_ctx && encoder->state_ctx->buffer) total += ggml_backend_buffer_get_size(encoder->state_ctx->buffer);
+    }
+    if (decoder) {
+        if (decoder->state_ctx && decoder->state_ctx->buffer) total += ggml_backend_buffer_get_size(decoder->state_ctx->buffer);
+    }
+    return total;
+}
+
 // MARK: Misc
 
 /*int moshi_lm_n_q( moshi_lmmodel_t * lm ) {
