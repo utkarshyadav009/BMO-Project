@@ -571,10 +571,17 @@ ggml_tensor * moshi_streaming_multihead_attention(
     }
 
     if ( k->type != q->type ) {
-        k = ggml_cast( ctx, k, q->type );
+        if ( !ggml_is_quantized( k->type ) ) {
+            k = ggml_cast( ctx, k, q->type );
+        }
     }
     if ( v->type != q->type ) {
-        v = ggml_cast( ctx, v, q->type );
+        if ( ggml_is_quantized( v->type ) ) {
+            ggml_tensor * v_f32 = ggml_cast( ctx, v, GGML_TYPE_F32 );
+            v = (q->type == GGML_TYPE_F32) ? v_f32 : ggml_cast( ctx, v_f32, q->type );
+        } else {
+            v = ggml_cast( ctx, v, q->type );
+        }
     }
 
     assert( attn_bias || ! attn->causal );
@@ -708,11 +715,19 @@ ggml_tensor * moshi_streaming_multihead_attention(
             indices, k, v );
     }
 
+
     if ( k->type != q->type ) {
-        k = ggml_cast( ctx, k, q->type );
+        if ( !ggml_is_quantized( k->type ) ) {
+            k = ggml_cast( ctx, k, q->type );
+        }
     }
     if ( v->type != q->type ) {
-        v = ggml_cast( ctx, v, q->type );
+        if ( ggml_is_quantized( v->type ) ) {
+            ggml_tensor * v_f32 = ggml_cast( ctx, v, GGML_TYPE_F32 );
+            v = (q->type == GGML_TYPE_F32) ? v_f32 : ggml_cast( ctx, v_f32, q->type );
+        } else {
+            v = ggml_cast( ctx, v, q->type );
+        }
     }
 
     assert( attn_bias || ! attn->causal );
