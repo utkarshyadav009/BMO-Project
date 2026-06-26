@@ -1,34 +1,92 @@
-# Instructions for the next Agent
+# Instructions for the Windows Laptop Agent (RTX 2060 Optimization)
 
-You are resuming a pair-programming task to implement KV-Cache Quantization (TurboQuant-style) in `moshi.cpp`.
+You are resuming a pair-programming task to run/verify KV-Cache Quantization in `moshi.cpp` on a laptop with an **NVIDIA RTX 2060 (6GB VRAM, Turing architecture, CUDA compute capability 7.5)**.
 
-## Context & Current Goal
-The goal is to quantize the temporal KV cache of the PersonaPlex model to `Q8_0` or `Q4_0` to reduce runtime VRAM from the 7.26 GB baseline on RTX 4070 Ti SUPER, while keeping speech generation coherent (avoiding gibberish).
+---
 
-We are working on the git branch: `experiment/kv-quant`.
+## 1. Goal & VRAM Constraint
+The target machine has a strict VRAM limit of **6.0 GB (approx. 5.5 GB usable)**. 
+- The baseline FP16 model uses ~7.2 GB of VRAM, which causes Out-Of-Memory (OOM) or massive paging slowdowns on the RTX 2060.
+- By utilizing the **`Q4_0` KV cache quantization** and tuning the **context length** via `-c`, we can fit the model entirely in VRAM and run it at full speed (15+ FPS).
 
-We have already completed Phase 1 implementation (allocation, argument parsing, write path F32 cast, and read path query type dynamic cast). However, the program crashes during the very first forward step (when processing system prompts).
+---
 
-## Your Tasks
+## 2. Your Tasks
 
-1.  **Read the Progress Report**:
-    Read the file [progress.md](file:///d:/LocalWorkDir/u521785/BMO-Project/moshi_oracle/progress.md) to understand the changes made and the details of the crash site.
-2.  **Debug the Crash in KV Cache Attention**:
-    The crash happens inside `moshi_lmgen_step_system_prompts` -> `moshi_lmgen_step_audio_silence` -> `moshi_lmgen_step` (which executes the forward pass).
-    Specifically, investigate `moshi_kv_cache_insert_kv` and `moshi_streaming_multihead_attention` in [transformer.h](file:///d:/LocalWorkDir/u521785/BMO-Project/moshi_oracle/moshi.cpp/src/moshi/modules/transformer.h).
-    *   Check if casting the quantized cache tensors `k` and `v` back to `q->type` via `ggml_cast` causes an Access Violation on CUDA.
-    *   Verify if `ggml_set_rows` destination tensor size/shape is fully compatible with on-the-fly quantization of float inputs to `Q8_0` or `Q4_0`.
-    *   Build the project using the MSVC environment:
-        ```cmd
-        cmd /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" && cd moshi.cpp\build && ninja'
-        ```
-    *   Use print statements or run with a debugger to trace the exact line.
-3.  **Run Benchmarks & Verify Coherence**:
-    *   Once the crash is fixed, run the benchmark for the quantized types:
-        ```cmd
-        conda run --prefix C:\Users\u521785\AppData\Local\miniconda3\envs\cuda_env moshi.cpp\build\bin\personaplex.exe -m models/personaplex/ -k q8_0 -b
-        ```
-    *   Verify that it runs without errors and produces coherent output (no gibberish).
-    *   Fill out the benchmarking table (VRAM, FPS, Coherence) for `bf16`, `q8_0`, `q4_0`.
-4.  **Implement Walsh-Hadamard Transform (WHT) Rotation (Task 2)**:
-    If `q4_0` suffers from coherence loss (gibberish/static), implement a Sylvester construction Hadamard matrix $H_{128}$ in `StateContext` and rotate Q and K tensors before insertion/attention as detailed in `implementation_plan.md`.
+### Step 1: Pull the latest changes
+Ensure you are on the `experiment/kv-quant` branch and pull the latest commits which contain:
+1. The CUDA copy kernel serialization fix in `cpy.cu`.
+2. The dynamic two-step cast fix in `transformer.h`.
+3. The exact tensor VRAM allocation tracking API in `personaplex.cpp`/`moshi-sts.cpp`.
+
+```bash
+git checkout experiment/kv-quant
+git pull origin experiment/kv-quant
+```
+
+### Step 2: Clean & Recompile for Turing (RTX 2060)
+Clean any previous CMakeCache files and compile for the Turing architecture (`-DCMAKE_CUDA_ARCHITECTURES=75`).
+
+You can use the following Windows batch script:
+```batch
+@echo off
+set BASE_DIR=%CD%
+
+echo --- PURGING OLD CACHES ---
+if exist "%BASE_DIR%\ggml\build\CMakeCache.txt" del /f /q "%BASE_DIR%\ggml\build\CMakeCache.txt"
+if exist "%BASE_DIR%\moshi.cpp\build\CMakeCache.txt" del /f /q "%BASE_DIR%\moshi.cpp\build\CMakeCache.txt"
+
+echo --- PHASE 1: GGML (Turing arch 75) ---
+cd /d "%BASE_DIR%\ggml\build"
+cmake .. -G Ninja ^
+    -DCMAKE_BUILD_TYPE=Release ^
+    -DBUILD_SHARED_LIBS=OFF ^
+    -DGGML_CUDA=ON ^
+    -DCMAKE_CUDA_ARCHITECTURES=75 ^
+    -DCMAKE_C_FLAGS="/Zc:preprocessor" ^
+    -DCMAKE_CXX_FLAGS="/Zc:preprocessor" ^
+    -DCMAKE_CUDA_FLAGS="-Xcompiler=\"/Zc:preprocessor\""
+cmake --build . --config Release -j 6
+
+echo --- PHASE 2: Moshi.cpp ---
+cd /d "%BASE_DIR%\moshi.cpp\build"
+set GGML_BUILD=%BASE_DIR%\ggml\build
+set SPM_BUILD=%BASE_DIR%\sentencepiece\build
+set SDL2_DIR=%BASE_DIR%\tools\SDL2-2.30.11
+set FFMPEG_DIR=%BASE_DIR%\tools\ffmpeg-master-latest-win64-lgpl-shared
+set CUDA_LIB_DIR=C:\CUDA_LIBS
+
+set LINKER_FLAGS=/WHOLEARCHIVE:"%GGML_BUILD%\src\ggml-cpu.lib" /WHOLEARCHIVE:"%GGML_BUILD%\src\ggml-cuda\ggml-cuda.lib" %CUDA_LIB_DIR%\cudart_static.lib %CUDA_LIB_DIR%\cublas.lib %CUDA_LIB_DIR%\cublasLt.lib %CUDA_LIB_DIR%\cuda.lib
+
+cmake .. -G Ninja ^
+    -DCMAKE_BUILD_TYPE=Release ^
+    -DBUILD_SHARED_LIBS=OFF ^
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY ^
+    -DGGML_LIBRARY="%GGML_BUILD%\src\ggml.lib" ^
+    -DGGML_BASE_LIBRARY="%GGML_BUILD%\src\ggml-base.lib" ^
+    -DGGML_CPU_LIBRARY="%GGML_BUILD%\src\ggml-cpu.lib" ^
+    -DGGML_CUDA_LIBRARY="%GGML_BUILD%\src\ggml-cuda\ggml-cuda.lib" ^
+    -DSentencePiece_LIBRARY="%SPM_BUILD%\src\sentencepiece.lib" ^
+    -DGGML_INCLUDE_DIR="%BASE_DIR%\ggml\include" ^
+    -DSentencePiece_INCLUDE_DIR="%BASE_DIR%\sentencepiece\src" ^
+    -DCMAKE_PREFIX_PATH="%SDL2_DIR%" ^
+    -DFFmpeg_DIR="%FFMPEG_DIR%" ^
+    -DCMAKE_EXE_LINKER_FLAGS="%LINKER_FLAGS%"
+cmake --build . --config Release -j 6
+echo --- BUILD COMPLETE ---
+```
+
+### Step 3: Run with Q4_0 and Context Tuning
+On the H100 with context length `3000`, the exact VRAM footprint for `q4_0` is **5,253 MiB** (5.13 GB).
+To ensure it stays safely under the usable 5.5 GB VRAM limit of the RTX 2060 on Windows (accounting for the Windows display driver base allocation), run the tool with:
+- **`-k q4_0`**: Enable 4-bit KV cache.
+- **`-c <length>`**: Constrain the context length (e.g., `-c 1500` or `-c 2000`). Lowering the context length linearly drops the KV-cache VRAM footprint.
+
+Run Command (interactive mode with SDL audio on Windows):
+```cmd
+moshi.cpp\build\bin\personaplex.exe -m models/personaplex/ -k q4_0 -c 1500 -v NATF0
+```
+
+Verify that the console prints:
+1. `exact tensor VRAM allocation` is below 5.5 GB.
+2. Generating speed (FPS) is smooth and speech remains coherent.
