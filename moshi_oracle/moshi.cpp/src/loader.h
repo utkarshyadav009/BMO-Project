@@ -159,6 +159,9 @@ public:
         ggml_type src_type = safetensor_get_type( safetensor->dtype );
         NE ne;
         int n_dims = safetensor_get_shape(safetensor, ne, offset);
+        if ( dst_type == GGML_TYPE_Q2_K && ne[0] % 256 ) {
+            dst_type = GGML_TYPE_Q4_0;
+        }
         if ( dst_type == GGML_TYPE_Q4_K && ne[0] % 256 ) {
             dst_type = GGML_TYPE_Q4_0;
         }

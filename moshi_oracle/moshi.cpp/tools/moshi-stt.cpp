@@ -185,6 +185,8 @@ int main(int argc, char *argv[]) {
             break;
         case 0x6b5f3471: // "q4_k"
             break;
+        case 0x6b5f3271: // "q2_k"
+            break;
         case 0x305f3871: // "q8_0"
             break;
         default:

@@ -379,10 +379,16 @@ void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm 
         for ( size_t i = 0; i < lm->depformer_emb.size(); i++ )
             get_weights( loader, path + "depformer_emb."+std::to_string(i)+".", lm->depformer_emb[i] );
     }
+    auto orig_qtype = loader->qtype;
+    if ( loader->quantize && loader->qtype == GGML_TYPE_Q2_K ) {
+        loader->qtype = GGML_TYPE_Q4_0;
+    }
     for ( size_t i = 0; i < lm->extra_heads.size(); i++ )
         get_weights( loader, path + "extra_heads."+std::to_string(i)+".", lm->extra_heads[i] );
     for ( size_t i = 0; i < lm->linears.size(); i++ )
         get_weights( loader, path + "linears."+std::to_string(i)+".", lm->linears[i] );
+    loader->qtype = orig_qtype;
+
     for ( size_t i = 0; i < lm->emb.size(); i++ )
         get_weights( loader, path + "emb."+std::to_string(i)+".", lm->emb[i] );
     if ( lm->demux_second_stream )
@@ -391,7 +397,12 @@ void get_weights( WeightLoader * loader, std::string path, moshi_lmmodel_t * lm 
         get_weights( loader, path + "text_emb.", lm->text_emb );
     get_weights( loader, path + "transformer.", lm->transformer);
     get_weights( loader, path + "out_norm.", lm->out_norm);
+
+    if ( loader->quantize && loader->qtype == GGML_TYPE_Q2_K ) {
+        loader->qtype = GGML_TYPE_Q4_0;
+    }
     get_weights( loader, path + "text_linear.", lm->text_linear);
+    loader->qtype = orig_qtype;
 }
 
 struct lmmodel_embed_t {

@@ -680,6 +680,9 @@ bool moshi_lm_quantize( moshi_lm_t * lm, const char * quant ) {
         case 0x6b5f3471: // "q4_k"
             qtype = GGML_TYPE_Q4_K;
             break;
+        case 0x6b5f3271: // "q2_k"
+            qtype = GGML_TYPE_Q2_K;
+            break;
         case 0x305f3871: // "q8_0"
             qtype = GGML_TYPE_Q8_0;
             break;
