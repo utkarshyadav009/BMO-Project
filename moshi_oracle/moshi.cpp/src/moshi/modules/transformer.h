@@ -1181,6 +1181,10 @@ void get_weights( WeightLoader * loader, std::string path,
     else
         get_weights( loader, path + "norm1.", layer->norm1 );
 
+    auto orig_qtype = loader->qtype;
+    if ( loader->quantize && loader->qtype == GGML_TYPE_Q2_K ) {
+        loader->qtype = GGML_TYPE_Q4_K;
+    }
     get_weights( loader, path + "self_attn.", layer->self_attn );
 
     if ( layer->layer_scale_1 )
@@ -1190,6 +1194,7 @@ void get_weights( WeightLoader * loader, std::string path,
         get_weights( loader, path + "norm_cross.", layer->norm_cross );
         get_weights( loader, path + "cross_attention.", layer->cross_attention );
     }
+    loader->qtype = orig_qtype;
 
     if ( layer->norm2_rms )
         get_weights( loader, path + "norm2.", layer->norm2_rms );
