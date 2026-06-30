@@ -281,46 +281,60 @@ void mimi_encode(
         std::vector<float> & frame,
         std::vector<int> & int_codes ) {
 
+    printf("DEBUG: mimi_encode start, frame.size()=%d\n", (int)frame.size()); fflush(stdout);
     if ( ! states->encoder_graph.ctx ) {
+        printf("DEBUG: mimi_encode: building graph\n"); fflush(stdout);
         states->encoder_graph.ctx = new GraphContext( 256, ctx.backend );
         GraphContext & gctx = *states->encoder_graph.ctx;
 
         auto x = ggml_new_tensor_1d( gctx, GGML_TYPE_F32, frame.size() );
         states->encoder_graph.frame = x;
 
+        printf("DEBUG: mimi_encode: calling seanet_encoder\n"); fflush(stdout);
         auto emb = moshi_seanet_encoder( gctx, states->encoder, mimi->encoder, x );
 
         states->encoder_graph.T = (int)emb->ne[0]; // projected transposes this
+        printf("DEBUG: mimi_encode: calling projected_transformer_graph_build\n"); fflush(stdout);
         emb = moshi_projected_transformer_graph_build( gctx,
             states->encoder_transformer, mimi->encoder_transformer, emb );
 
+        printf("DEBUG: mimi_encode: calling mimi_to_framerate\n"); fflush(stdout);
         emb = moshi_mimi_to_framerate( gctx,
             states->downsample,
             mimi->downsample , emb );
         
+        printf("DEBUG: mimi_encode: calling quantizer_encode\n"); fflush(stdout);
         auto codes = mimi_quantizer_encode( gctx, mimi->quantizer, emb );
 
         codes = ggml_cast( gctx, codes, GGML_TYPE_I32 );
         states->encoder_graph.codes = codes;
 
+        printf("DEBUG: mimi_encode: building forward expand\n"); fflush(stdout);
         states->encoder_graph.ctx->build_forward_expand( codes );
+        printf("DEBUG: mimi_encode: allocating graph\n"); fflush(stdout);
         states->encoder_graph.ctx->alloc();
     }
 
+    printf("DEBUG: mimi_encode: copying input data\n"); fflush(stdout);
     assert( ggml_nelements( states->encoder_graph.frame ) == frame.size() );
     ggml_backend_tensor_set( states->encoder_graph.frame, frame.data(),
         0, ggml_nbytes( states->encoder_graph.frame ) );
 
+    printf("DEBUG: mimi_encode: calling projected_transformer_graph_step\n"); fflush(stdout);
     moshi_projected_transformer_graph_step( ctx, 
         states->encoder_transformer,
         mimi->encoder_transformer,
         states->encoder_graph.T );
 
+    printf("DEBUG: mimi_encode: calling scratch compute\n"); fflush(stdout);
     ctx.compute();
+    printf("DEBUG: mimi_encode: calling graph compute\n"); fflush(stdout);
     states->encoder_graph.ctx->compute();
 
+    printf("DEBUG: mimi_encode: fetching codes\n"); fflush(stdout);
     int_codes.resize( ggml_nelements( states->encoder_graph.codes ) );
     ggml_backend_tensor_get( states->encoder_graph.codes,
         int_codes.data(), 0, int_codes.size() * sizeof(int_codes[0]) );
+    printf("DEBUG: mimi_encode done\n"); fflush(stdout);
 }
 #endif

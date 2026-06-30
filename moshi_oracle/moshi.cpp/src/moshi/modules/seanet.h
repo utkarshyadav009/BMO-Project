@@ -92,6 +92,13 @@ ggml_tensor * moshi_seanet_encoder(
         moshi_seanet_encoder_states_t * states,
         moshi_seanet_encoder_t * encoder,
         ggml_tensor * x) {
+    printf("DEBUG: moshi_seanet_encoder states=%p encoder=%p x=%p\n", (void*)states, (void*)encoder, (void*)x); fflush(stdout);
+    if (states) {
+        printf("DEBUG: states->model_0=%p\n", (void*)states->model_0); fflush(stdout);
+    }
+    if (encoder) {
+        printf("DEBUG: encoder->model_0=%p\n", (void*)encoder->model_0); fflush(stdout);
+    }
     static moshi_seanet_encoder_states_t null_states = {NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL};
     if ( ! states ) states = &null_states;
     x = moshi_streaming_conv_1d( ctx, states->model_0, encoder->model_0, x );

@@ -1125,6 +1125,35 @@ void quantize_row_q3_K_ref(const float * GGML_RESTRICT x, block_q3_K * GGML_REST
     }
 }
 
+void dequantize_row_bmo_tier(const void * GGML_RESTRICT vx_row, float * GGML_RESTRICT y, int64_t k) {
+    printf("DEBUG: dequantize_row_bmo_tier CPU called, vx_row=%p, k=%ld\n", vx_row, (long)k); fflush(stdout);
+    const struct block_bmo_tier * header = (const struct block_bmo_tier *) vx_row;
+    
+    // Check if vx_row is the base pointer or inside the tensor
+    if (header->rows <= 0 || header->rows > 100000 || header->cols <= 0 || header->cols > 100000 ||
+        ((int64_t)header->rows * header->cols != 92274688 && (int64_t)header->rows * header->cols != 46137344)) {
+        // Scan backwards to find the header
+        const char * ptr = (const char *) vx_row;
+        while (1) {
+            ptr -= 16;
+            const struct block_bmo_tier * h = (const struct block_bmo_tier *) ptr;
+            if (h->rows > 0 && h->rows <= 100000 && h->cols > 0 && h->cols <= 100000 && 
+                ((int64_t)h->rows * h->cols == 92274688 || (int64_t)h->rows * h->cols == 46137344)) {
+                header = h;
+                break;
+            }
+        }
+    }
+
+    int64_t row_idx = ((const char *) vx_row - (const char *) header) / header->cols;
+    if (row_idx < 0 || row_idx >= header->rows) {
+        row_idx = 0;
+    }
+
+    const float * dequantized = (const float *) header->dequantized_cpu_ptr;
+    memcpy(y, dequantized + row_idx * header->cols, k * sizeof(float));
+}
+
 void dequantize_row_q3_K(const block_q3_K * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int nb = k / QK_K;

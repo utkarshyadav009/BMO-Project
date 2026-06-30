@@ -673,12 +673,15 @@ std::tuple<ggml_tensor*, ggml_tensor*> moshi_lmmodel_forward_text_build(
         moshi_lmmodel_states_t * state,
         ggml_tensor * sum_condition
     ) {
+    printf("DEBUG: inside forward_text_build - calling embed_build\n"); fflush(stdout);
     auto input = moshi_lmmodel_text_token_embed_build( ctx, lm, &state->embed, sum_condition );
 
+    printf("DEBUG: inside forward_text_build - calling streaming_transformer_graph_build\n"); fflush(stdout);
     state->transformer_T = (int)input->ne[1];
     auto transformer_out = moshi_streaming_transformer_graph_build( ctx,
         lm->transformer, state->transformer, input );
 
+    printf("DEBUG: inside forward_text_build - calling torch_nn_linear\n"); fflush(stdout);
     if ( lm->out_norm )
         transformer_out = moshi_rms_norm( ctx, lm->out_norm, transformer_out );
 
@@ -865,8 +868,10 @@ bool moshi_lmgen_step(
         lm_states->gctx = new GraphContext( 256, scratch.backend );
         GraphContext &graph = *lm_states->gctx;
 
+        printf("DEBUG: before forward_text_build\n"); fflush(stdout);
         auto [graph_transformer_out, text_logits] = moshi_lmmodel_forward_text_build(
             graph, lm, lm_states, condition_sum );
+        printf("DEBUG: after forward_text_build\n"); fflush(stdout);
 
         auto cpy_transformer_out = ggml_cpy( graph,
             graph_transformer_out, lm_states->transformer_out );
@@ -876,14 +881,22 @@ bool moshi_lmgen_step(
             use_sampling, temp_text, top_k_text );
 
         graph.build_forward_expand( lm_states->sampler_out );
+        printf("DEBUG: before graph.alloc()\n"); fflush(stdout);
         graph.alloc();
+        printf("DEBUG: after graph.alloc()\n"); fflush(stdout);
     }
 
     GraphContext &graph = *lm_states->gctx;
+    printf("DEBUG: before forward_text_step\n"); fflush(stdout);
     moshi_lmmodel_forward_text_step( graph, scratch, lm, lm_states, input );
+    printf("DEBUG: after forward_text_step\n"); fflush(stdout);
 
+    printf("DEBUG: before scratch.compute()\n"); fflush(stdout);
     scratch.compute();
+    printf("DEBUG: after scratch.compute()\n"); fflush(stdout);
+    printf("DEBUG: before graph.compute()\n"); fflush(stdout);
     graph.compute();
+    printf("DEBUG: after graph.compute()\n"); fflush(stdout);
 
     int text_token;
     ggml_backend_tensor_get( lm_states->sampler_out, &text_token, 0, 4 );

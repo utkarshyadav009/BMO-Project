@@ -70,7 +70,7 @@ void init_ggml( common_ggml_t & ggml, const char * device = NULL, int n_threads 
             auto set_n_threads_cpu = (ggml_backend_set_n_threads_t)
                 ggml_backend_reg_get_proc_address(reg_cpu, "ggml_backend_set_n_threads");
             if ( set_n_threads_cpu ) {
-                set_n_threads_cpu( backend, n_threads );
+                set_n_threads_cpu( backend_cpu, n_threads );
             }
         }
     }

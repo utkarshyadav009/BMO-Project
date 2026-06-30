@@ -898,17 +898,54 @@ ggml_tensor * moshi_streaming_multihead_cross_attention(
 
 void get_weights( WeightLoader * loader, std::string path, moshi_smha_t * attn ) {
     if ( loader->is_gguf ) {
-        for ( size_t i = 0; i < attn->in_projs.size(); i++ ) {
-            std::string name = path + "in_projs." + std::to_string(i) + ".weight";
-            attn->in_projs[i]->weight = loader->get_tensor( name );
-            assert( attn->in_projs[i]->weight );
-            attn->in_projs[i]->bias = NULL;
+        if ( ! loader->custom_ctx ) {
+            ggml_init_params params;
+            params.mem_size = 10 * 1024 * 1024;
+            params.mem_buffer = NULL;
+            params.no_alloc = true;
+            loader->custom_ctx = ggml_init( params );
         }
-        for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
-            std::string name = path + "out_projs." + std::to_string(i) + ".weight";
-            attn->out_projs[i]->weight = loader->get_tensor( name );
-            assert( attn->out_projs[i]->weight );
-            attn->out_projs[i]->bias = NULL;
+        ggml_context * view_ctx = loader->custom_ctx;
+
+        if ( attn->in_projs.size() > 1 ) {
+            std::string in_proj_name = path + "in_proj_weight";
+            ggml_tensor * concat_in = loader->get_tensor( in_proj_name );
+            assert( concat_in );
+            int64_t ne0 = concat_in->ne[0];
+            int64_t ne1 = concat_in->ne[1] / attn->in_projs.size();
+            size_t nb1 = concat_in->nb[1];
+            for ( size_t i = 0; i < attn->in_projs.size(); i++ ) {
+                attn->in_projs[i]->weight = ggml_view_2d( view_ctx, concat_in,
+                    ne0, ne1, nb1, i * ne1 * nb1 );
+                attn->in_projs[i]->bias = NULL;
+            }
+        } else {
+            for ( size_t i = 0; i < attn->in_projs.size(); i++ ) {
+                std::string name = path + "in_projs." + std::to_string(i) + ".weight";
+                attn->in_projs[i]->weight = loader->get_tensor( name );
+                assert( attn->in_projs[i]->weight );
+                attn->in_projs[i]->bias = NULL;
+            }
+        }
+        if ( attn->out_projs.size() > 1 ) {
+            std::string out_proj_name = path + "out_proj_weight";
+            ggml_tensor * concat_out = loader->get_tensor( out_proj_name );
+            assert( concat_out );
+            int64_t ne0 = concat_out->ne[0];
+            int64_t ne1 = concat_out->ne[1] / attn->out_projs.size();
+            size_t nb1 = concat_out->nb[1];
+            for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
+                attn->out_projs[i]->weight = ggml_view_2d( view_ctx, concat_out,
+                    ne0, ne1, nb1, i * ne1 * nb1 );
+                attn->out_projs[i]->bias = NULL;
+            }
+        } else {
+            for ( size_t i = 0; i < attn->out_projs.size(); i++ ) {
+                std::string name = path + "out_projs." + std::to_string(i) + ".weight";
+                attn->out_projs[i]->weight = loader->get_tensor( name );
+                assert( attn->out_projs[i]->weight );
+                attn->out_projs[i]->bias = NULL;
+            }
         }
         return;
     }
@@ -1053,22 +1090,26 @@ ggml_tensor * moshi_streaming_transformer_layer(
 
     //////////// x = layer._sa_block(x)
 
+    printf("DEBUG:   - norm1\n"); fflush(stdout);
     ggml_tensor * nx;
     if ( layer->norm1_rms )
         nx = moshi_rms_norm(ctx, layer->norm1_rms, x);
     else
         nx = torch_nn_layer_norm(ctx, layer->norm1, x);
 
+    printf("DEBUG:   - self_attn\n"); fflush(stdout);
     auto update = moshi_streaming_multihead_attention( ctx,
         layer->self_attn, states->self_attn, indices,
         nx, nx, /*nx,*/ attn_bias, tsemb );
 
+    printf("DEBUG:   - layer_scale_1\n"); fflush(stdout);
     if ( layer->layer_scale_1 ) {
         update = moshi_layer_scale( ctx, layer->layer_scale_1, update );
     }
     x = ggml_add( ctx, x, update );
 
     if ( layer->cross_attention ) {
+        printf("DEBUG:   - cross_attention\n"); fflush(stdout);
         nx = torch_nn_layer_norm( ctx, layer->norm_cross, x );
 
         update = moshi_streaming_multihead_cross_attention( ctx,
@@ -1079,11 +1120,13 @@ ggml_tensor * moshi_streaming_transformer_layer(
 
     //////////// x = layer._ff_block(x)
 
+    printf("DEBUG:   - norm2\n"); fflush(stdout);
     if ( layer->norm2_rms )
         nx = moshi_rms_norm( ctx, layer->norm2_rms, x );
     else
         nx = torch_nn_layer_norm( ctx, layer->norm2, x );
 
+    printf("DEBUG:   - gating/ff\n"); fflush(stdout);
     assert( layer->gating.size() <= 1 && layer->weights_per_step_schedule.size() == 0 );
     if ( ! layer->gating.size() ) {
         //linear1_r = layer.linear1(nx)
@@ -1098,10 +1141,12 @@ ggml_tensor * moshi_streaming_transformer_layer(
     }
 
     if ( layer->layer_scale_2 ) {
+        printf("DEBUG:   - layer_scale_2\n"); fflush(stdout);
         update = moshi_layer_scale( ctx, layer->layer_scale_2, update );
     }
     x = ggml_add( ctx, x, update );
 
+    printf("DEBUG:   - layer done\n"); fflush(stdout);
     return x;
 }
 
@@ -1117,22 +1162,26 @@ ggml_tensor * moshi_streaming_transformer_layer(
 
     //////////// x = layer._sa_block(x)
 
+    printf("DEBUG:   - norm1\n"); fflush(stdout);
     ggml_tensor * nx;
     if ( layer->norm1_rms )
         nx = moshi_rms_norm(ctx, layer->norm1_rms, x);
     else
         nx = torch_nn_layer_norm(ctx, layer->norm1, x);
 
+    printf("DEBUG:   - self_attn\n"); fflush(stdout);
     auto update = moshi_streaming_multihead_attention( ctx,
         layer->self_attn, states->self_attn, indices, offset,
         nx, nx, /*nx,*/ attn_bias, tsemb );
 
+    printf("DEBUG:   - layer_scale_1\n"); fflush(stdout);
     if ( layer->layer_scale_1 ) {
         update = moshi_layer_scale( ctx, layer->layer_scale_1, update );
     }
     x = ggml_add( ctx, x, update );
 
     if ( layer->cross_attention ) {
+        printf("DEBUG:   - cross_attention\n"); fflush(stdout);
         nx = torch_nn_layer_norm( ctx, layer->norm_cross, x );
 
         update = moshi_streaming_multihead_cross_attention( ctx,
@@ -1144,11 +1193,13 @@ ggml_tensor * moshi_streaming_transformer_layer(
 
     //////////// x = layer._ff_block(x)
 
+    printf("DEBUG:   - norm2\n"); fflush(stdout);
     if ( layer->norm2_rms )
         nx = moshi_rms_norm( ctx, layer->norm2_rms, x );
     else
         nx = torch_nn_layer_norm( ctx, layer->norm2, x );
 
+    printf("DEBUG:   - gating/ff\n"); fflush(stdout);
     if ( ! layer->gating.size() ) {
         //linear1_r = layer.linear1(nx)
         auto linear1_r = torch_nn_linear( ctx, layer->linear1, nx );
@@ -1166,10 +1217,12 @@ ggml_tensor * moshi_streaming_transformer_layer(
     }
 
     if ( layer->layer_scale_2 ) {
+        printf("DEBUG:   - layer_scale_2\n"); fflush(stdout);
         update = moshi_layer_scale( ctx, layer->layer_scale_2, update );
     }
     x = ggml_add( ctx, x, update );
 
+    printf("DEBUG:   - layer done\n"); fflush(stdout);
     return x;
 }
 
@@ -1293,6 +1346,7 @@ ggml_tensor * moshi_streaming_transformer(
 
     for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
         CAPTURE_GROUP( "layer." + std::to_string(idx) );
+        printf("DEBUG: moshi_streaming_transformer building layer %zu (first loop)\n", idx); fflush(stdout);
         auto layer = m->layers[idx];
         auto layer_states = states->layers[idx];
         x = moshi_streaming_transformer_layer( ctx, layer, layer_states,
@@ -1314,6 +1368,7 @@ ggml_tensor * moshi_streaming_transformer(
 
     for ( size_t idx = 0; idx < m->layers.size(); idx++ ) {
         CAPTURE_GROUP( "layer." + std::to_string(idx) );
+        printf("DEBUG: moshi_streaming_transformer building layer %zu (second loop)\n", idx); fflush(stdout);
         auto layer = m->layers[idx];
         auto layer_states = states->layers[idx];
         x = moshi_streaming_transformer_layer( ctx, layer, layer_states,

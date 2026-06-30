@@ -80,9 +80,20 @@ ggml_tensor * torch_nn_linear(
         ggml_context * ctx,
         torch_nn_linear_t * linear,
         ggml_tensor * x ) {
+    printf("DEBUG: torch_nn_linear: linear=%p, x=%p\n", linear, x); fflush(stdout);
+    if (linear) {
+        printf("DEBUG:   - weight=%p (%s, type=%d), bias=%p (%s)\n",
+               linear->weight, linear->weight ? linear->weight->name : "NULL",
+               linear->weight ? (int)linear->weight->type : -1,
+               linear->bias, linear->bias ? linear->bias->name : "NULL");
+        fflush(stdout);
+    }
     ggml_tensor * y = ggml_mul_mat( ctx, linear->weight, x );
-    if ( linear->bias )
+    printf("DEBUG:   - ggml_mul_mat returned y=%p\n", y); fflush(stdout);
+    if ( linear->bias ) {
         y = ggml_add( ctx, y, linear->bias );
+        printf("DEBUG:   - ggml_add returned y=%p\n", y); fflush(stdout);
+    }
     return y;
 }
 

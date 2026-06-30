@@ -422,6 +422,7 @@ int main(int argc, char *argv[]) {
             paths.push_back( program_path + "kyutai/stt-1b-en_fr/mimi-pytorch-e351c8d8@125.safetensors" );
         }
         for ( auto & path : paths ) {
+            printf("DEBUG: checking path: %s, file_exists=%d\n", path.c_str(), file_exists( path.c_str() )); fflush(stdout);
             if ( file_exists( path.c_str() ) ) {
                 mimi_filepath = path;
                 found = true;
@@ -814,7 +815,9 @@ int main(int argc, char *argv[]) {
         } else if ( bench ) {
             memset(blank.data(), 0, blank.size() * sizeof(blank[0]));
             lm_start = ggml_time_us();
+            printf("DEBUG: calling mimi_encode_send\n"); fflush(stdout);
             mimi_encode_send( encoder, blank.data() );
+            printf("DEBUG: after mimi_encode_send\n"); fflush(stdout);
         } else {
             // sdl_receive_frame can block, don't include in frame rate
             sdl_frame_t * input_frame = sdl_receive_frame( input_state, true );
@@ -827,10 +830,17 @@ int main(int argc, char *argv[]) {
             lm_start = ggml_time_us();
         }
 
+        printf("DEBUG: calling mimi_encode_receive\n"); fflush(stdout);
         mimi_encode_receive( encoder, tokens.data() );
+        printf("DEBUG: after mimi_encode_receive\n"); fflush(stdout);
+        
+        printf("DEBUG: calling moshi_lm_send2\n"); fflush(stdout);
         moshi_lm_send2( gen, tokens );
+        printf("DEBUG: after moshi_lm_send2\n"); fflush(stdout);
 
+        printf("DEBUG: calling moshi_lm_receive\n"); fflush(stdout);
         if ( moshi_lm_receive( gen, text_token, tokens ) ) {
+            printf("DEBUG: after moshi_lm_receive\n"); fflush(stdout);
             // audio out
             mimi_decode_send( decoder, tokens.data() );
 

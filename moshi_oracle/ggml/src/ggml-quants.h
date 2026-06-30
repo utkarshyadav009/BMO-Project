@@ -101,6 +101,32 @@ GGML_API void iq2xs_free_impl(enum ggml_type type);
 GGML_API void iq3xs_init_impl(int grid_size);
 GGML_API void iq3xs_free_impl(int grid_size);
 
+struct block_bmo_tier {
+    int32_t rows;
+    int32_t cols;
+    int32_t n_tiles[4];      // n_fp16, n_int8, n_int4, n_int2
+    int32_t tier_offsets[5];
+    float scale_int8;
+    float zp_int8;
+    float scale_int4;
+    float zp_int4;
+    float scale_low;
+    float zp_low;
+    int32_t n_outliers;
+    int32_t padding;
+
+    int64_t dequantized_cpu_ptr; // Store the CPU pointer to dequantized float weights
+
+    // Relative byte offsets from the start of this struct
+    int64_t packed_weights_offset;
+    int64_t tile_tiers_offset;
+    int64_t outlier_indices_offset;
+    int64_t outlier_values_offset;
+    int64_t tile_stream_indices_offset;
+};
+
+GGML_API void dequantize_row_bmo_tier(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k);
+
 #ifdef __cplusplus
 }
 #endif

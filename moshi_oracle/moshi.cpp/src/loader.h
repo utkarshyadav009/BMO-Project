@@ -4,6 +4,9 @@
 #include <gguf.h>
 #include "crc-bbf.h"
 #include <cmath>
+#include <vector>
+#include <string>
+#include <algorithm>
 
 inline void quantize_wht_nf2(const float * src, void * dst, int64_t nrows, int64_t n_per_row) {
     struct block_q2_K {
@@ -87,6 +90,30 @@ std::tuple<std::string, std::string> split_first( const std::string& input, char
     return {input.substr(0, pos), input.substr(pos + 1)};
 }
 
+struct block_bmo_tier {
+    int32_t rows;
+    int32_t cols;
+    int32_t n_tiles[4];      // n_fp16, n_int8, n_int4, n_int2
+    int32_t tier_offsets[5];
+    float scale_int8;
+    float zp_int8;
+    float scale_int4;
+    float zp_int4;
+    float scale_low;
+    float zp_low;
+    int32_t n_outliers;
+    int32_t padding;
+
+    int64_t dequantized_cpu_ptr; // Store the CPU pointer to dequantized float weights
+
+    // Relative byte offsets from the start of this struct
+    int64_t packed_weights_offset;
+    int64_t tile_tiers_offset;
+    int64_t outlier_indices_offset;
+    int64_t outlier_values_offset;
+    int64_t tile_stream_indices_offset;
+};
+
 class WeightLoader {
     public:
 
@@ -106,6 +133,8 @@ class WeightLoader {
     ScratchContext * scratch;
     ggml_backend * backend;
     ggml_context * ctx;
+    ggml_context * custom_ctx;
+    std::vector<float*> cpu_dequantized_ptrs;
     ggml_backend_buffer_t buffer;
     std::vector<alloc_request_t> alloc_requests;
     std::vector<std::function<void(WeightLoader*)>> init_requests;
@@ -123,6 +152,7 @@ private:
         this->scratch = scratch;
         this->backend = backend;
         this->ctx = NULL;
+        this->custom_ctx = NULL;
         buffer = NULL;
         quantize = false;
         qtype = GGML_TYPE_Q4_0;
@@ -135,6 +165,7 @@ private:
         this->scratch = scratch;
         this->backend = backend;
         this->ctx = ctx;
+        this->custom_ctx = NULL;
         buffer = NULL;
         quantize = false;
         qtype = GGML_TYPE_Q4_0;
@@ -146,8 +177,13 @@ public:
             ggml_backend_buffer_free( buffer );
         if (ctx)
             ggml_free( ctx );
+        if (custom_ctx)
+            ggml_free( custom_ctx );
         if (gguf)
             gguf_free( gguf );
+        for (float * ptr : cpu_dequantized_ptrs) {
+            free(ptr);
+        }
     }
 
     static WeightLoader * from_safetensor( const char * filename, ScratchContext * scratch, ggml_backend * backend = NULL ) {
@@ -176,7 +212,9 @@ public:
     safetensor_t * find( std::string name ) {
         // TODO: remove the the prefix
         auto [_, _name] = split_first(name, '.');
-        return stf->find( _name );
+        auto res = stf->find( _name );
+        printf("DEBUG: WeightLoader::find: name=%s, _name=%s, found=%d\n", name.c_str(), _name.c_str(), res != NULL); fflush(stdout);
+        return res;
     }
 
     void init( safetensor_t * safetensor, ggml_tensor * tensor ) {
@@ -211,14 +249,465 @@ public:
         return crc_name;
     }
 
+    int32_t read_scalar_i32(std::string name, int32_t def_val = 0) {
+        auto t = tensors.find(name);
+        if (t == tensors.end()) return def_val;
+        int32_t val = def_val;
+        ggml_backend_tensor_get(t->second, &val, 0, sizeof(int32_t));
+        return val;
+    }
+
+    float read_scalar_f32(std::string name, float def_val = 0.0f) {
+        auto t = tensors.find(name);
+        if (t == tensors.end()) return def_val;
+        float val = def_val;
+        ggml_backend_tensor_get(t->second, &val, 0, sizeof(float));
+        return val;
+    }
+
+    std::vector<uint8_t> read_bytes(std::string name) {
+        auto it = tensors.find(name);
+        if (it == tensors.end()) return {};
+        size_t nbytes = ggml_nbytes(it->second);
+        std::vector<uint8_t> buf(nbytes);
+        ggml_backend_tensor_get(it->second, buf.data(), 0, nbytes);
+        return buf;
+    }
+
+    std::vector<float> dequantize_attn_to_f32(std::string & base_name, int32_t & rows, int32_t & cols) {
+        rows = read_scalar_i32(base_name + ".rows");
+        if (rows <= 0) rows = read_scalar_i32(base_name + ".out_features");
+        cols = read_scalar_i32(base_name + ".cols");
+        if (cols <= 0) cols = read_scalar_i32(base_name + ".in_features");
+        int32_t group_size = read_scalar_i32(base_name + ".group_size", 128);
+        int32_t n_groups = read_scalar_i32(base_name + ".n_groups", cols / group_size);
+
+        auto pw = read_bytes(base_name + ".packed_weights");
+        auto scales = read_bytes(base_name + ".scales");
+        auto zeros = read_bytes(base_name + ".zeros");
+
+        const float * p_scales = (const float *) scales.data();
+        const float * p_zeros = (const float *) zeros.data();
+
+        std::vector<float> w_f32(rows * cols);
+
+        for (int r = 0; r < rows; ++r) {
+            for (int g = 0; g < n_groups; ++g) {
+                float scale = p_scales[r * n_groups + g];
+                float zero = p_zeros[r * n_groups + g];
+                for (int i = 0; i < group_size; ++i) {
+                    int c = g * group_size + i;
+                    int flat_idx = r * cols + c;
+                    int byte_idx = flat_idx / 2;
+                    uint8_t b = pw[byte_idx];
+                    uint8_t q = (flat_idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+                    w_f32[flat_idx] = (float)q * scale + zero;
+                }
+            }
+        }
+        return w_f32;
+    }
+
+    ggml_tensor * build_quantized_attn_tensor(std::string & name) {
+        std::string base_name = name;
+        std::replace(base_name.begin(), base_name.end(), '.', '_');
+
+        std::string name_pw = base_name + ".packed_weights";
+        if (tensors.find(name_pw) == tensors.end()) {
+            return NULL;
+        }
+
+        int32_t rows = 0;
+        int32_t cols = 0;
+        std::vector<float> w_f32 = dequantize_attn_to_f32(base_name, rows, cols);
+
+        if (!custom_ctx) {
+            ggml_init_params params;
+            params.mem_size = 10 * 1024 * 1024;
+            params.mem_buffer = NULL;
+            params.no_alloc = true;
+            custom_ctx = ggml_init(params);
+        }
+
+        ggml_type target_qtype = GGML_TYPE_Q4_K;
+        ggml_tensor * custom_tensor = ggml_new_tensor_2d(custom_ctx, target_qtype, cols, rows);
+        ggml_set_name(custom_tensor, base_name.c_str());
+
+        if (backend) {
+            ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+        } else {
+            custom_tensor->data = malloc(ggml_row_size(target_qtype, cols) * rows);
+        }
+
+        size_t qsize = ggml_row_size(target_qtype, cols) * rows;
+        std::vector<uint8_t> qdata(qsize);
+        ggml_quantize_chunk(target_qtype, w_f32.data(), qdata.data(), 0, rows, cols, nullptr);
+
+        if (backend) {
+            ggml_backend_tensor_set(custom_tensor, qdata.data(), 0, qsize);
+        } else {
+            memcpy(custom_tensor->data, qdata.data(), qsize);
+        }
+
+        tensors[base_name] = custom_tensor;
+        return custom_tensor;
+    }
+
+    float * dequantize_ffn_cpu(const block_bmo_tier & header,
+                               const uint8_t * pw,
+                               const uint8_t * tile_tiers,
+                               const int32_t * outlier_indices,
+                               const ggml_fp16_t * outlier_values) {
+        int32_t rows = header.rows;
+        int32_t cols = header.cols;
+        int64_t total = (int64_t) rows * (int64_t) cols;
+        float * w_f32 = (float *) malloc(total * sizeof(float));
+        memset(w_f32, 0, total * sizeof(float));
+
+        int32_t n_fp16 = header.n_tiles[0];
+        int32_t n_int8 = header.n_tiles[1];
+        int32_t n_int4 = header.n_tiles[2];
+        int32_t n_int2 = header.n_tiles[3];
+
+        int32_t off0 = header.tier_offsets[0];
+        int32_t off1 = header.tier_offsets[1];
+        int32_t off2 = header.tier_offsets[2];
+        int32_t off3 = header.tier_offsets[3];
+        int32_t off4 = header.tier_offsets[4];
+
+        int32_t tile_rows = 64;
+        int32_t tile_cols = 64;
+        int32_t tile_size = tile_rows * tile_cols;
+
+        std::vector<float> fp16_tiles_deq(n_fp16 * tile_size);
+        if (n_fp16 > 0) {
+            const ggml_fp16_t * raw_fp16 = (const ggml_fp16_t *)(pw + off0);
+            for (int64_t i = 0; i < (int64_t)n_fp16 * tile_size; ++i) {
+                fp16_tiles_deq[i] = ggml_fp16_to_fp32(raw_fp16[i]);
+            }
+        }
+
+        std::vector<float> int8_tiles_deq(n_int8 * tile_size);
+        if (n_int8 > 0) {
+            const uint8_t * raw_int8 = pw + off1;
+            for (int64_t i = 0; i < (int64_t)n_int8 * tile_size; ++i) {
+                int8_tiles_deq[i] = ((float)raw_int8[i] - header.zp_int8) * header.scale_int8;
+            }
+        }
+
+        std::vector<float> int4_tiles_deq(n_int4 * tile_size);
+        if (n_int4 > 0) {
+            const uint8_t * raw_int4 = pw + off2;
+            for (int64_t t = 0; t < n_int4; ++t) {
+                for (int32_t i = 0; i < tile_size; ++i) {
+                    int32_t flat_idx = t * tile_size + i;
+                    int32_t byte_idx = flat_idx / 2;
+                    uint8_t b = raw_int4[byte_idx];
+                    uint8_t q = (flat_idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+                    int4_tiles_deq[flat_idx] = ((float)q - header.zp_int4) * header.scale_int4;
+                }
+            }
+        }
+
+        std::vector<float> int2_tiles_deq(n_int2 * tile_size);
+        if (n_int2 > 0) {
+            const uint8_t * raw_int2 = pw + off3;
+            for (int64_t t = 0; t < n_int2; ++t) {
+                for (int32_t i = 0; i < tile_size; ++i) {
+                    int32_t flat_idx = t * tile_size + i;
+                    int32_t byte_idx = flat_idx / 4;
+                    uint8_t b = raw_int2[byte_idx];
+                    uint8_t q = (flat_idx % 4 == 0) ? (b & 0x03) :
+                                ((flat_idx % 4 == 1) ? ((b >> 2) & 0x03) :
+                                 ((flat_idx % 4 == 2) ? ((b >> 4) & 0x03) : ((b >> 6) & 0x03)));
+                    int2_tiles_deq[flat_idx] = ((float)q - header.zp_low) * header.scale_low;
+                }
+            }
+        }
+
+        int32_t n_tiles_col = cols / 64;
+        int32_t fp16_ptr = 0;
+        int32_t int8_ptr = 0;
+        int32_t int4_ptr = 0;
+        int32_t int2_ptr = 0;
+
+        int32_t n_tiles_total = rows * cols / tile_size;
+        for (int32_t t_idx = 0; t_idx < n_tiles_total; ++t_idx) {
+            uint8_t tier = tile_tiers[t_idx];
+            int32_t tile_r = t_idx / n_tiles_col;
+            int32_t tile_c = t_idx % n_tiles_col;
+            int32_t row_start = tile_r * tile_rows;
+            int32_t col_start = tile_c * tile_cols;
+
+            const float * src_tile = NULL;
+            if (tier == 0) {
+                src_tile = fp16_tiles_deq.data() + fp16_ptr * tile_size;
+                fp16_ptr++;
+            } else if (tier == 1) {
+                src_tile = int8_tiles_deq.data() + int8_ptr * tile_size;
+                int8_ptr++;
+            } else if (tier == 2) {
+                src_tile = int4_tiles_deq.data() + int4_ptr * tile_size;
+                int4_ptr++;
+            } else if (tier == 3) {
+                src_tile = int2_tiles_deq.data() + int2_ptr * tile_size;
+                int2_ptr++;
+            }
+
+            for (int32_t tr = 0; tr < tile_rows; ++tr) {
+                for (int32_t tc = 0; tc < tile_cols; ++tc) {
+                    w_f32[(row_start + tr) * cols + (col_start + tc)] = src_tile[tr * tile_cols + tc];
+                }
+            }
+        }
+
+        if (header.n_outliers > 0 && outlier_indices && outlier_values) {
+            for (int32_t i = 0; i < header.n_outliers; ++i) {
+                int32_t idx = outlier_indices[i];
+                w_f32[idx] = ggml_fp16_to_fp32(outlier_values[i]);
+            }
+        }
+
+        return w_f32;
+    }
+
+    ggml_tensor * build_custom_ffn_tensor(std::string & name) {
+        std::string base_name = name;
+        std::replace(base_name.begin(), base_name.end(), '.', '_');
+
+        std::string name_pw = base_name + ".packed_weights";
+        if (tensors.find(name_pw) == tensors.end()) {
+            return NULL;
+        }
+
+        int32_t rows = read_scalar_i32(base_name + ".rows");
+        if (rows <= 0) rows = read_scalar_i32(base_name + ".out_features");
+        int32_t cols = read_scalar_i32(base_name + ".cols");
+        if (cols <= 0) cols = read_scalar_i32(base_name + ".in_features");
+        int32_t n_outliers = read_scalar_i32(base_name + ".n_outliers");
+
+        float scale_int8 = read_scalar_f32(base_name + ".scale_int8", 1.0f);
+        float zp_int8 = read_scalar_f32(base_name + ".zp_int8", 0.0f);
+        float scale_int4 = read_scalar_f32(base_name + ".scale_int4", 1.0f);
+        float zp_int4 = read_scalar_f32(base_name + ".zp_int4", 0.0f);
+        float scale_low = read_scalar_f32(base_name + ".scale_low", 1.0f);
+        float zp_low = read_scalar_f32(base_name + ".zp_low", 0.0f);
+
+        auto pw = read_bytes(base_name + ".packed_weights");
+        auto tt = read_bytes(base_name + ".tile_tiers");
+        auto n_tiles_buf = read_bytes(base_name + ".n_tiles");
+        auto tier_offsets_buf = read_bytes(base_name + ".tier_offsets");
+        auto oi = read_bytes(base_name + ".outlier_indices");
+        auto ov = read_bytes(base_name + ".outlier_values");
+
+        if (!custom_ctx) {
+            ggml_init_params params;
+            params.mem_size = 10 * 1024 * 1024;
+            params.mem_buffer = NULL;
+            params.no_alloc = true;
+            custom_ctx = ggml_init(params);
+        }
+
+        ggml_tensor * custom_tensor = ggml_new_tensor_2d(custom_ctx, GGML_TYPE_BMO_TIER, cols, rows);
+        ggml_set_name(custom_tensor, base_name.c_str());
+
+        if (backend) {
+            ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+        } else {
+            custom_tensor->data = malloc(cols * rows);
+        }
+
+        block_bmo_tier header;
+        header.rows = rows;
+        header.cols = cols;
+        header.scale_int8 = scale_int8;
+        header.zp_int8 = zp_int8;
+        header.scale_int4 = scale_int4;
+        header.zp_int4 = zp_int4;
+        header.scale_low = scale_low;
+        header.zp_low = zp_low;
+        header.n_outliers = n_outliers;
+        header.padding = 0;
+
+        if (n_tiles_buf.size() >= 4 * sizeof(int32_t)) {
+            memcpy(header.n_tiles, n_tiles_buf.data(), 4 * sizeof(int32_t));
+        } else {
+            memset(header.n_tiles, 0, 4 * sizeof(int32_t));
+        }
+
+        if (tier_offsets_buf.size() >= 5 * sizeof(int32_t)) {
+            memcpy(header.tier_offsets, tier_offsets_buf.data(), 5 * sizeof(int32_t));
+        } else {
+            memset(header.tier_offsets, 0, 5 * sizeof(int32_t));
+        }
+
+        // Compute tile stream indices
+        std::vector<uint16_t> tile_stream_indices(tt.size());
+        int32_t ptrs[4] = {0, 0, 0, 0};
+        for (size_t t_idx = 0; t_idx < tt.size(); ++t_idx) {
+            uint8_t tier = tt[t_idx];
+            tile_stream_indices[t_idx] = ptrs[tier]++;
+        }
+
+        size_t offset = sizeof(block_bmo_tier);
+        header.packed_weights_offset = offset;
+        offset += pw.size();
+        offset = (offset + 3) & ~3;
+
+        header.tile_tiers_offset = offset;
+        offset += tt.size();
+        offset = (offset + 3) & ~3;
+
+        header.outlier_indices_offset = offset;
+        offset += oi.size();
+        offset = (offset + 3) & ~3;
+
+        header.outlier_values_offset = offset;
+        offset += ov.size();
+        offset = (offset + 15) & ~15;
+
+        header.tile_stream_indices_offset = offset;
+        offset += tile_stream_indices.size() * sizeof(uint16_t);
+        offset = (offset + 15) & ~15;
+
+        std::vector<uint8_t> payload(offset, 0);
+        memcpy(payload.data(), &header, sizeof(block_bmo_tier));
+        memcpy(payload.data() + header.packed_weights_offset, pw.data(), pw.size());
+        memcpy(payload.data() + header.tile_tiers_offset, tt.data(), tt.size());
+        if (!oi.empty()) memcpy(payload.data() + header.outlier_indices_offset, oi.data(), oi.size());
+        if (!ov.empty()) memcpy(payload.data() + header.outlier_values_offset, ov.data(), ov.size());
+        memcpy(payload.data() + header.tile_stream_indices_offset, tile_stream_indices.data(), tile_stream_indices.size() * sizeof(uint16_t));
+
+        // Perform CPU dequantization once to store CPU floats
+        const uint8_t * p_pw = payload.data() + header.packed_weights_offset;
+        const uint8_t * p_tt = payload.data() + header.tile_tiers_offset;
+        const int32_t * p_oi = oi.empty() ? NULL : (const int32_t *)(payload.data() + header.outlier_indices_offset);
+        const ggml_fp16_t * p_ov = ov.empty() ? NULL : (const ggml_fp16_t *)(payload.data() + header.outlier_values_offset);
+        float * deq_cpu = dequantize_ffn_cpu(header, p_pw, p_tt, p_oi, p_ov);
+        cpu_dequantized_ptrs.push_back(deq_cpu);
+        
+        block_bmo_tier * header_in_payload = (block_bmo_tier *) payload.data();
+        header_in_payload->dequantized_cpu_ptr = (int64_t) deq_cpu;
+
+        if (backend) {
+            ggml_backend_tensor_set(custom_tensor, payload.data(), 0, offset);
+        } else {
+            memcpy(custom_tensor->data, payload.data(), offset);
+        }
+
+        tensors[base_name] = custom_tensor;
+        return custom_tensor;
+    }
+
     ggml_tensor * get_tensor( std::string & name ) {
         if ( ! gguf )
             return NULL;
-        name = tensor_name( name );
-        auto it = tensors.find( name );
-        if ( it == tensors.end() )
-            return NULL;
-        return it->second;
+
+        std::string orig_name = name;
+
+        // 1. Try exact match of original requested name
+        auto it_orig = tensors.find( orig_name );
+        if ( it_orig != tensors.end() ) {
+            return it_orig->second;
+        }
+
+        // 2. Try hash match of original requested name
+        std::string hashed_orig = tensor_name( orig_name );
+        auto it_hashed_orig = tensors.find( hashed_orig );
+        if ( it_hashed_orig != tensors.end() ) {
+            name = hashed_orig;
+            return it_hashed_orig->second;
+        }
+
+        size_t pos_dot;
+        while ((pos_dot = name.find(".in_projs.0.weight")) != std::string::npos) {
+            name.replace(pos_dot, 18, ".in_proj_weight");
+        }
+        while ((pos_dot = name.find(".out_projs.0.weight")) != std::string::npos) {
+            name.replace(pos_dot, 19, ".out_proj.weight");
+        }
+
+        auto it_exact = tensors.find( name );
+        if ( it_exact != tensors.end() ) {
+            return it_exact->second;
+        }
+
+        std::string hashed_name = tensor_name( name );
+        auto it_hashed = tensors.find( hashed_name );
+        if ( it_hashed != tensors.end() ) {
+            name = hashed_name;
+            return it_hashed->second;
+        }
+
+        std::string lookup_name = name;
+        auto [prefix, rest] = split_first(lookup_name, '.');
+        if (!rest.empty()) {
+            auto it_rest = tensors.find( rest );
+            if ( it_rest != tensors.end() ) {
+                name = rest;
+                return it_rest->second;
+            }
+        }
+
+        if (!rest.empty() && (prefix == "lm" || prefix == "mimi")) {
+            lookup_name = rest;
+        }
+        
+        std::replace(lookup_name.begin(), lookup_name.end(), '.', '_');
+        
+        // Map self-attention projections from plural to singular
+        size_t pos;
+        while ((pos = lookup_name.find("_in_projs_0_")) != std::string::npos) {
+            lookup_name.replace(pos, 12, "_in_proj_");
+        }
+        while ((pos = lookup_name.find("_out_projs_0_")) != std::string::npos) {
+            lookup_name.replace(pos, 13, "_out_proj_");
+        }
+        
+        auto it = tensors.find( lookup_name );
+        if ( it != tensors.end() ) {
+            name = lookup_name;
+            return it->second;
+        }
+
+        // Try replacing _alpha with _weight
+        if (lookup_name.size() > 6 && lookup_name.substr(lookup_name.size() - 6) == "_alpha") {
+            std::string weight_name = lookup_name.substr(0, lookup_name.size() - 6) + "_weight";
+            it = tensors.find( weight_name );
+            if ( it != tensors.end() ) {
+                name = weight_name;
+                return it->second;
+            }
+        }
+        
+        std::string name_pw = lookup_name + ".packed_weights";
+        if ( tensors.find( name_pw ) != tensors.end() ) {
+            int32_t packing_version = read_scalar_i32( lookup_name + ".packing_version", 0 );
+            if ( packing_version == 10 ) {
+                auto built = build_quantized_attn_tensor( lookup_name );
+                if ( built ) {
+                    name = lookup_name;
+                    return built;
+                }
+            } else if ( packing_version == 6 ) {
+                auto built = build_custom_ffn_tensor( lookup_name );
+                if ( built ) {
+                    name = lookup_name;
+                    return built;
+                }
+            }
+        }
+        
+        std::string search_name = rest.empty() ? name : rest;
+        search_name = tensor_name( search_name );
+        it = tensors.find( search_name );
+        if ( it != tensors.end() ) {
+            name = search_name;
+            return it->second;
+        }
+            
+        printf("DEBUG: get_tensor(%s) -> NULL (original requested name: %s)\n", lookup_name.c_str(), name.c_str()); fflush(stdout);
+        return NULL;
     }
 
     bool fetch( ggml_tensor ** result, std::string name, ggml_type dst_type, int offset = 0 ) {

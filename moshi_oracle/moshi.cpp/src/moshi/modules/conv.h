@@ -50,6 +50,10 @@ ggml_tensor * moshi_streaming_conv_1d (
         ggml_tensor * prev,
         moshi_streaming_conv_1d_t * conv,
         ggml_tensor * x ) {
+    printf("DEBUG: moshi_streaming_conv_1d prev=%p conv=%p x=%p\n", (void*)prev, (void*)conv, (void*)x); fflush(stdout);
+    if (conv) {
+        printf("DEBUG: conv weights=%p bias=%p kernel_size=%d stride=%d in_channels=%d\n", (void*)conv->weight, (void*)conv->bias, conv->kernel_size, conv->stride, conv->in_channels); fflush(stdout);
+    }
     const int kernel_size = conv->kernel_size;
     const int dilation = 1;
     const int stride = conv->stride;
