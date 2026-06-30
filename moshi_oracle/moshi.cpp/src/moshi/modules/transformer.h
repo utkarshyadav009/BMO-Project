@@ -1211,8 +1211,13 @@ void get_weights( WeightLoader * loader, std::string path,
             get_weights( loader, path + "gating.", layer->gating[0] );
         }
     } else {
+        auto orig_qtype = loader->qtype;
+        if ( loader->quantize && loader->qtype == GGML_TYPE_Q2_K ) {
+            loader->qtype = GGML_TYPE_Q4_K;
+        }
         get_weights( loader, path + "linear1.", layer->linear1 );
         get_weights( loader, path + "linear2.", layer->linear2 );
+        loader->qtype = orig_qtype;
     }
 
     if ( layer->layer_scale_2 )

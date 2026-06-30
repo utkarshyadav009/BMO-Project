@@ -147,12 +147,43 @@ static __global__ void dequantize_block_q2_K(const void * __restrict__ vx, dst_t
     const uint8_t q = x[i].qs[32*n + l];
     dst_t * y = yy + i*QK_K + 128*n;
 
-    float dall = __low2half(x[i].dm);
-    float dmin = __high2half(x[i].dm);
-    y[l+ 0] = dall * (x[i].scales[is+0] & 0xF) * ((q >> 0) & 3) - dmin * (x[i].scales[is+0] >> 4);
-    y[l+32] = dall * (x[i].scales[is+2] & 0xF) * ((q >> 2) & 3) - dmin * (x[i].scales[is+2] >> 4);
-    y[l+64] = dall * (x[i].scales[is+4] & 0xF) * ((q >> 4) & 3) - dmin * (x[i].scales[is+4] >> 4);
-    y[l+96] = dall * (x[i].scales[is+6] & 0xF) * ((q >> 6) & 3) - dmin * (x[i].scales[is+6] >> 4);
+    float dall = __half2float(x[i].data.d);     // RMS scale of Group 0
+    float dmin = __half2float(x[i].data.dmin);  // RMS scale of Group 1
+    const float centroids[4] = {-1.5104f, -0.4528f, 0.4528f, 1.5104f};
+
+    __shared__ float s_mem[256];
+
+    s_mem[128*n + l + 0]  = centroids[(q >> 0) & 3];
+    s_mem[128*n + l + 32] = centroids[(q >> 2) & 3];
+    s_mem[128*n + l + 64] = centroids[(q >> 4) & 3];
+    s_mem[128*n + l + 96] = centroids[(q >> 6) & 3];
+
+    __syncthreads();
+
+    // Parallel in-place Walsh-Hadamard Transform of size 128 on group 0 and group 1
+    for (int h = 1; h < 128; h *= 2) {
+        int j_g0 = (tid / h) * (2 * h) + (tid % h);
+        int j_g1 = j_g0 + 128;
+
+        float a0 = s_mem[j_g0];
+        float b0 = s_mem[j_g0 + h];
+        s_mem[j_g0] = a0 + b0;
+        s_mem[j_g0 + h] = a0 - b0;
+
+        float a1 = s_mem[j_g1];
+        float b1 = s_mem[j_g1 + h];
+        s_mem[j_g1] = a1 + b1;
+        s_mem[j_g1 + h] = a1 - b1;
+
+        __syncthreads();
+    }
+
+    // Apply normalization, group scale & write out to destination
+    float scale = (n == 0 ? dall : dmin) * 0.0883883476f;
+    y[l+ 0] = ggml_cuda_cast<dst_t>(s_mem[128*n + l + 0] * scale);
+    y[l+32] = ggml_cuda_cast<dst_t>(s_mem[128*n + l + 32] * scale);
+    y[l+64] = ggml_cuda_cast<dst_t>(s_mem[128*n + l + 64] * scale);
+    y[l+96] = ggml_cuda_cast<dst_t>(s_mem[128*n + l + 96] * scale);
 }
 
 template<typename dst_t>

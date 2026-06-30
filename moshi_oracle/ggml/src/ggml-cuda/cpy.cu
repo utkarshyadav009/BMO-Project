@@ -107,19 +107,47 @@ static __device__ void cpy_blck_q2_K_f32(const char * cxi, char * cdsti) {
     float * cdstf = (float *)(cdsti);
     const block_q2_K * x = (const block_q2_K *) cxi;
 
-    float dall = __low2half(x->dm);
-    float dmin = __high2half(x->dm);
+    float dall = __half2float(x->data.d);     // RMS scale of Group 0
+    float dmin = __half2float(x->data.dmin);  // RMS scale of Group 1
+    const float centroids[4] = {-1.5104f, -0.4528f, 0.4528f, 1.5104f};
+
+    float temp[256];
 
     for (int n = 0; n < 2; n++) {
         for (int l = 0; l < 32; l++) {
-            const int is = 8*n + l/16;
             const uint8_t q = x->qs[32*n + l];
-            float * y = cdstf + 128*n;
-            y[l+ 0] = dall * (x->scales[is+0] & 0xF) * ((q >> 0) & 3) - dmin * (x->scales[is+0] >> 4);
-            y[l+32] = dall * (x->scales[is+2] & 0xF) * ((q >> 2) & 3) - dmin * (x->scales[is+2] >> 4);
-            y[l+64] = dall * (x->scales[is+4] & 0xF) * ((q >> 4) & 3) - dmin * (x->scales[is+4] >> 4);
-            y[l+96] = dall * (x->scales[is+6] & 0xF) * ((q >> 6) & 3) - dmin * (x->scales[is+6] >> 4);
+            float * y = temp + 128*n;
+            y[l+ 0] = centroids[(q >> 0) & 3];
+            y[l+32] = centroids[(q >> 2) & 3];
+            y[l+64] = centroids[(q >> 4) & 3];
+            y[l+96] = centroids[(q >> 6) & 3];
         }
+    }
+
+    // Apply WHT de-rotation sequentially for group 0 and group 1
+    for (int g = 0; g < 2; g++) {
+        float * group = temp + 128 * g;
+        int h = 1;
+        while (h < 128) {
+            for (int i = 0; i < 128; i += 2 * h) {
+                for (int j = i; j < i + h; j++) {
+                    float a = group[j];
+                    float b = group[j + h];
+                    group[j] = a + b;
+                    group[j + h] = a - b;
+                }
+            }
+            h *= 2;
+        }
+        float scale = (g == 0 ? dall : dmin) * 0.0883883476f;
+        for (int i = 0; i < 128; i++) {
+            group[i] *= scale;
+        }
+    }
+
+    // Copy to destination
+    for (int j = 0; j < 256; j++) {
+        cdstf[j] = temp[j];
     }
 }
 

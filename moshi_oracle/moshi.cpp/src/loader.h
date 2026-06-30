@@ -3,6 +3,81 @@
 #include <functional>
 #include <gguf.h>
 #include "crc-bbf.h"
+#include <cmath>
+
+inline void quantize_wht_nf2(const float * src, void * dst, int64_t nrows, int64_t n_per_row) {
+    struct block_q2_K {
+        uint8_t scales[16];
+        uint8_t qs[64];
+        ggml_fp16_t d;
+        ggml_fp16_t dmin;
+    };
+
+    block_q2_K * out = (block_q2_K *) dst;
+    int64_t num_blocks = n_per_row / 256;
+
+    for (int64_t r = 0; r < nrows; r++) {
+        const float * row = src + r * n_per_row;
+        block_q2_K * row_out = out + r * num_blocks;
+
+        for (int64_t b = 0; b < num_blocks; b++) {
+            const float * block_data = row + b * 256;
+            block_q2_K & block = row_out[b];
+
+            // Compute RMS scales
+            float sum0 = 0.0f;
+            for (int i = 0; i < 128; i++) {
+                sum0 += block_data[i] * block_data[i];
+            }
+            float scale0 = sqrtf(sum0 / 128.0f);
+            if (scale0 < 1e-8f) scale0 = 1e-8f;
+
+            float sum1 = 0.0f;
+            for (int i = 128; i < 256; i++) {
+                sum1 += block_data[i] * block_data[i];
+            }
+            float scale1 = sqrtf(sum1 / 128.0f);
+            if (scale1 < 1e-8f) scale1 = 1e-8f;
+
+            // Store scales in d and dmin
+            block.d = ggml_fp32_to_fp16(scale0);
+            block.dmin = ggml_fp32_to_fp16(scale1);
+
+            // Initialize scales array to 0
+            memset(block.scales, 0, sizeof(block.scales));
+
+            // Quantize and pack codes (4 codes per byte, little-endian)
+            for (int n = 0; n < 2; n++) {
+                float scale = (n == 0) ? scale0 : scale1;
+                const float * group_data = block_data + 128 * n;
+
+                for (int l = 0; l < 32; l++) {
+                    uint8_t q = 0;
+                    int offsets[4] = {0, 32, 64, 96};
+                    for (int o = 0; o < 4; o++) {
+                        float val = group_data[l + offsets[o]];
+                        float normalized = val / scale;
+
+                        // NF2 Lloyd-Max Quantization
+                        uint8_t code = 0;
+                        if (normalized < -0.9816f) {
+                            code = 0;
+                        } else if (normalized < 0.0f) {
+                            code = 1;
+                        } else if (normalized < 0.9816f) {
+                            code = 2;
+                        } else {
+                            code = 3;
+                        }
+
+                        q |= (code << (2 * o));
+                    }
+                    block.qs[32 * n + l] = q;
+                }
+            }
+        }
+    }
+}
 
 // TODO: remove prefix
 std::tuple<std::string, std::string> split_first( const std::string& input, char c ) {
@@ -181,11 +256,97 @@ public:
             } );
         } else {
             add_init([ safetensor, result ]( WeightLoader * loader ) {
-                auto & scratch_ctx = *loader->scratch;
-                auto original = scratch_ctx.load( loader->stf, safetensor );
-                auto cast = ggml_cast( scratch_ctx, original, (*result)->type );
-                scratch_ctx.build_forward_expand( cast, *result );
-                scratch_ctx.compute();
+                if ((*result)->type == GGML_TYPE_Q2_K) {
+                    // Create a local CPU ggml_context
+                    ggml_init_params params;
+                    params.mem_size = (size_t)1024 * 1024 * 1024;
+                    params.mem_buffer = NULL;
+                    params.no_alloc = false;
+                    ggml_context * cpu_ctx = ggml_init(params);
+                    assert(cpu_ctx);
+
+                    NE ne;
+                    int n_dims = safetensor_get_shape(safetensor, ne, 0);
+                    ggml_tensor * original_cpu = ggml_new_tensor(cpu_ctx, GGML_TYPE_F32, n_dims, ne);
+                    assert(original_cpu);
+
+                    int64_t size = safetensor->data_offsets[1] - safetensor->data_offsets[0];
+                    std::vector<char> raw_data(size);
+                    int64_t offset = safetensor->data_offsets[0] + loader->stf->header_length;
+#ifdef _WIN32
+                    _fseeki64(loader->stf->f, offset, SEEK_SET);
+#else
+                    fseek(loader->stf->f, offset, SEEK_SET);
+#endif
+                    fread(raw_data.data(), size, 1, loader->stf->f);
+
+                    ggml_type src_type = safetensor_get_type(safetensor->dtype);
+                    if (src_type == GGML_TYPE_BF16) {
+                        int64_t nelements = ggml_nelements(original_cpu);
+                        const uint16_t * src_bf16 = (const uint16_t *) raw_data.data();
+                        float * dst_f32 = (float *) original_cpu->data;
+                        for (int64_t k = 0; k < nelements; k++) {
+                            uint32_t val = ((uint32_t)src_bf16[k]) << 16;
+                            dst_f32[k] = *(float*)&val;
+                        }
+                    } else if (src_type == GGML_TYPE_F16) {
+                        int64_t nelements = ggml_nelements(original_cpu);
+                        const uint16_t * src_f16 = (const uint16_t *) raw_data.data();
+                        float * dst_f32 = (float *) original_cpu->data;
+                        for (int64_t k = 0; k < nelements; k++) {
+                            dst_f32[k] = ggml_fp16_to_fp32(src_f16[k]);
+                        }
+                    } else if (src_type == GGML_TYPE_F32) {
+                        memcpy(original_cpu->data, raw_data.data(), size);
+                    } else {
+                        printf("Unsupported safetensor weight type %s\n", ggml_type_name(src_type));
+                        exit(-1);
+                    }
+
+                    // Apply WHT pre-rotation (Walsh-Hadamard Transform) on F32 CPU tensor
+                    int64_t row_size = original_cpu->ne[0];
+                    int64_t num_rows = ggml_nrows(original_cpu);
+                    if (row_size % 128 == 0) {
+                        float * data = (float *) original_cpu->data;
+                        for (int64_t r = 0; r < num_rows; r++) {
+                            float * row = data + r * row_size;
+                            for (int64_t c = 0; c < row_size; c += 128) {
+                                int h = 1;
+                                while (h < 128) {
+                                    for (int i = 0; i < 128; i += 2 * h) {
+                                        for (int j = i; j < i + h; j++) {
+                                            float a = row[c + j];
+                                            float b = row[c + j + h];
+                                            row[c + j] = a + b;
+                                            row[c + j + h] = a - b;
+                                        }
+                                    }
+                                    h *= 2;
+                                }
+                                for (int i = 0; i < 128; i++) {
+                                    row[c + i] *= 0.0883883476f;
+                                }
+                            }
+                        }
+                    }
+
+                    // Quantize the rotated F32 tensor to Q2_K on the CPU
+                    int64_t quantized_size = ggml_row_size(GGML_TYPE_Q2_K, row_size) * num_rows;
+                    std::vector<char> quantized_data(quantized_size);
+                    
+                    quantize_wht_nf2((const float *) original_cpu->data, quantized_data.data(), num_rows, row_size);
+
+                    // Copy the quantized data directly to the GPU tensor *result
+                    ggml_backend_tensor_set(*result, quantized_data.data(), 0, quantized_size);
+
+                    ggml_free(cpu_ctx);
+                } else {
+                    auto & scratch_ctx = *loader->scratch;
+                    auto original = scratch_ctx.load( loader->stf, safetensor );
+                    auto cast = ggml_cast( scratch_ctx, original, (*result)->type );
+                    scratch_ctx.build_forward_expand( cast, *result );
+                    scratch_ctx.compute();
+                }
             } );
         }
         return true;
@@ -217,11 +378,97 @@ public:
             } );
         } else {
             add_init([ safetensor, result ]( WeightLoader * loader ) {
-                auto & scratch_ctx = *loader->scratch;
-                auto original = scratch_ctx.load( loader->stf, safetensor );
-                auto cast = ggml_cast( scratch_ctx, original, (*result)->type );
-                scratch_ctx.build_forward_expand( cast, *result );
-                scratch_ctx.compute();
+                if ((*result)->type == GGML_TYPE_Q2_K) {
+                    // Create a local CPU ggml_context
+                    ggml_init_params params;
+                    params.mem_size = (size_t)1024 * 1024 * 1024;
+                    params.mem_buffer = NULL;
+                    params.no_alloc = false;
+                    ggml_context * cpu_ctx = ggml_init(params);
+                    assert(cpu_ctx);
+
+                    NE ne;
+                    int n_dims = safetensor_get_shape(safetensor, ne, 0);
+                    ggml_tensor * original_cpu = ggml_new_tensor(cpu_ctx, GGML_TYPE_F32, n_dims, ne);
+                    assert(original_cpu);
+
+                    int64_t size = safetensor->data_offsets[1] - safetensor->data_offsets[0];
+                    std::vector<char> raw_data(size);
+                    int64_t offset = safetensor->data_offsets[0] + loader->stf->header_length;
+#ifdef _WIN32
+                    _fseeki64(loader->stf->f, offset, SEEK_SET);
+#else
+                    fseek(loader->stf->f, offset, SEEK_SET);
+#endif
+                    fread(raw_data.data(), size, 1, loader->stf->f);
+
+                    ggml_type src_type = safetensor_get_type(safetensor->dtype);
+                    if (src_type == GGML_TYPE_BF16) {
+                        int64_t nelements = ggml_nelements(original_cpu);
+                        const uint16_t * src_bf16 = (const uint16_t *) raw_data.data();
+                        float * dst_f32 = (float *) original_cpu->data;
+                        for (int64_t k = 0; k < nelements; k++) {
+                            uint32_t val = ((uint32_t)src_bf16[k]) << 16;
+                            dst_f32[k] = *(float*)&val;
+                        }
+                    } else if (src_type == GGML_TYPE_F16) {
+                        int64_t nelements = ggml_nelements(original_cpu);
+                        const uint16_t * src_f16 = (const uint16_t *) raw_data.data();
+                        float * dst_f32 = (float *) original_cpu->data;
+                        for (int64_t k = 0; k < nelements; k++) {
+                            dst_f32[k] = ggml_fp16_to_fp32(src_f16[k]);
+                        }
+                    } else if (src_type == GGML_TYPE_F32) {
+                        memcpy(original_cpu->data, raw_data.data(), size);
+                    } else {
+                        printf("Unsupported safetensor weight type %s\n", ggml_type_name(src_type));
+                        exit(-1);
+                    }
+
+                    // Apply WHT pre-rotation (Walsh-Hadamard Transform) on F32 CPU tensor
+                    int64_t row_size = original_cpu->ne[0];
+                    int64_t num_rows = ggml_nrows(original_cpu);
+                    if (row_size % 128 == 0) {
+                        float * data = (float *) original_cpu->data;
+                        for (int64_t r = 0; r < num_rows; r++) {
+                            float * row = data + r * row_size;
+                            for (int64_t c = 0; c < row_size; c += 128) {
+                                int h = 1;
+                                while (h < 128) {
+                                    for (int i = 0; i < 128; i += 2 * h) {
+                                        for (int j = i; j < i + h; j++) {
+                                            float a = row[c + j];
+                                            float b = row[c + j + h];
+                                            row[c + j] = a + b;
+                                            row[c + j + h] = a - b;
+                                        }
+                                    }
+                                    h *= 2;
+                                }
+                                for (int i = 0; i < 128; i++) {
+                                    row[c + i] *= 0.0883883476f;
+                                }
+                            }
+                        }
+                    }
+
+                    // Quantize the rotated F32 tensor to Q2_K on the CPU
+                    int64_t quantized_size = ggml_row_size(GGML_TYPE_Q2_K, row_size) * num_rows;
+                    std::vector<char> quantized_data(quantized_size);
+                    
+                    quantize_wht_nf2((const float *) original_cpu->data, quantized_data.data(), num_rows, row_size);
+
+                    // Copy the quantized data directly to the GPU tensor *result
+                    ggml_backend_tensor_set(*result, quantized_data.data(), 0, quantized_size);
+
+                    ggml_free(cpu_ctx);
+                } else {
+                    auto & scratch_ctx = *loader->scratch;
+                    auto original = scratch_ctx.load( loader->stf, safetensor );
+                    auto cast = ggml_cast( scratch_ctx, original, (*result)->type );
+                    scratch_ctx.build_forward_expand( cast, *result );
+                    scratch_ctx.compute();
+                }
             } );
         }
         return true;

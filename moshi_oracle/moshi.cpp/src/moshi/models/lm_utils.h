@@ -21,7 +21,10 @@ struct moshi_scaled_embedding_demux_t {
 void get_weights( WeightLoader * loader, std::string path,
         moshi_scaled_embedding_demux_t * m ) {
     if ( loader->quantize ) {
-        if ( loader->qtype == GGML_TYPE_Q4_K ) {
+        if ( loader->qtype == GGML_TYPE_Q2_K ) {
+            auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
+            assert( n );
+        } else if ( loader->qtype == GGML_TYPE_Q4_K ) {
             auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q4_0 );
             assert( n );
         } else if ( loader->qtype == GGML_TYPE_Q8_K ) {
@@ -132,7 +135,7 @@ void get_weights( WeightLoader * loader, std::string path,
         moshi_scaled_embedding_t * m ) {
     if ( loader->quantize ) {
         if ( loader->qtype == GGML_TYPE_Q2_K ) {
-            auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q4_0 );
+            auto n = loader->fetch( &m->weight, path + "weight", (void*)ggml_get_rows );
             assert( n );
         } else if ( loader->qtype == GGML_TYPE_Q4_K ) {
             auto n = loader->fetch( &m->weight, path + "weight", GGML_TYPE_Q4_0 );
