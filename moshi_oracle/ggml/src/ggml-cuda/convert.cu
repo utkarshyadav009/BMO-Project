@@ -31,20 +31,14 @@ struct block_bmo_tier {
 
 template <typename T>
 static __global__ void dequantize_row_bmo_tier_cuda_kernel(const void * vx, T * y, const int64_t k, const int32_t cols) {
-    const int64_t idx = (int64_t) blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= k) return;
-
     const block_bmo_tier * header = (const block_bmo_tier *) vx;
-    
-    const int r = idx / cols;
-    const int c = idx % cols;
-    const int n_tiles_col = cols / 64;
-    const int tile_r = r / 64;
-    const int tile_c = c / 64;
-    const int tile_idx = tile_r * n_tiles_col + tile_c;
-    const int in_tile_r = r % 64;
-    const int in_tile_c = c % 64;
-    const int in_tile_idx = in_tile_r * 64 + in_tile_c;
+
+    const int32_t rows = header->rows;
+    const int32_t n_tiles_col = cols / 64;
+    const int32_t n_tiles_total = (rows / 64) * n_tiles_col;
+
+    const int tile_idx = blockIdx.x;
+    if (tile_idx >= n_tiles_total) return;
 
     const uint8_t * tile_tiers = (const uint8_t *)((const char *)header + header->tile_tiers_offset);
     const uint16_t * tile_stream_indices = (const uint16_t *)((const char *)header + header->tile_stream_indices_offset);
@@ -53,36 +47,56 @@ static __global__ void dequantize_row_bmo_tier_cuda_kernel(const void * vx, T * 
     const uint8_t tier = tile_tiers[tile_idx];
     const int32_t stream_idx = tile_stream_indices[tile_idx];
 
-    float val = 0.0f;
+    const int tile_r = tile_idx / n_tiles_col;
+    const int tile_c = tile_idx % n_tiles_col;
+    const int row_base = tile_r * 64;
+    const int col_base = tile_c * 64;
 
-    if (tier == 0) {
-        // FP16 stream
-        const half * raw_fp16 = (const half *)(pw + header->tier_offsets[0]);
-        val = __half2float(raw_fp16[stream_idx * 4096 + in_tile_idx]);
-    } else if (tier == 1) {
-        // INT8 stream
-        const uint8_t * raw_int8 = pw + header->tier_offsets[1];
-        uint8_t q = raw_int8[stream_idx * 4096 + in_tile_idx];
-        val = ((float)q - header->zp_int8) * header->scale_int8;
-    } else if (tier == 2) {
-        // INT4 stream
-        const uint8_t * raw_int4 = pw + header->tier_offsets[2];
-        int flat_idx = stream_idx * 4096 + in_tile_idx;
-        uint8_t b = raw_int4[flat_idx / 2];
-        uint8_t q = (flat_idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
-        val = ((float)q - header->zp_int4) * header->scale_int4;
-    } else if (tier == 3) {
-        // INT2 stream
-        const uint8_t * raw_int2 = pw + header->tier_offsets[3];
-        int flat_idx = stream_idx * 4096 + in_tile_idx;
-        uint8_t b = raw_int2[flat_idx / 4];
-        uint8_t q = (flat_idx % 4 == 0) ? (b & 0x03) :
-                    ((flat_idx % 4 == 1) ? ((b >> 2) & 0x03) :
-                     ((flat_idx % 4 == 2) ? ((b >> 4) & 0x03) : ((b >> 6) & 0x03)));
-        val = ((float)q - header->zp_low) * header->scale_low;
+    const int thread_id = threadIdx.x;
+    const int elements_per_thread = 4096 / blockDim.x;
+
+    for (int step = 0; step < elements_per_thread; ++step) {
+        const int in_tile_idx = thread_id + step * blockDim.x;
+        const int in_tile_r = in_tile_idx >> 6;
+        const int in_tile_c = in_tile_idx & 63;
+
+        const int r = row_base + in_tile_r;
+        const int c = col_base + in_tile_c;
+        const int64_t out_idx = (int64_t)r * cols + c;
+
+        if (out_idx >= k) continue;
+
+        float val = 0.0f;
+
+        if (tier == 0) {
+            // FP16 stream
+            const half * raw_fp16 = (const half *)(pw + header->tier_offsets[0]);
+            val = __half2float(raw_fp16[stream_idx * 4096 + in_tile_idx]);
+        } else if (tier == 1) {
+            // INT8 stream
+            const uint8_t * raw_int8 = pw + header->tier_offsets[1];
+            uint8_t q = raw_int8[stream_idx * 4096 + in_tile_idx];
+            val = ((float)q - header->zp_int8) * header->scale_int8;
+        } else if (tier == 2) {
+            // INT4 stream
+            const uint8_t * raw_int4 = pw + header->tier_offsets[2];
+            int flat_idx = stream_idx * 4096 + in_tile_idx;
+            uint8_t b = raw_int4[flat_idx / 2];
+            uint8_t q = (flat_idx % 2 == 0) ? (b & 0x0F) : ((b >> 4) & 0x0F);
+            val = ((float)q - header->zp_int4) * header->scale_int4;
+        } else if (tier == 3) {
+            // INT2 stream
+            const uint8_t * raw_int2 = pw + header->tier_offsets[3];
+            int flat_idx = stream_idx * 4096 + in_tile_idx;
+            uint8_t b = raw_int2[flat_idx / 4];
+            uint8_t q = (flat_idx % 4 == 0) ? (b & 0x03) :
+                        ((flat_idx % 4 == 1) ? ((b >> 2) & 0x03) :
+                         ((flat_idx % 4 == 2) ? ((b >> 4) & 0x03) : ((b >> 6) & 0x03)));
+            val = ((float)q - header->zp_low) * header->scale_low;
+        }
+
+        y[out_idx] = (T)val;
     }
-
-    y[idx] = (T)val;
 }
 
 template <typename T>
@@ -632,13 +646,12 @@ static void dequantize_block_q8_0_f16_cuda(const void * __restrict__ vx, half * 
 
 template<typename dst_t>
 static void dequantize_row_bmo_tier_cuda_impl(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
-    printf("DEBUG: dequantize_row_bmo_tier_cuda_impl called, vx=%p, k=%ld\n", vx, (long)k); fflush(stdout);
     int32_t cols = 4096;
     if (k == 46137344) {
         cols = 11264;
     }
     const int block_size = 256;
-    const int grid_size = (k + block_size - 1) / block_size;
+    const int grid_size = k / 4096;
     dequantize_row_bmo_tier_cuda_kernel<dst_t><<<grid_size, block_size, 0, stream>>>(vx, y, k, cols);
     CUDA_CHECK(cudaGetLastError());
 
