@@ -112,6 +112,232 @@ static __global__ void apply_outliers_bmo_tier_cuda_kernel_impl(const void * vx,
     y[outlier_indices[idx]] = (T)__half2float(outlier_values[idx]);
 }
 
+// ============================================================================
+// Fused GEMV kernel for BMO_TIER: dequantize-on-the-fly + dot product
+// Eliminates the FP16 intermediate buffer entirely.
+//
+// Grid:  (nrows, 1, 1)   — one block per output row
+// Block: (256, 1, 1)     — 256 threads per block = 8 warps
+//
+// Each block computes: y[row] = sum_over_cols( W[row, col] * x[col] ) + outlier_corrections
+//
+// The weight matrix is stored in 64x64 tiles. For a given output row, we iterate
+// over the tile columns that span that row, dequantize each weight element
+// on-the-fly from the packed stream, multiply by x[col], and accumulate.
+// ============================================================================
+
+#define BMO_GEMV_BLOCK_SIZE 256
+#define BMO_TILE_DIM 64
+#define BMO_TILE_ELEMS 4096
+
+static __device__ __forceinline__ float bmo_dequant_element_fast(
+    const uint8_t * __restrict__ pw,
+    const int32_t * __restrict__ tier_offsets,
+    const float * __restrict__ scales_and_zps,
+    const uint8_t tier,
+    const int32_t stream_idx,
+    const int in_tile_idx)
+{
+    float val = 0.0f;
+    if (tier == 0) {
+        const half * raw_fp16 = (const half *)(pw + tier_offsets[0]);
+        val = __half2float(raw_fp16[stream_idx * BMO_TILE_ELEMS + in_tile_idx]);
+    } else if (tier == 1) {
+        const uint8_t * raw_int8 = pw + tier_offsets[1];
+        uint8_t q = raw_int8[stream_idx * BMO_TILE_ELEMS + in_tile_idx];
+        val = ((float)q - scales_and_zps[1]) * scales_and_zps[0];
+    } else if (tier == 2) {
+        const uint8_t * raw_int4 = pw + tier_offsets[2];
+        int flat_idx = stream_idx * BMO_TILE_ELEMS + in_tile_idx;
+        uint8_t b = raw_int4[flat_idx >> 1];
+        uint8_t q = (flat_idx & 1) ? ((b >> 4) & 0x0F) : (b & 0x0F);
+        val = ((float)q - scales_and_zps[3]) * scales_and_zps[2];
+    } else { // tier == 3 (INT2)
+        const uint8_t * raw_int2 = pw + tier_offsets[3];
+        int flat_idx = stream_idx * BMO_TILE_ELEMS + in_tile_idx;
+        uint8_t b = raw_int2[flat_idx >> 2];
+        int shift = (flat_idx & 3) * 2;
+        uint8_t q = (b >> shift) & 0x03;
+        val = ((float)q - scales_and_zps[5]) * scales_and_zps[4];
+    }
+    return val;
+}
+
+static __global__ void mul_mat_vec_bmo_tier_cuda_kernel(
+    const void * __restrict__ vx,
+    const float * __restrict__ x_vec,
+    float * __restrict__ y_out,
+    const int32_t ncols)
+{
+    const int row = blockIdx.x;
+    const block_bmo_tier * header = (const block_bmo_tier *) vx;
+    const int32_t cols = header->cols;
+    const int32_t n_tiles_col = cols / BMO_TILE_DIM;
+
+    // Allocate shared memory for caching tiles, tier offsets, scales, and zero-points
+    // to avoid redundant global memory reads in the loop.
+    __shared__ uint8_t s_tiers[256];
+    __shared__ uint16_t s_stream_indices[256];
+    __shared__ int32_t s_tier_offsets[5];
+    __shared__ float s_scales_and_zps[6];
+
+    const uint8_t * tile_tiers = (const uint8_t *)((const char *)header + header->tile_tiers_offset);
+    const uint16_t * tile_stream_indices = (const uint16_t *)((const char *)header + header->tile_stream_indices_offset);
+    const uint8_t * pw = (const uint8_t *)((const char *)header + header->packed_weights_offset);
+
+    const int tile_row = row / BMO_TILE_DIM;
+    const int in_tile_r = row % BMO_TILE_DIM;
+    const int in_tile_row_base = in_tile_r * BMO_TILE_DIM;
+
+    // Parallel load into shared memory
+    for (int t = threadIdx.x; t < n_tiles_col; t += blockDim.x) {
+        const int tile_idx = tile_row * n_tiles_col + t;
+        s_tiers[t] = tile_tiers[tile_idx];
+        s_stream_indices[t] = tile_stream_indices[tile_idx];
+    }
+
+    if (threadIdx.x < 5) {
+        s_tier_offsets[threadIdx.x] = header->tier_offsets[threadIdx.x];
+    }
+    if (threadIdx.x == 5) {
+        s_scales_and_zps[0] = header->scale_int8;
+        s_scales_and_zps[1] = header->zp_int8;
+        s_scales_and_zps[2] = header->scale_int4;
+        s_scales_and_zps[3] = header->zp_int4;
+        s_scales_and_zps[4] = header->scale_low;
+        s_scales_and_zps[5] = header->zp_low;
+    }
+    __syncthreads();
+
+    float thread_sum = 0.0f;
+
+    // Each thread iterates over assigned columns across all tile columns
+    for (int col = threadIdx.x; col < cols; col += blockDim.x) {
+        const int tile_c = col / BMO_TILE_DIM;
+        const int in_tile_c = col % BMO_TILE_DIM;
+        
+        // Fast reads from shared memory
+        const uint8_t tier = s_tiers[tile_c];
+        const int32_t stream_idx = s_stream_indices[tile_c];
+        const int in_tile_idx = in_tile_row_base + in_tile_c;
+
+        float w = bmo_dequant_element_fast(pw, s_tier_offsets, s_scales_and_zps, tier, stream_idx, in_tile_idx);
+        thread_sum += w * x_vec[col];
+    }
+
+    // Warp-level reduction using shuffle
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        thread_sum += __shfl_down_sync(0xFFFFFFFF, thread_sum, offset);
+    }
+
+    // Inter-warp reduction via shared memory
+    __shared__ float warp_sums[BMO_GEMV_BLOCK_SIZE / 32];  // 8 warps
+
+    const int warp_id = threadIdx.x / 32;
+    const int lane_id = threadIdx.x % 32;
+
+    if (lane_id == 0) {
+        warp_sums[warp_id] = thread_sum;
+    }
+    __syncthreads();
+
+    // First warp reduces across all warps
+    if (warp_id == 0) {
+        float val = (lane_id < (BMO_GEMV_BLOCK_SIZE / 32)) ? warp_sums[lane_id] : 0.0f;
+        #pragma unroll
+        for (int offset = (BMO_GEMV_BLOCK_SIZE / 64); offset > 0; offset >>= 1) {
+            val += __shfl_down_sync(0xFFFFFFFF, val, offset);
+        }
+        if (lane_id == 0) {
+            y_out[row] = val;
+        }
+    }
+}
+
+// Separate kernel to apply outlier corrections to the GEMV output
+static __global__ void apply_outliers_gemv_bmo_tier_kernel(
+    const void * __restrict__ vx,
+    const float * __restrict__ x_vec,
+    float * __restrict__ y_out,
+    const int32_t ncols)
+{
+    const block_bmo_tier * header = (const block_bmo_tier *) vx;
+    const int32_t n_outliers = header->n_outliers;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n_outliers) return;
+
+    const int32_t * outlier_indices = (const int32_t *)((const char *)header + header->outlier_indices_offset);
+    const half * outlier_values = (const half *)((const char *)header + header->outlier_values_offset);
+
+    // outlier_indices[idx] is a flat index into the weight matrix (row * cols + col)
+    const int32_t flat_idx = outlier_indices[idx];
+    const int32_t row = flat_idx / ncols;
+    const int32_t col = flat_idx % ncols;
+    const float outlier_w = __half2float(outlier_values[idx]);
+
+    // Calculate base_w to subtract the base contribution from the tile streams
+    const uint8_t * tile_tiers = (const uint8_t *)((const char *)header + header->tile_tiers_offset);
+    const uint16_t * tile_stream_indices = (const uint16_t *)((const char *)header + header->tile_stream_indices_offset);
+    const uint8_t * pw = (const uint8_t *)((const char *)header + header->packed_weights_offset);
+
+    const int32_t n_tiles_col = ncols / BMO_TILE_DIM;
+    const int tile_row = row / BMO_TILE_DIM;
+    const int tile_col = col / BMO_TILE_DIM;
+    const int tile_idx = tile_row * n_tiles_col + tile_col;
+
+    const uint8_t tier = tile_tiers[tile_idx];
+    const int32_t stream_idx = tile_stream_indices[tile_idx];
+
+    const int in_tile_r = row % BMO_TILE_DIM;
+    const int in_tile_c = col % BMO_TILE_DIM;
+    const int in_tile_idx = in_tile_r * BMO_TILE_DIM + in_tile_c;
+
+    float base_w = 0.0f;
+    if (tier == 0) {
+        const half * raw_fp16 = (const half *)(pw + header->tier_offsets[0]);
+        base_w = __half2float(raw_fp16[stream_idx * BMO_TILE_ELEMS + in_tile_idx]);
+    } else if (tier == 1) {
+        const uint8_t * raw_int8 = pw + header->tier_offsets[1];
+        uint8_t q = raw_int8[stream_idx * BMO_TILE_ELEMS + in_tile_idx];
+        base_w = ((float)q - header->zp_int8) * header->scale_int8;
+    } else if (tier == 2) {
+        const uint8_t * raw_int4 = pw + header->tier_offsets[2];
+        int flat_idx_in = stream_idx * BMO_TILE_ELEMS + in_tile_idx;
+        uint8_t b = raw_int4[flat_idx_in >> 1];
+        uint8_t q = (flat_idx_in & 1) ? ((b >> 4) & 0x0F) : (b & 0x0F);
+        base_w = ((float)q - header->zp_int4) * header->scale_int4;
+    } else { // tier == 3 (INT2)
+        const uint8_t * raw_int2 = pw + header->tier_offsets[3];
+        int flat_idx_in = stream_idx * BMO_TILE_ELEMS + in_tile_idx;
+        uint8_t b = raw_int2[flat_idx_in >> 2];
+        int shift = (flat_idx_in & 3) * 2;
+        uint8_t q = (b >> shift) & 0x03;
+        base_w = ((float)q - header->zp_low) * header->scale_low;
+    }
+
+    // Mathematically correct delta: (outlier_w - base_w) * x_vec[col]
+    atomicAdd(&y_out[row], (outlier_w - base_w) * x_vec[col]);
+}
+
+// Host-side launcher for the fused GEMV
+void mul_mat_vec_bmo_tier_cuda(
+    const void * vx, const float * x_vec, float * y_out,
+    const int32_t nrows, const int32_t ncols, cudaStream_t stream)
+{
+    // Launch main GEMV kernel: one block per row
+    mul_mat_vec_bmo_tier_cuda_kernel<<<nrows, BMO_GEMV_BLOCK_SIZE, 0, stream>>>(
+        vx, x_vec, y_out, ncols);
+    CUDA_CHECK(cudaGetLastError());
+
+    // Apply outlier corrections
+    const int outlier_block_size = 256;
+    const int outlier_grid_size = 2048;  // conservative upper bound
+    apply_outliers_gemv_bmo_tier_kernel<<<outlier_grid_size, outlier_block_size, 0, stream>>>(
+        vx, x_vec, y_out, ncols);
+    CUDA_CHECK(cudaGetLastError());
+}
+
 template <int qk, int qr, dequantize_kernel_t dequantize_kernel, typename dst_t>
 static __global__ void dequantize_block(const void * __restrict__ vx, dst_t * __restrict__ y,
         const int64_t ne00, const int64_t ne01, const int64_t ne02,

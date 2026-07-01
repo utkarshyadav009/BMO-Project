@@ -2259,6 +2259,17 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_vec_q, quantize_row_q8_1_cuda);
     } else if (use_mul_mat_q) {
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_q, quantize_mmq_q8_1_cuda);
+    } else if (!split && src0->type == GGML_TYPE_BMO_TIER && src1->type == GGML_TYPE_F32
+               && dst->type == GGML_TYPE_F32 && src1->ne[1] == 1) {
+        // Fused GEMV path for BMO_TIER: dequantize on-the-fly + dot product
+        // Only for single-vector inference (ne[1] == 1), which is the autoregressive hot path
+        cudaStream_t stream = ctx.stream();
+        const void  * src0_d = (const void  *) src0->data;
+        const float * src1_d = (const float *) src1->data;
+        float       * dst_d  = (float       *) dst->data;
+        const int32_t nrows = src0->ne[1];
+        const int32_t ncols = src0->ne[0];
+        mul_mat_vec_bmo_tier_cuda(src0_d, src1_d, dst_d, nrows, ncols, stream);
     } else {
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_cublas, nullptr);
     }
