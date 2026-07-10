@@ -615,6 +615,32 @@ int main(int argc, char *argv[]) {
     auto load_end = ggml_time_ms();
     printf("done loading. %f\n", (load_end - load_start) / 1000.f); fflush(stdout);
 
+    // --- VRAM MEASUREMENT PROTOCOL (three independent sources, labelled) ---
+    // Measurement 1: driver-level free memory delta since process start.
+    // Captures everything the CUDA driver allocated: model weights + scratch buffers + KV cache.
+    size_t post_load_driver_free = device_memory_free(ggml.dev);
+    size_t vram_M1_driver_delta_bytes = ggml.memory_free - post_load_driver_free;
+    printf("VRAM_M1_driver_delta_MiB: %zu  (pre_load_free=%zu MiB minus post_load_free=%zu MiB)\n",
+           vram_M1_driver_delta_bytes / 1024 / 1024,
+           ggml.memory_free / 1024 / 1024,
+           post_load_driver_free / 1024 / 1024);
+    fflush(stdout);
+
+    // Measurement 2: sum of ggml_backend_buffer_get_size() across all known context buffers.
+    // This is the PHYSICAL bytes the ggml allocator requested from the CUDA driver.
+    // For BMO_TIER tensors this reflects the ACTUAL allocation (offset bytes, not cols*rows).
+    size_t vram_M2_phys_alloc_bytes = moshi_get_allocated_memory(moshi, lm, codec, gen, encoder, decoder);
+    printf("VRAM_M2_phys_alloc_MiB:  %zu  (ggml_backend_buffer_get_size sum)\n",
+           vram_M2_phys_alloc_bytes / 1024 / 1024);
+    fflush(stdout);
+
+    // Note: M1 > M2 is expected \u2014 M1 includes CUDA runtime overhead, driver reserved pages,
+    // and any buffers allocated outside ggml (e.g. cuBLAS workspace, KV scratch).
+    // M2 < 5021 MiB means the 1D-alloc trick successfully reduced physical allocation.
+    // M2 == 5021 MiB means the trick had no effect (e.g. allocator padded to logical size).
+    // --- END VRAM MEASUREMENT PROTOCOL ---
+
+
     Decoder input_decoder;
     Resampler resampler;
     if ( input ) {

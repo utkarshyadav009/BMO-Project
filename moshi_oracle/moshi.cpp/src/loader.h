@@ -524,17 +524,43 @@ public:
         ggml_tensor * custom_tensor = ggml_new_tensor_2d(custom_ctx, GGML_TYPE_BMO_TIER, cols, rows);
         ggml_set_name(custom_tensor, base_name.c_str());
 
-        // Stash outlier count in op_params[0] for CUDA backend to use
+        // Stash outlier count in op_params[0] for CUDA backend to use.
+        // This is safe because BMO_TIER tensors are weight leaves, not op outputs — op_params is unused.
         custom_tensor->op_params[0] = n_outliers;
 
+        // Diagnostic: print actual dims for every BMO tensor so n_tiles_col can be verified
+        // against the s_tiers[] shared memory bound (512 max = 32768 cols max).
+        // Payload bytes (physical) vs logical nbytes (cols*rows) are intentionally different — see comment below.
+        {
+            int n_tiles_col_diag = (cols > 0) ? cols / 64 : 0;
+            fprintf(stderr, "BMO_TENSOR_LOAD: %-60s  rows=%5d cols=%5d n_tiles_col=%3d n_outliers=%5d  payload_bytes=%7zu  logical_nbytes=%7zu\n",
+                    base_name.c_str(), rows, cols, n_tiles_col_diag, n_outliers,
+                    offset, (size_t)cols * rows);
+            fflush(stderr);
+        }
+
         if (backend) {
-            // Temporarily set dimensions to 1D of size offset to allocate exactly offset bytes in GPU memory
+            // EXPERIMENT BRANCH ONLY — DO NOT SHIP WITHOUT AUDIT.
+            // We temporarily lie to the ggml allocator about tensor shape so it allocates
+            // exactly `offset` bytes (the packed BMO_TIER payload) instead of cols*rows bytes.
+            // After allocation we restore the logical dims so kernel dispatch sees the correct shape.
+            //
+            // KNOWN LANDMINE: After restore, ggml_nbytes(tensor) returns cols*rows while the
+            // backing buffer is only `offset` bytes (~2x smaller). Any call to
+            // ggml_backend_tensor_get/copy or bad_padding_clear that uses ggml_nbytes() as the
+            // copy length will read/write past the allocation into the next tensor's memory.
+            // Safe here only because BMO_TIER tensors go through the custom fused GEMV path
+            // exclusively and are never copied back to host during inference.
+            // If this ever changes, replace with a proper custom allocator that tracks
+            // physical_size separately from logical ne[].
             custom_tensor->ne[0] = offset;
             custom_tensor->ne[1] = 1;
             custom_tensor->nb[1] = offset;
             custom_tensor->nb[2] = offset;
             custom_tensor->nb[3] = offset;
             ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+            // Restore logical shape so ggml graph dispatch sees correct rows/cols.
+            // Strides nb[2]/nb[3] are set to cols*rows to keep ggml_is_contiguous() == true.
             custom_tensor->ne[0] = cols;
             custom_tensor->ne[1] = rows;
             custom_tensor->nb[1] = cols;

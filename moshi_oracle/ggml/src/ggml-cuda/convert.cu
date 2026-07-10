@@ -190,11 +190,17 @@ static __global__ void mul_mat_vec_bmo_tier_cuda_kernel(
     const int in_tile_r = row % BMO_TILE_DIM;
     const int in_tile_row_base = in_tile_r * BMO_TILE_DIM;
 
+    // Hard bounds check: s_tiers/s_stream_indices are sized [512] = max 32768 cols.
+    // A silent return here would produce zeroed output rows indistinguishable from
+    // correct computation \u2014 the exact silent-corruption class this fix targets.
+    // __trap() fires a GPU illegal-instruction exception visible in cuda-memcheck / NSight.
     if (n_tiles_col > 512) {
         if (threadIdx.x == 0 && row == 0) {
-            printf("ERROR: BMO fused GEMV kernel exceeded maximum tile column bounds (%d > 512)\n", n_tiles_col);
+            printf("FATAL: BMO fused GEMV kernel n_tiles_col=%d exceeds shared memory bound of 512 (max cols=32768). "
+                   "Increase s_tiers/s_stream_indices arrays and recompile.\n", n_tiles_col);
         }
-        return;
+        __syncthreads();
+        __trap(); // hard abort \u2014 never silently skip
     }
 
     // Parallel load into shared memory
