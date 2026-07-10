@@ -2269,7 +2269,8 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
         float       * dst_d  = (float       *) dst->data;
         const int32_t nrows = src0->ne[1];
         const int32_t ncols = src0->ne[0];
-        mul_mat_vec_bmo_tier_cuda(src0_d, src1_d, dst_d, nrows, ncols, stream);
+        const int32_t n_outliers = src0->op_params[0];
+        mul_mat_vec_bmo_tier_cuda(src0_d, src1_d, dst_d, nrows, ncols, n_outliers, stream);
     } else {
         ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_cublas, nullptr);
     }

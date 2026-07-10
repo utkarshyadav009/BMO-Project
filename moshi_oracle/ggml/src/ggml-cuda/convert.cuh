@@ -58,4 +58,4 @@ template<typename dst_t, typename src_t>
 // Fused GEMV for BMO_TIER quantized tensors
 void mul_mat_vec_bmo_tier_cuda(
     const void * vx, const float * x_vec, float * y_out,
-    const int32_t nrows, const int32_t ncols, cudaStream_t stream);
+    const int32_t nrows, const int32_t ncols, const int32_t n_outliers, cudaStream_t stream);

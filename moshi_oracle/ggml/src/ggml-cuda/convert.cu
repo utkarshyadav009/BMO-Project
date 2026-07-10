@@ -176,8 +176,9 @@ static __global__ void mul_mat_vec_bmo_tier_cuda_kernel(
 
     // Allocate shared memory for caching tiles, tier offsets, scales, and zero-points
     // to avoid redundant global memory reads in the loop.
-    __shared__ uint8_t s_tiers[256];
-    __shared__ uint16_t s_stream_indices[256];
+    // Size increased to 512 to support large hidden dimensions (up to cols = 32,768).
+    __shared__ uint8_t s_tiers[512];
+    __shared__ uint16_t s_stream_indices[512];
     __shared__ int32_t s_tier_offsets[5];
     __shared__ float s_scales_and_zps[6];
 
@@ -188,6 +189,13 @@ static __global__ void mul_mat_vec_bmo_tier_cuda_kernel(
     const int tile_row = row / BMO_TILE_DIM;
     const int in_tile_r = row % BMO_TILE_DIM;
     const int in_tile_row_base = in_tile_r * BMO_TILE_DIM;
+
+    if (n_tiles_col > 512) {
+        if (threadIdx.x == 0 && row == 0) {
+            printf("ERROR: BMO fused GEMV kernel exceeded maximum tile column bounds (%d > 512)\n", n_tiles_col);
+        }
+        return;
+    }
 
     // Parallel load into shared memory
     for (int t = threadIdx.x; t < n_tiles_col; t += blockDim.x) {
@@ -320,22 +328,23 @@ static __global__ void apply_outliers_gemv_bmo_tier_kernel(
     atomicAdd(&y_out[row], (outlier_w - base_w) * x_vec[col]);
 }
 
-// Host-side launcher for the fused GEMV
 void mul_mat_vec_bmo_tier_cuda(
     const void * vx, const float * x_vec, float * y_out,
-    const int32_t nrows, const int32_t ncols, cudaStream_t stream)
+    const int32_t nrows, const int32_t ncols, const int32_t n_outliers, cudaStream_t stream)
 {
     // Launch main GEMV kernel: one block per row
     mul_mat_vec_bmo_tier_cuda_kernel<<<nrows, BMO_GEMV_BLOCK_SIZE, 0, stream>>>(
         vx, x_vec, y_out, ncols);
     CUDA_CHECK(cudaGetLastError());
 
-    // Apply outlier corrections
-    const int outlier_block_size = 256;
-    const int outlier_grid_size = 2048;  // conservative upper bound
-    apply_outliers_gemv_bmo_tier_kernel<<<outlier_grid_size, outlier_block_size, 0, stream>>>(
-        vx, x_vec, y_out, ncols);
-    CUDA_CHECK(cudaGetLastError());
+    // Apply outlier corrections dynamically based on actual outlier count
+    if (n_outliers > 0) {
+        const int outlier_block_size = 256;
+        const int outlier_grid_size = (n_outliers + outlier_block_size - 1) / outlier_block_size;
+        apply_outliers_gemv_bmo_tier_kernel<<<outlier_grid_size, outlier_block_size, 0, stream>>>(
+            vx, x_vec, y_out, ncols);
+        CUDA_CHECK(cudaGetLastError());
+    }
 }
 
 template <int qk, int qr, dequantize_kernel_t dequantize_kernel, typename dst_t>

@@ -500,6 +500,19 @@ public:
         auto oi = read_bytes(base_name + ".outlier_indices");
         auto ov = read_bytes(base_name + ".outlier_values");
 
+        // Pre-compute payload offset to optimize memory allocation size
+        size_t offset = sizeof(block_bmo_tier);
+        offset += pw.size();
+        offset = (offset + 3) & ~3;
+        offset += tt.size();
+        offset = (offset + 3) & ~3;
+        offset += oi.size();
+        offset = (offset + 3) & ~3;
+        offset += ov.size();
+        offset = (offset + 15) & ~15;
+        offset += tt.size() * sizeof(uint16_t);
+        offset = (offset + 15) & ~15;
+
         if (!custom_ctx) {
             ggml_init_params params;
             params.mem_size = 10 * 1024 * 1024;
@@ -511,10 +524,24 @@ public:
         ggml_tensor * custom_tensor = ggml_new_tensor_2d(custom_ctx, GGML_TYPE_BMO_TIER, cols, rows);
         ggml_set_name(custom_tensor, base_name.c_str());
 
+        // Stash outlier count in op_params[0] for CUDA backend to use
+        custom_tensor->op_params[0] = n_outliers;
+
         if (backend) {
+            // Temporarily set dimensions to 1D of size offset to allocate exactly offset bytes in GPU memory
+            custom_tensor->ne[0] = offset;
+            custom_tensor->ne[1] = 1;
+            custom_tensor->nb[1] = offset;
+            custom_tensor->nb[2] = offset;
+            custom_tensor->nb[3] = offset;
             ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+            custom_tensor->ne[0] = cols;
+            custom_tensor->ne[1] = rows;
+            custom_tensor->nb[1] = cols;
+            custom_tensor->nb[2] = (size_t)cols * rows;
+            custom_tensor->nb[3] = (size_t)cols * rows;
         } else {
-            custom_tensor->data = malloc(cols * rows);
+            custom_tensor->data = malloc(offset); // Allocates exactly offset bytes on CPU instead of cols * rows
         }
 
         block_bmo_tier header;
@@ -549,26 +576,26 @@ public:
             tile_stream_indices[t_idx] = ptrs[tier]++;
         }
 
-        size_t offset = sizeof(block_bmo_tier);
-        header.packed_weights_offset = offset;
-        offset += pw.size();
-        offset = (offset + 3) & ~3;
+        size_t write_offset = sizeof(block_bmo_tier);
+        header.packed_weights_offset = write_offset;
+        write_offset += pw.size();
+        write_offset = (write_offset + 3) & ~3;
 
-        header.tile_tiers_offset = offset;
-        offset += tt.size();
-        offset = (offset + 3) & ~3;
+        header.tile_tiers_offset = write_offset;
+        write_offset += tt.size();
+        write_offset = (write_offset + 3) & ~3;
 
-        header.outlier_indices_offset = offset;
-        offset += oi.size();
-        offset = (offset + 3) & ~3;
+        header.outlier_indices_offset = write_offset;
+        write_offset += oi.size();
+        write_offset = (write_offset + 3) & ~3;
 
-        header.outlier_values_offset = offset;
-        offset += ov.size();
-        offset = (offset + 15) & ~15;
+        header.outlier_values_offset = write_offset;
+        write_offset += ov.size();
+        write_offset = (write_offset + 15) & ~15;
 
-        header.tile_stream_indices_offset = offset;
-        offset += tile_stream_indices.size() * sizeof(uint16_t);
-        offset = (offset + 15) & ~15;
+        header.tile_stream_indices_offset = write_offset;
+        write_offset += tile_stream_indices.size() * sizeof(uint16_t);
+        write_offset = (write_offset + 15) & ~15;
 
         std::vector<uint8_t> payload(offset, 0);
         memcpy(payload.data(), &header, sizeof(block_bmo_tier));
@@ -578,13 +605,16 @@ public:
         if (!ov.empty()) memcpy(payload.data() + header.outlier_values_offset, ov.data(), ov.size());
         memcpy(payload.data() + header.tile_stream_indices_offset, tile_stream_indices.data(), tile_stream_indices.size() * sizeof(uint16_t));
 
-        // Perform CPU dequantization once to store CPU floats
-        const uint8_t * p_pw = payload.data() + header.packed_weights_offset;
-        const uint8_t * p_tt = payload.data() + header.tile_tiers_offset;
-        const int32_t * p_oi = oi.empty() ? NULL : (const int32_t *)(payload.data() + header.outlier_indices_offset);
-        const ggml_fp16_t * p_ov = ov.empty() ? NULL : (const ggml_fp16_t *)(payload.data() + header.outlier_values_offset);
-        float * deq_cpu = dequantize_ffn_cpu(header, p_pw, p_tt, p_oi, p_ov);
-        cpu_dequantized_ptrs.push_back(deq_cpu);
+        float * deq_cpu = NULL;
+        if (!backend) {
+            // Perform CPU dequantization once to store CPU floats only if CUDA is not used
+            const uint8_t * p_pw = payload.data() + header.packed_weights_offset;
+            const uint8_t * p_tt = payload.data() + header.tile_tiers_offset;
+            const int32_t * p_oi = oi.empty() ? NULL : (const int32_t *)(payload.data() + header.outlier_indices_offset);
+            const ggml_fp16_t * p_ov = ov.empty() ? NULL : (const ggml_fp16_t *)(payload.data() + header.outlier_values_offset);
+            deq_cpu = dequantize_ffn_cpu(header, p_pw, p_tt, p_oi, p_ov);
+            cpu_dequantized_ptrs.push_back(deq_cpu);
+        }
         
         block_bmo_tier * header_in_payload = (block_bmo_tier *) payload.data();
         header_in_payload->dequantized_cpu_ptr = (int64_t) deq_cpu;
