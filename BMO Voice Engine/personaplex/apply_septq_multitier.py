@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+torch.backends.cuda.enable_cudnn_sdp(False)
 from safetensors import safe_open
 
 from moshi.models import loaders
@@ -1926,6 +1927,70 @@ def quantize_depth_int8(
     return meta
 
 
+def quantize_depth_int4(
+    model: nn.Module,
+    skip_filters: List[str],
+    dtype: torch.dtype,
+    block_size: int = 32,
+) -> Dict[str, Dict[str, Any]]:
+    """Block-wise symmetric INT4 fake-quantization of depth transformer Linears (block_size=32 to match GGUF Q4_0).
+    Replaces weight with dequantized values (in `dtype`) so the .pt loads natively.
+    Returns metadata for future GGUF export."""
+    depformer = getattr(model, "depformer", None)
+    if depformer is None:
+        for cand in ("depth_transformer", "depth", "depformer_transformer"):
+            depformer = getattr(model, cand, None)
+            if depformer is not None:
+                break
+    if depformer is None:
+        raise RuntimeError("Could not locate depth transformer module on model")
+
+    meta: Dict[str, Dict[str, Any]] = {}
+    quantized = 0
+    skipped = 0
+    for name, module in depformer.named_modules():
+        if not isinstance(module, nn.Linear):
+            continue
+        full_name = f"depformer.{name}" if name else "depformer"
+        if any(p and p in full_name for p in skip_filters):
+            skipped += 1
+            continue
+        with torch.no_grad():
+            w = module.weight.detach().to(torch.float32)
+            out_dim, in_dim = w.shape
+            
+            # Block-wise symmetric INT4
+            pad = (-in_dim) % block_size
+            w_pad = w
+            if pad > 0:
+                w_pad = torch.nn.functional.pad(w, (0, pad))
+            
+            n_blocks = w_pad.shape[1] // block_size
+            wg = w_pad.view(out_dim, n_blocks, block_size)
+            absmax = wg.abs().amax(dim=2, keepdim=True).clamp_min(1e-8)
+            # Match standard GGML Q4_0: scale is absmax / 8.0, and quantized values are rounded/clamped to [-8, 7]
+            scale = absmax / 8.0
+            q = torch.round(wg / scale).clamp(-8, 7)
+            w_dq = (q * scale).view(out_dim, w_pad.shape[1])
+            if pad > 0:
+                w_dq = w_dq[:, :in_dim]
+                
+            w_dq = w_dq.to(dtype=dtype, device=module.weight.device)
+            module.weight.data.copy_(w_dq)
+            
+        meta[full_name] = {
+            "scheme": "int4_blockwise_symmetric",
+            "block_size": block_size,
+            "weight_shape": list(w.shape),
+            "dtype": str(dtype).replace("torch.", ""),
+        }
+        quantized += 1
+    print(f"[DEPTH-INT4] quantized={quantized} skipped={skipped}")
+    if quantized == 0:
+        raise RuntimeError("Depth INT4 enabled but no Linear modules were quantized")
+    return meta
+
+
 def extract_outliers_by_magnitude(
     weight: torch.Tensor,
     threshold_pct: float,
@@ -2180,6 +2245,13 @@ def main() -> None:
         action="store_true",
         help="Apply per-output-channel symmetric INT8 to all depth transformer Linear weights. "
              "Stored dequantized in fp/bf16 in the .pt; INT8 metadata saved as `depth_int8_meta` "
+             "for future GGUF export.",
+    )
+    parser.add_argument(
+        "--quantize-depth-int4",
+        action="store_true",
+        help="Apply block-wise symmetric INT4 to all depth transformer Linear weights. "
+             "Stored dequantized in fp/bf16 in the .pt; INT4 metadata saved as `depth_int4_meta` "
              "for future GGUF export.",
     )
     parser.add_argument(
@@ -2910,10 +2982,15 @@ def main() -> None:
         )
 
     depth_int8_meta: Dict[str, Dict[str, Any]] = {}
+    depth_int4_meta: Dict[str, Dict[str, Any]] = {}
     if bool(args.quantize_depth_int8):
         print("[INFO] Applying per-output-channel INT8 to depth transformer...")
         depth_skip_filters = parse_skip_module_filters(args.depth_int8_skip_modules)
         depth_int8_meta = quantize_depth_int8(model=model, skip_filters=depth_skip_filters, dtype=dtype)
+    elif hasattr(args, "quantize_depth_int4") and bool(args.quantize_depth_int4):
+        print("[INFO] Applying block-wise INT4 (Q4_0 match) to depth transformer...")
+        depth_skip_filters = parse_skip_module_filters(args.depth_int8_skip_modules)
+        depth_int4_meta = quantize_depth_int4(model=model, skip_filters=depth_skip_filters, dtype=dtype)
 
     export_sd = {
         key: tensor.detach().to(device="cpu").contiguous()
@@ -3049,6 +3126,8 @@ def main() -> None:
             )
     if depth_int8_meta:
         payload["depth_int8_meta"] = depth_int8_meta
+    if depth_int4_meta:
+        payload["depth_int4_meta"] = depth_int4_meta
     if outlier_metadata:
         payload["outlier_metadata"] = outlier_metadata
         payload["outlier_extraction"] = str(args.outlier_extraction)
