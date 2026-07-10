@@ -883,7 +883,24 @@ int main(int argc, char *argv[]) {
             }
             lm_delta_time += ggml_time_us() - lm_start;
             lm_frames++;
-            if ( bench && lm_frames >= 125 ) {
+
+            // Frame-indexed VRAM probe every 25 frames.
+            // Prints both M1 (driver free delta) and M2 (ggml physical alloc sum) so
+            // growth curve can distinguish pool growth (M1 rises, M2 flat) from
+            // ggml-internal growth (both rise together).
+            if ( bench && (lm_frames % 25 == 0) ) {
+                size_t cur_driver_free = device_memory_free(ggml.dev);
+                size_t m1 = ggml.memory_free - cur_driver_free;
+                size_t m2 = moshi_get_allocated_memory(moshi, lm, codec, gen, encoder, decoder);
+                printf("VRAM_FRAME: frame=%4d  M1_driver_delta_MiB=%5zu  M2_phys_alloc_MiB=%5zu  outside_ggml_MiB=%5zd\n",
+                       lm_frames,
+                       m1 / 1024 / 1024,
+                       m2 / 1024 / 1024,
+                       ((long long)m1 - (long long)m2) / 1024 / 1024);
+                fflush(stdout);
+            }
+
+            if ( bench && lm_frames >= 1250 ) {
                 break;
             }
 
