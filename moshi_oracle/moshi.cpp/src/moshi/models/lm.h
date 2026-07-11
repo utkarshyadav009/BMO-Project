@@ -867,6 +867,12 @@ bool moshi_lmgen_step(
     if ( ! lm_states->gctx ) {
         lm_states->gctx = new GraphContext( 256, scratch.backend );
         GraphContext &graph = *lm_states->gctx;
+        // MEMLEDGER: this is the one-time, full 32-layer text/transformer graph —
+        // built exactly once (this guard) and reused for every subsequent step,
+        // whether that step is prompt-processing or real decoding. Tagged so the
+        // scratch-breakdown instrumentation in GraphContext::alloc() (context.h)
+        // can identify it unambiguously in the log.
+        graph.set_name( "text_graph_onetime_full_forward_pass" );
 
         printf("DEBUG: before forward_text_build\n"); fflush(stdout);
         auto [graph_transformer_out, text_logits] = moshi_lmmodel_forward_text_build(

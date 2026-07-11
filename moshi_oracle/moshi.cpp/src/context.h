@@ -517,8 +517,34 @@ class GraphContext {
         }
     }
 
+    // MEMLEDGER (scratch-graph breakdown, measurement-only): self-contained since
+    // loader.h (which has the full memledger_log helpers) is included AFTER this
+    // file in moshi.cpp — can't call those here, so this duplicates the minimal
+    // pieces needed, same pattern used in personaplex.cpp for the same reason.
+    static void memledger_graph_alloc_prescan( ggml_context * ctx, const std::string & label ) {
+        struct entry_t { std::string name; std::string type; int64_t ne[4]; size_t bytes; };
+        std::vector<entry_t> entries;
+        size_t total = 0;
+        for ( ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t) ) {
+            if ( t->data != NULL || t->view_src != NULL ) continue; // already allocated / a view, not a fresh allocation
+            size_t bytes = ggml_nbytes(t);
+            total += bytes;
+            entries.push_back({ ggml_get_name(t), ggml_type_name(t->type), {t->ne[0],t->ne[1],t->ne[2],t->ne[3]}, bytes });
+        }
+        std::sort( entries.begin(), entries.end(), []( const entry_t & a, const entry_t & b ) { return a.bytes > b.bytes; } );
+        fprintf(stderr, "MEMLEDGER_GRAPH label=%s total_bytes=%zu total_MiB=%.2f n_tensors=%zu\n",
+                label.c_str(), total, total / 1024.0 / 1024.0, entries.size());
+        for ( size_t i = 0; i < entries.size() && i < 10; i++ ) {
+            auto & e = entries[i];
+            fprintf(stderr, "MEMLEDGER_GRAPH_TOP label=%s rank=%zu name=%-40s type=%-8s ne=[%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "] bytes=%10zu MiB=%8.2f\n",
+                    label.c_str(), i, e.name.c_str(), e.type.c_str(), e.ne[0], e.ne[1], e.ne[2], e.ne[3], e.bytes, e.bytes / 1024.0 / 1024.0);
+        }
+        fflush(stderr);
+    }
+
     void alloc() {
         assert( ! buffer );
+        memledger_graph_alloc_prescan( ctx, name.size() ? name : "(unnamed)" );
         buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
         assert( buffer );
         for (auto load : loaders) {
