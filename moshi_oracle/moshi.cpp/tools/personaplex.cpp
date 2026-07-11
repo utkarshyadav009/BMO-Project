@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
+#include <ctype.h> // isdigit (nvmap client-size parsing, MEMLEDGER)
 
 #include "common_ggml.h"
 #include <moshi/moshi.h>
@@ -88,23 +89,100 @@ void signal_handler(int dummy) {
 }
 
 // MEMLEDGER instrumentation — measurement-only diagnostic for Stage 2 OOM investigation.
-static size_t memledger_rss_mib() {
+static size_t memledger_status_field_kib( const char * field ) {
     FILE * f = fopen( "/proc/self/status", "r" );
     if ( ! f ) return 0;
-    size_t rss_kb = 0;
+    size_t field_len = strlen(field);
+    size_t val_kb = 0;
     char line[256];
     while ( fgets( line, sizeof(line), f ) ) {
-        if ( strncmp( line, "VmRSS:", 6 ) == 0 ) {
-            sscanf( line + 6, "%zu", &rss_kb );
+        if ( strncmp( line, field, field_len ) == 0 && line[field_len] == ':' ) {
+            sscanf( line + field_len + 1, "%zu", &val_kb );
             break;
         }
     }
     fclose( f );
-    return rss_kb / 1024;
+    return val_kb;
+}
+static size_t memledger_rss_mib() {
+    return memledger_status_field_kib("VmRSS") / 1024;
+}
+static size_t memledger_smaps_rollup_field_kib( const char * field ) {
+    FILE * f = fopen( "/proc/self/smaps_rollup", "r" );
+    if ( ! f ) return 0;
+    size_t field_len = strlen(field);
+    size_t val_kb = 0;
+    char line[256];
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, field, field_len ) == 0 && line[field_len] == ':' ) {
+            sscanf( line + field_len + 1, "%zu", &val_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return val_kb;
+}
+static size_t memledger_meminfo_field_kib( const char * field ) {
+    FILE * f = fopen( "/proc/meminfo", "r" );
+    if ( ! f ) return 0;
+    size_t field_len = strlen(field);
+    size_t val_kb = 0;
+    char line[256];
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, field, field_len ) == 0 && line[field_len] == ':' ) {
+            sscanf( line + field_len + 1, "%zu", &val_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return val_kb;
+}
+// /sys/kernel/debug/nvmap/iovmm/clients "total ... <N>K" — root-only.
+static bool memledger_nvmap_readable() {
+    FILE * f = fopen( "/sys/kernel/debug/nvmap/iovmm/clients", "r" );
+    if ( ! f ) return false;
+    fclose( f );
+    return true;
+}
+static size_t memledger_nvmap_client_kib() {
+    FILE * f = fopen( "/sys/kernel/debug/nvmap/iovmm/clients", "r" );
+    if ( ! f ) return 0;
+    size_t total_kib = 0;
+    char line[256];
+    while ( fgets( line, sizeof(line), f ) ) {
+        char * p = line;
+        while ( *p == ' ' ) p++;
+        if ( strncmp( p, "total", 5 ) == 0 ) {
+            char * end = line + strlen(line);
+            while ( end > line && (*(end-1) == '\n' || *(end-1) == '\r') ) end--;
+            if ( end > line && *(end - 1) == 'K' ) {
+                char * digits_start = end - 1;
+                while ( digits_start > line && isdigit((unsigned char)*(digits_start - 1)) ) digits_start--;
+                total_kib = (size_t) atoll( digits_start );
+            }
+            break;
+        }
+    }
+    fclose( f );
+    return total_kib;
 }
 static void memledger_log_simple( const char * event, size_t cuda_free_mib ) {
-    fprintf( stderr, "MEMLEDGER event=%-20s name=%-60s type=%-10s payload_B=%10d alloc_B=%10d nbytes_B=%10d cuda_free_MiB=%7zu rss_MiB=%7zu\n",
-             event, "-", "-", 0, 0, 0, cuda_free_mib, memledger_rss_mib() );
+    size_t nvmap_kib   = memledger_nvmap_client_kib();
+    bool   nvmap_ok    = memledger_nvmap_readable();
+    size_t smaps_rss   = memledger_smaps_rollup_field_kib( "Rss" );
+    size_t smaps_anon  = memledger_smaps_rollup_field_kib( "Anonymous" );
+    size_t status_file = memledger_status_field_kib( "RssFile" );
+    size_t status_shm  = memledger_status_field_kib( "RssShmem" );
+    size_t mem_avail   = memledger_meminfo_field_kib( "MemAvailable" );
+    size_t mem_cached  = memledger_meminfo_field_kib( "Cached" );
+    fprintf( stderr,
+        "MEMLEDGER event=%-20s name=%-60s type=%-10s payload_B=%10d alloc_B=%10d nbytes_B=%10d "
+        "UNRELIABLE_REF_cuda_free_MiB=%7zu rss_MiB=%7zu "
+        "nvmap_client_KiB=%s%9zu smaps_Rss_KiB=%9zu smaps_Anonymous_KiB=%9zu status_RssFile_KiB=%9zu status_RssShmem_KiB=%9zu "
+        "meminfo_MemAvailable_KiB=%9zu meminfo_Cached_KiB=%9zu\n",
+        event, "-", "-", 0, 0, 0, cuda_free_mib, memledger_rss_mib(),
+        nvmap_ok ? " " : "U", nvmap_kib, smaps_rss, smaps_anon, status_file, status_shm,
+        mem_avail, mem_cached );
     fflush( stderr );
 }
 

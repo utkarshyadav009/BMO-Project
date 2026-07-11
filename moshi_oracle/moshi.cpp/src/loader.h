@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <cctype>  // isdigit (nvmap client-size parsing)
 #ifndef _WIN32
 #include <fcntl.h>   // posix_fadvise, POSIX_FADV_DONTNEED (Fix A)
 #include <unistd.h>  // fileno's off_t and related POSIX types
@@ -44,21 +45,85 @@ static size_t memledger_rss_mib() {
     return rss_kb / 1024;
 }
 
-static void memledger_log( const char * event, const char * name, const char * type,
-                            size_t payload_B, size_t alloc_B, size_t nbytes_B,
-                            ggml_backend * backend ) {
-    fprintf( stderr,
-        "MEMLEDGER event=%-20s name=%-60s type=%-10s payload_B=%10zu alloc_B=%10zu nbytes_B=%10zu cuda_free_MiB=%7zu rss_MiB=%7zu\n",
-        event, name, type, payload_B, alloc_B, nbytes_B,
-        memledger_cuda_free_mib(backend), memledger_rss_mib() );
-    fflush( stderr );
+// --- Trustworthy-instrument additions (replace cuda_free as primary signal) ---
+// The probe (tools/nvmap_alloc_probe.cu) showed cudaMemGetInfo/the UMA
+// free-memory estimate is not precise at the granularity prior sessions
+// relied on. These read ground-truth kernel accounting instead.
+
+// /sys/kernel/debug/nvmap/iovmm/clients "total ... <N>K" line — this
+// process's real NvMap allocation. Root-only; if unreadable, returns 0 and
+// the caller distinguishes via nvmap_readable().
+static bool memledger_nvmap_readable() {
+    FILE * f = fopen( "/sys/kernel/debug/nvmap/iovmm/clients", "r" );
+    if ( ! f ) return false;
+    fclose( f );
+    return true;
 }
 
-// Attribution instrumentation: per-class breakdown at each bmo_layer_done,
-// to distinguish page-cache (Cached), anon-heap (AnonPages), and other
-// memory classes from /proc/meminfo — none of this changes any allocation
-// behavior, measurement only.
-static size_t memledger_meminfo_field_mib( const char * field ) {
+static size_t memledger_nvmap_client_kib() {
+    FILE * f = fopen( "/sys/kernel/debug/nvmap/iovmm/clients", "r" );
+    if ( ! f ) return 0;
+    char line[256];
+    size_t total_kib = 0;
+    while ( fgets( line, sizeof(line), f ) ) {
+        // Line format: "  total                                               66820K"
+        char * p = line;
+        while ( *p == ' ' ) p++;
+        if ( strncmp( p, "total", 5 ) == 0 ) {
+            // Find the trailing "<digits>K"
+            char * end = line + strlen(line);
+            while ( end > line && (*(end-1) == '\n' || *(end-1) == '\r') ) end--;
+            char * digits_end = end;
+            if ( digits_end > line && *(digits_end - 1) == 'K' ) {
+                char * digits_start = digits_end - 1;
+                while ( digits_start > line && isdigit((unsigned char)*(digits_start - 1)) ) digits_start--;
+                total_kib = (size_t) atoll( digits_start );
+            }
+            break;
+        }
+    }
+    fclose( f );
+    return total_kib;
+}
+
+// /proc/self/smaps_rollup has Rss and Anonymous (NOT RssFile/RssShmem —
+// those live in /proc/self/status instead; the assigning task named
+// smaps_rollup for all four fields, which is factually off for two of
+// them. Reading each field from where it actually exists rather than
+// force-fitting the wrong file.
+static size_t memledger_smaps_rollup_field_kib( const char * field ) {
+    FILE * f = fopen( "/proc/self/smaps_rollup", "r" );
+    if ( ! f ) return 0;
+    char line[256];
+    size_t field_len = strlen(field);
+    size_t val_kb = 0;
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, field, field_len ) == 0 && line[field_len] == ':' ) {
+            sscanf( line + field_len + 1, "%zu", &val_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return val_kb;
+}
+
+static size_t memledger_status_field_kib( const char * field ) {
+    FILE * f = fopen( "/proc/self/status", "r" );
+    if ( ! f ) return 0;
+    char line[256];
+    size_t field_len = strlen(field);
+    size_t val_kb = 0;
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, field, field_len ) == 0 && line[field_len] == ':' ) {
+            sscanf( line + field_len + 1, "%zu", &val_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return val_kb;
+}
+
+static size_t memledger_meminfo_field_kib( const char * field ) {
     FILE * f = fopen( "/proc/meminfo", "r" );
     if ( ! f ) return 0;
     char line[256];
@@ -71,9 +136,40 @@ static size_t memledger_meminfo_field_mib( const char * field ) {
         }
     }
     fclose( f );
-    return val_kb / 1024;
+    return val_kb;
 }
 
+static size_t memledger_meminfo_field_mib( const char * field ) {
+    return memledger_meminfo_field_kib( field ) / 1024;
+}
+
+static void memledger_log( const char * event, const char * name, const char * type,
+                            size_t payload_B, size_t alloc_B, size_t nbytes_B,
+                            ggml_backend * backend ) {
+    size_t nvmap_kib   = memledger_nvmap_client_kib();
+    bool   nvmap_ok    = memledger_nvmap_readable();
+    size_t smaps_rss   = memledger_smaps_rollup_field_kib( "Rss" );
+    size_t smaps_anon  = memledger_smaps_rollup_field_kib( "Anonymous" );
+    size_t status_file = memledger_status_field_kib( "RssFile" );
+    size_t status_shm  = memledger_status_field_kib( "RssShmem" );
+    size_t mem_avail   = memledger_meminfo_field_kib( "MemAvailable" );
+    size_t mem_cached  = memledger_meminfo_field_kib( "Cached" );
+    fprintf( stderr,
+        "MEMLEDGER event=%-20s name=%-60s type=%-10s payload_B=%10zu alloc_B=%10zu nbytes_B=%10zu "
+        "UNRELIABLE_REF_cuda_free_MiB=%7zu rss_MiB=%7zu "
+        "nvmap_client_KiB=%s%9zu smaps_Rss_KiB=%9zu smaps_Anonymous_KiB=%9zu status_RssFile_KiB=%9zu status_RssShmem_KiB=%9zu "
+        "meminfo_MemAvailable_KiB=%9zu meminfo_Cached_KiB=%9zu\n",
+        event, name, type, payload_B, alloc_B, nbytes_B,
+        memledger_cuda_free_mib(backend), memledger_rss_mib(),
+        nvmap_ok ? " " : "U", nvmap_kib, smaps_rss, smaps_anon, status_file, status_shm,
+        mem_avail, mem_cached );
+    fflush( stderr );
+}
+
+// Attribution instrumentation: per-class breakdown at each bmo_layer_done,
+// to distinguish page-cache (Cached), anon-heap (AnonPages), and other
+// memory classes from /proc/meminfo — none of this changes any allocation
+// behavior, measurement only.
 static void memledger_log_meminfo( const char * layer_label ) {
     size_t mem_free  = memledger_meminfo_field_mib( "MemFree" );
     size_t cached    = memledger_meminfo_field_mib( "Cached" );
