@@ -700,7 +700,46 @@ bool moshi_lm_quantize( moshi_lm_t * lm, const char * quant ) {
     return true;
 }
 
+// RUN 2 (reserve-then-release): STEP 1's ggml_alloc_probe certification came
+// back NOT CERTIFIED (per-call ggml_backend_alloc_ctx_tensors overhead is
+// ~1 MiB/call in isolation, not the ~36 MiB/layer seen in the real loader —
+// see tools/ggml_alloc_probe.cpp), so consolidation is not evidenced. This
+// is the scoped fallback instead: hold one large device buffer across the
+// entire BMO load + KV cache alloc (keeping NvMap's carveout from draining/
+// fragmenting during that phase), then free it immediately before the text
+// graph's GraphContext::alloc() call so that allocation gets first crack at
+// whatever contiguity the reserve was protecting. Measurement/experiment
+// only — env-gated, disabled (0 MiB) unless GRAPH_RESERVE_MIB is set.
+static ggml_backend_buffer_t g_graph_reserve_buf = NULL;
+
+static size_t graph_reserve_mib_env() {
+    const char * v = getenv("GRAPH_RESERVE_MIB");
+    if ( ! v ) return 0;
+    return (size_t) atoll(v);
+}
+
+static void graph_reserve_acquire( ggml_backend * backend ) {
+    size_t mib = graph_reserve_mib_env();
+    if ( mib == 0 || g_graph_reserve_buf || ! backend ) return;
+    ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type( backend );
+    g_graph_reserve_buf = ggml_backend_buft_alloc_buffer( buft, mib * 1024 * 1024 );
+    memledger_log( "graph_reserve_acquire", "(reserve)", "-", 0,
+                    g_graph_reserve_buf ? ggml_backend_buffer_get_size(g_graph_reserve_buf) : 0, 0, backend );
+    if ( ! g_graph_reserve_buf ) {
+        fprintf( stderr, "GRAPH_RESERVE: failed to acquire %zu MiB reserve buffer\n", mib );
+        fflush( stderr );
+    }
+}
+
+static void graph_reserve_release( ggml_backend * backend ) {
+    if ( ! g_graph_reserve_buf ) return;
+    ggml_backend_buffer_free( g_graph_reserve_buf );
+    g_graph_reserve_buf = NULL;
+    memledger_log( "graph_reserve_release", "(reserve)", "-", 0, 0, 0, backend );
+}
+
 int moshi_lm_load( moshi_lm_t * lm ) {
+    graph_reserve_acquire( lm->weights->backend );
     if ( lm->weights->is_gguf ) {
         lm->weights->load_gguf( );
     }
@@ -945,6 +984,7 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
 
     // personaplex process system prompts
     if ( gen->lm->model->personaplex ) {
+        graph_reserve_release( moshi->backend );
         printf("DEBUG: processing system prompts\n"); fflush(stdout);
         moshi_lmgen_step_system_prompts(
             *gen->ctx,

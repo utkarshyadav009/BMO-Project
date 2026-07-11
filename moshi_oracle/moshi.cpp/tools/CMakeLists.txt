@@ -58,6 +58,16 @@ target_link_libraries(personaplex PRIVATE moshi ${GGML_LIBRARIES} ${FFMPEG_LIBRA
 target_include_directories(personaplex PRIVATE ${GGML_INCLUDE_DIRS} ${SentencePiece_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS})
 setup_rpath(personaplex)
 
+# STEP 1 certification probe (RUN 1 nvmap_client_KiB attribution follow-up):
+# tests whether ggml_backend_alloc_ctx_tensors() itself (not raw cudaMalloc,
+# already ruled out by tools/nvmap_alloc_probe.cu) carries per-call overhead
+# when invoked 62x on a growing context, as loader.h's build_custom_ffn_tensor
+# does. ggml-only, no moshi/FFmpeg/SDL2/SentencePiece dependency needed.
+add_executable(ggml_alloc_probe ggml_alloc_probe.cpp)
+target_link_libraries(ggml_alloc_probe PRIVATE ${GGML_LIBRARIES})
+target_include_directories(ggml_alloc_probe PRIVATE ${GGML_INCLUDE_DIRS})
+setup_rpath(ggml_alloc_probe)
+
 set(ARIA2_FILES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ARIA2_FILES_DEST_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 file(GLOB ARIA2_FILES_TO_COPY
