@@ -10,23 +10,25 @@
 # "lfb") is too small. "free" and "available" are not sufficient signals by
 # themselves on this platform.
 #
-# GATE NOTE: tegrastats "lfb NxSIZE" reports the buddy allocator's max-order
-# free block count/size. On aarch64 with 4 KiB pages, MAX_ORDER caps the block
-# size at 4 MiB — SIZE will essentially always read 4MB regardless of actual
-# fragmentation state; it is architecturally incapable of reporting a bigger
-# block, so gating on N*SIZE (as an earlier version of this script did) is
-# gating on something that can never exceed ~4MiB*N anyway, and worse, made
-# the gate look like it wanted a single >=512MiB contiguous block, which the
-# allocator cannot report even when memory is genuinely healthy. Gate on N
-# (count of max-order blocks) directly instead: N>=128 means >=512MiB is held
-# in max-order blocks, which is the actual signal that matters.
+# GATE NOTE (revised after direct measurement on this hardware): tegrastats'
+# "lfb NxSIZE" field reports only order-10 (4 MiB) blocks, capped there
+# regardless of what's actually free at higher orders — on THIS kernel,
+# /proc/buddyinfo shows orders up to 12 (16 MiB) are tracked and populated,
+# so tegrastats' lfb is not the ground truth here and gating on it produces
+# false FAILs on genuinely healthy systems (confirmed directly: a fresh
+# reboot showed tegrastats lfb_N=22 — apparently unhealthy — while
+# /proc/buddyinfo's Normal zone alone had 237 order-12 blocks, ~3.7 GB, free).
+# Gate on /proc/buddyinfo directly instead: sum bytes held in blocks of
+# order>=10 (4 MiB+) across all zones — this is the real signal tegrastats
+# was trying (and failing) to approximate.
 #
 # Usage: sudo bash tools/jetson_preflight.sh
 # Exit 0 + "PREFLIGHT: PASS" on success, exit 1 + "PREFLIGHT: FAIL" otherwise.
 
 set -euo pipefail
 
-MIN_LFB_N=128
+PAGE_SIZE_BYTES=$(getconf PAGESIZE)
+MIN_LARGE_BLOCK_MIB=512
 MIN_FREE_MIB=5500
 LOG_FILE="${LOG_FILE:-$(dirname "$0")/jetson_preflight.log}"
 
@@ -63,28 +65,42 @@ echo "PREFLIGHT_TEGRASTATS_SAMPLE: ${SAMPLE}"
 echo "PREFLIGHT_BUDDYINFO:"
 cat /proc/buddyinfo
 
-# Parse "RAM <used>/<total>MB (lfb <N>x<SIZE>MB)"
+# Parse "RAM <used>/<total>MB" for the free-total check (tegrastats totals are
+# reliable; it's specifically the lfb fragmentation field that's misleading).
 USED_MIB=$(echo "$SAMPLE" | grep -oP 'RAM \K[0-9]+(?=/[0-9]+MB)')
 TOTAL_MIB=$(echo "$SAMPLE" | grep -oP 'RAM [0-9]+/\K[0-9]+(?=MB)')
-LFB_N=$(echo "$SAMPLE" | grep -oP 'lfb \K[0-9]+(?=x)')
-LFB_BLOCK_MIB=$(echo "$SAMPLE" | grep -oP 'lfb [0-9]+x\K[0-9]+(?=MB)')
 
-if [ -z "$USED_MIB" ] || [ -z "$TOTAL_MIB" ] || [ -z "$LFB_N" ] || [ -z "$LFB_BLOCK_MIB" ]; then
+if [ -z "$USED_MIB" ] || [ -z "$TOTAL_MIB" ]; then
     echo "PREFLIGHT: FAIL (could not parse tegrastats sample: ${SAMPLE})" >&2
     exit 1
 fi
 
 FREE_MIB=$(( TOTAL_MIB - USED_MIB ))
 
-echo "PREFLIGHT_PARSED: free_MiB=${FREE_MIB} total_MiB=${TOTAL_MIB} lfb_N=${LFB_N} lfb_block_MiB=${LFB_BLOCK_MIB}"
-echo "PREFLIGHT_GATE: require free_MiB>=${MIN_FREE_MIB} AND lfb_N>=${MIN_LFB_N}"
+# Sum bytes held in blocks of order>=10 (4 MiB+) across all zones in
+# /proc/buddyinfo. Each "zone" line: "Node N, zone NAME <count_order0>
+# <count_order1> ... <count_orderMAX>" — order K block = PAGE_SIZE * 2^K.
+LARGE_BLOCK_MIB=$(awk -v page="$PAGE_SIZE_BYTES" '
+    /zone/ {
+        for (i = 5; i <= NF; i++) {
+            order = i - 5
+            if (order >= 10) {
+                total += $i * page * (2 ^ order)
+            }
+        }
+    }
+    END { printf "%.0f", total / 1024 / 1024 }
+' /proc/buddyinfo)
+
+echo "PREFLIGHT_PARSED: free_MiB=${FREE_MIB} total_MiB=${TOTAL_MIB} large_block_MiB(order>=10, all zones)=${LARGE_BLOCK_MIB}"
+echo "PREFLIGHT_GATE: require free_MiB>=${MIN_FREE_MIB} AND large_block_MiB>=${MIN_LARGE_BLOCK_MIB}"
 
 FAIL_REASONS=()
 if [ "$FREE_MIB" -lt "$MIN_FREE_MIB" ]; then
     FAIL_REASONS+=("free_MiB=${FREE_MIB} < ${MIN_FREE_MIB}")
 fi
-if [ "$LFB_N" -lt "$MIN_LFB_N" ]; then
-    FAIL_REASONS+=("lfb_N=${LFB_N} < ${MIN_LFB_N}")
+if [ "$LARGE_BLOCK_MIB" -lt "$MIN_LARGE_BLOCK_MIB" ]; then
+    FAIL_REASONS+=("large_block_MiB=${LARGE_BLOCK_MIB} < ${MIN_LARGE_BLOCK_MIB}")
 fi
 
 if [ ${#FAIL_REASONS[@]} -eq 0 ]; then
