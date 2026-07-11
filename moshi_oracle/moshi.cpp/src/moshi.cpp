@@ -639,6 +639,9 @@ moshi_lm_t * moshi_lm_from_files(
             printf("DEBUG: gguf weights load failed\n"); fflush(stdout);
             return NULL;
         }
+        // MEMLEDGER: file is open and header/tensor-info parsed (no_alloc=true in from_gguf),
+        // but zero tensor data has been uploaded yet — this is the pre-upload baseline.
+        memledger_log("after_gguf_parse", "(file_opened_no_alloc)", "-", 0, 0, 0, moshi->backend);
     }
     printf("DEBUG: weights loaded successfully\n"); fflush(stdout);
 
@@ -912,6 +915,9 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
     gen->state_ctx->alloc();
     printf("DEBUG: calling state_ctx->init()\n"); fflush(stdout);
     gen->state_ctx->init();
+    memledger_log("after_kv_cache", "(state_ctx_alloc_init_done)", "-",
+                   0, gen->state_ctx->buffer ? ggml_backend_buffer_get_size(gen->state_ctx->buffer) : 0,
+                   0, moshi->backend);
     printf("DEBUG: calling init (scratch)\n"); fflush(stdout);
     init( moshi->scratch, gen->lm_states, gen->lm->model, condition_cross );
     printf("DEBUG: creating gen->ctx ScratchContext\n"); fflush(stdout);
@@ -931,7 +937,11 @@ void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_
             gen->text_prompt_tokens
         );
         printf("DEBUG: system prompts processed successfully\n"); fflush(stdout);
+        // MEMLEDGER: this is the Hybrid System Prompt prefill (cuBLAS fall-through
+        // path) — the task's stated highest-water-mark candidate for VRAM usage.
+        memledger_log("after_first_prefill_step", "(system_prompts_processed)", "-", 0, 0, 0, moshi->backend);
     }
+    memledger_log("after_lm_start", "(moshi_lm_start_returning)", "-", 0, 0, 0, moshi->backend);
     printf("DEBUG: moshi_lm_start ending\n"); fflush(stdout);
 }
 

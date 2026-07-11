@@ -87,8 +87,30 @@ void signal_handler(int dummy) {
     shutdown = true;
 }
 
+// MEMLEDGER instrumentation — measurement-only diagnostic for Stage 2 OOM investigation.
+static size_t memledger_rss_mib() {
+    FILE * f = fopen( "/proc/self/status", "r" );
+    if ( ! f ) return 0;
+    size_t rss_kb = 0;
+    char line[256];
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, "VmRSS:", 6 ) == 0 ) {
+            sscanf( line + 6, "%zu", &rss_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return rss_kb / 1024;
+}
+static void memledger_log_simple( const char * event, size_t cuda_free_mib ) {
+    fprintf( stderr, "MEMLEDGER event=%-20s name=%-60s type=%-10s payload_B=%10d alloc_B=%10d nbytes_B=%10d cuda_free_MiB=%7zu rss_MiB=%7zu\n",
+             event, "-", "-", 0, 0, 0, cuda_free_mib, memledger_rss_mib() );
+    fflush( stderr );
+}
+
 int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
+    memledger_log_simple("process_start", 0); // no backend yet — cuda_free_MiB is N/A (0)
 
     const char * device = NULL;
     int n_threads = 0;
@@ -259,6 +281,7 @@ int main(int argc, char *argv[]) {
     common_ggml_t ggml;
     init_ggml( ggml, device, n_threads );
     printf("DEBUG: init_ggml returned successfully, free memory: %d MiB\n", ggml.memory_free_mb ); fflush(stdout);
+    memledger_log_simple("after_ggml_init", device_memory_free(ggml.dev) / 1024 / 1024); // CUDA context floor, cf. Stage 1
     const int memory_base = 4990;
     const int memory_ctx = 758;
     const int memory_min = 5368;
@@ -366,6 +389,9 @@ int main(int argc, char *argv[]) {
     if ( context > 0 ) {
         config.context = context;
     }
+    // Not a memory metric — logged separately from MEMLEDGER's cuda_free/rss format
+    // to avoid mislabeling a token count as a byte quantity.
+    fprintf(stderr, "MEMLEDGER_CONTEXT final_context_size=%d\n", config.context); fflush(stderr);
 
     if ( kv_type_str == "q8_0" ) {
         config.kv_cache_type = GGML_TYPE_Q8_0;
@@ -605,12 +631,14 @@ int main(int argc, char *argv[]) {
     unref_ptr<mimi_encode_context_t> encoder;
     encoder = mimi_encode_alloc_context( codec );
     printf("DEBUG: mimi_encode_alloc_context returned successfully\n"); fflush(stdout);
+    memledger_log_simple("after_mimi_encode_alloc", device_memory_free(ggml.dev) / 1024 / 1024);
 
     // decoder
     printf("DEBUG: calling mimi_decode_alloc_context\n"); fflush(stdout);
     unref_ptr<mimi_decode_context_t> decoder;
     decoder = mimi_decode_alloc_context( codec );
     printf("DEBUG: mimi_decode_alloc_context returned successfully\n"); fflush(stdout);
+    memledger_log_simple("after_mimi_decode_alloc", device_memory_free(ggml.dev) / 1024 / 1024);
 
     auto load_end = ggml_time_ms();
     printf("done loading. %f\n", (load_end - load_start) / 1000.f); fflush(stdout);
@@ -883,6 +911,10 @@ int main(int argc, char *argv[]) {
             }
             lm_delta_time += ggml_time_us() - lm_start;
             lm_frames++;
+
+            if ( lm_frames == 1 ) {
+                memledger_log_simple("after_first_decode_frame", device_memory_free(ggml.dev) / 1024 / 1024);
+            }
 
             // Frame-indexed VRAM probe every 25 frames.
             // Prints both M1 (driver free delta) and M2 (ggml physical alloc sum) so
