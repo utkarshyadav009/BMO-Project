@@ -1034,7 +1034,7 @@ public:
 
         auto f = fopen( filename.c_str(), "rb" );
 
-        std::vector<char*> data;
+        std::vector<char> data;
         auto data_offset = gguf_get_data_offset( gguf );
         int n_tensors = (int) gguf_get_n_tensors( gguf );
         for (int i = 0; i < n_tensors; i++) {
