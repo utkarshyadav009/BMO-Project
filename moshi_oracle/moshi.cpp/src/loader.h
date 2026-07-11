@@ -13,6 +13,9 @@
 #include <fcntl.h>   // posix_fadvise, POSIX_FADV_DONTNEED (Fix A)
 #include <unistd.h>  // fileno's off_t and related POSIX types
 #endif
+#if !defined(_WIN32) && !defined(__APPLE__)
+#include <malloc.h>  // malloc_trim (Fix B, per-layer)
+#endif
 
 // MEMLEDGER instrumentation — measurement-only diagnostic for Stage 2 OOM investigation.
 // Not gated behind a build flag: this session's ask is to log unconditionally so the
@@ -270,6 +273,13 @@ class WeightLoader {
     std::vector<uint8_t> reuse_buf_tile_tiers;
     std::vector<uint8_t> reuse_buf_outlier_indices;
     std::vector<uint8_t> reuse_buf_outlier_values;
+
+    // Fix B (anon heap): the repacked `payload` buffer in build_custom_ffn_tensor
+    // was the dominant per-layer retention source (~56 MiB/layer, matching the
+    // tracked device allocation almost exactly) — reused the same way as the 4
+    // read-staging buffers above. Reserved to ~60 MiB (largest single-layer
+    // payload observed) on first use in build_custom_ffn_tensor.
+    std::vector<uint8_t> reuse_buf_payload;
 
     // MEMLEDGER: tracks how many of a BMO gating layer's 2 tensors (in/out) have
     // been repacked, so bmo_layer_done can be logged once per layer (not per tensor).
@@ -833,7 +843,14 @@ public:
         write_offset += tile_stream_indices.size() * sizeof(uint16_t);
         write_offset = (write_offset + 15) & ~15;
 
-        std::vector<uint8_t> payload(offset, 0);
+        // Fix B: reuse the member buffer instead of a fresh per-call vector.
+        // resize() alone would leave stale bytes from the PREVIOUS tensor's
+        // payload in any padding gaps between fields — explicitly zero the
+        // needed range every time so the assembled bytes are identical to
+        // the original fresh-zero-initialized-vector behavior.
+        auto & payload = reuse_buf_payload;
+        payload.resize(offset);
+        std::fill(payload.begin(), payload.end(), 0);
         memcpy(payload.data(), &header, sizeof(block_bmo_tier));
         memcpy(payload.data() + header.packed_weights_offset, pw.data(), pw.size());
         memcpy(payload.data() + header.tile_tiers_offset, tt.data(), tt.size());
@@ -882,6 +899,14 @@ public:
                     int layer = atoi( base_name.substr(digits_start, digits_end - digits_start).c_str() );
                     int count = ++memledger_bmo_layer_tensor_count[layer];
                     if ( count >= 2 ) {
+                        // Fix B: trim once per layer (inside the loop), not only
+                        // once at the very end of moshi_lm_load() — retention
+                        // accumulates layer-by-layer, so a single end-of-load
+                        // trim cannot prevent the peak from building up during
+                        // the loop itself.
+#if !defined(_WIN32) && !defined(__APPLE__)
+                        malloc_trim(0);
+#endif
                         char layer_name[32];
                         snprintf(layer_name, sizeof(layer_name), "layer=%d", layer);
                         memledger_log("bmo_layer_done", layer_name, "-", 0, 0, 0, backend);
