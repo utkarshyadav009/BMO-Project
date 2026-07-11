@@ -1,6 +1,9 @@
 
 #include <assert.h>
 #include <math.h>
+#if !defined(_WIN32) && !defined(__APPLE__)
+#include <malloc.h> // malloc_trim (V2 fix, moshi_lm_load)
+#endif
 
 #include <iostream>
 
@@ -703,6 +706,15 @@ int moshi_lm_load( moshi_lm_t * lm ) {
     }
 
     get_weights( lm->weights, "lm.", lm->model );
+    // V2 fix: return whatever glibc is still holding from the BMO repack's
+    // per-tensor read/payload churn back to the OS. The 4 large read-staging
+    // buffers are now reused across all 62 tensors (see loader.h), but the
+    // per-tensor `payload` vector in build_custom_ffn_tensor is not — this
+    // catches that and any other residual heap retention from the loop.
+    // glibc-specific (not available on Windows/macOS malloc).
+#if !defined(_WIN32) && !defined(__APPLE__)
+    malloc_trim(0);
+#endif
     if ( lm->uses_cross ) {
         lm->cond = new conditioners_t;
         get_weights( lm->weights, lm->cond );

@@ -206,6 +206,19 @@ class WeightLoader {
     bool is_gguf;
     std::map<std::string,ggml_tensor*> tensors;
 
+    // V2 fix (host heap retention during BMO repack): the 4 large BMO
+    // sub-components (packed_weights, tile_tiers, outlier_indices,
+    // outlier_values) must coexist within one tensor's processing, so they
+    // need 4 separate buffers — but each is REUSED across all 31 layers
+    // (grown once to its max size, then resize()'d without reallocating)
+    // instead of a fresh std::vector allocated and freed per call. Measured
+    // root cause: ~92 MiB/layer RSS growth that glibc wasn't returning to
+    // the OS between the 62 rapid alloc/free cycles (see commit message).
+    std::vector<uint8_t> reuse_buf_packed_weights;
+    std::vector<uint8_t> reuse_buf_tile_tiers;
+    std::vector<uint8_t> reuse_buf_outlier_indices;
+    std::vector<uint8_t> reuse_buf_outlier_values;
+
     // MEMLEDGER: tracks how many of a BMO gating layer's 2 tensors (in/out) have
     // been repacked, so bmo_layer_done can be logged once per layer (not per tensor).
     std::map<int,int> memledger_bmo_layer_tensor_count;
@@ -346,18 +359,21 @@ public:
     // never allocated in the shared device buffer (load_gguf marks them with
     // a sentinel data pointer so ggml_backend_alloc_ctx_tensors skips them),
     // so read_bytes()/ggml_backend_tensor_get() cannot be used for them.
-    // Called lazily, one tensor at a time, from build_custom_ffn_tensor() —
-    // the returned vector is a local that goes out of scope and frees itself
-    // as soon as that call finishes, bounding peak host memory to a single
-    // tensor's worth (~24-36 MiB) rather than the full 1.7 GiB.
-    std::vector<uint8_t> read_raw_bytes_from_gguf_file( const std::string & name ) {
+    //
+    // V2 fix: `out` is one of the 4 reuse_buf_* members, not a fresh local —
+    // resize() only reallocates if the new size exceeds current capacity, so
+    // after the first (largest) tensor of each component type, subsequent
+    // calls reuse the same backing storage instead of allocating and freeing
+    // a new one 62 times. Measured: this was the source of ~92 MiB/layer of
+    // RSS growth that glibc wasn't returning to the OS between calls.
+    void read_raw_bytes_from_gguf_file( const std::string & name, std::vector<uint8_t> & out ) {
         int64_t tid = gguf_find_tensor( gguf, name.c_str() );
-        if ( tid < 0 ) return {};
+        if ( tid < 0 ) { out.resize(0); return; }
         size_t data_offset   = gguf_get_data_offset( gguf );
         size_t tensor_offset = gguf_get_tensor_offset( gguf, tid );
         size_t nbytes        = gguf_get_tensor_size( gguf, tid );
-        std::vector<uint8_t> buf( nbytes );
-        if ( nbytes == 0 ) return buf;
+        out.resize( nbytes );
+        if ( nbytes == 0 ) return;
         FILE * f = fopen( filename.c_str(), "rb" );
         if ( ! f ) {
             fprintf( stderr, "error: failed to reopen \"%s\" for BMO host-side read of %s\n",
@@ -369,13 +385,12 @@ public:
 #else
         fseek( f, data_offset + tensor_offset, SEEK_SET );
 #endif
-        size_t r = fread( buf.data(), nbytes, 1, f );
+        size_t r = fread( out.data(), nbytes, 1, f );
         fclose( f );
         if ( r != 1 ) {
             fprintf( stderr, "error: failed to read tensor %s from file (BMO host-side read)\n", name.c_str() );
             exit(1);
         }
-        return buf;
     }
 
     std::vector<float> dequantize_attn_to_f32(std::string & base_name, int32_t & rows, int32_t & cols) {
@@ -604,12 +619,18 @@ public:
         // device buffer in load_gguf() — read directly from the file instead. The
         // small scalar fields below (n_tiles, tier_offsets) were left on the normal
         // device-buffer path (negligible size, not worth the extra risk to touch).
-        auto pw = read_raw_bytes_from_gguf_file(base_name + ".packed_weights");
-        auto tt = read_raw_bytes_from_gguf_file(base_name + ".tile_tiers");
+        // V2 fix: pw/tt/oi/ov are now REFERENCES to the 4 reusable member buffers,
+        // not fresh per-call std::vectors — see read_raw_bytes_from_gguf_file.
+        read_raw_bytes_from_gguf_file(base_name + ".packed_weights", reuse_buf_packed_weights);
+        read_raw_bytes_from_gguf_file(base_name + ".tile_tiers", reuse_buf_tile_tiers);
+        auto & pw = reuse_buf_packed_weights;
+        auto & tt = reuse_buf_tile_tiers;
         auto n_tiles_buf = read_bytes(base_name + ".n_tiles");
         auto tier_offsets_buf = read_bytes(base_name + ".tier_offsets");
-        auto oi = read_raw_bytes_from_gguf_file(base_name + ".outlier_indices");
-        auto ov = read_raw_bytes_from_gguf_file(base_name + ".outlier_values");
+        read_raw_bytes_from_gguf_file(base_name + ".outlier_indices", reuse_buf_outlier_indices);
+        read_raw_bytes_from_gguf_file(base_name + ".outlier_values", reuse_buf_outlier_values);
+        auto & oi = reuse_buf_outlier_indices;
+        auto & ov = reuse_buf_outlier_values;
 
         // Pre-compute payload offset to optimize memory allocation size
         size_t offset = sizeof(block_bmo_tier);
