@@ -715,6 +715,11 @@ int moshi_lm_load( moshi_lm_t * lm ) {
 #if !defined(_WIN32) && !defined(__APPLE__)
     malloc_trim(0);
 #endif
+    // Fix A (page cache): drop any GGUF page-cache pages that accumulated
+    // outside the per-tensor ranges already advised in
+    // read_raw_bytes_from_gguf_file (e.g. from load_gguf()'s own read of
+    // the non-BMO tensors).
+    lm->weights->fadvise_dontneed_whole_file();
     if ( lm->uses_cross ) {
         lm->cond = new conditioners_t;
         get_weights( lm->weights, lm->cond );

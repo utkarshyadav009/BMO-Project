@@ -9,6 +9,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#ifndef _WIN32
+#include <fcntl.h>   // posix_fadvise, POSIX_FADV_DONTNEED (Fix A)
+#include <unistd.h>  // fileno's off_t and related POSIX types
+#endif
 
 // MEMLEDGER instrumentation — measurement-only diagnostic for Stage 2 OOM investigation.
 // Not gated behind a build flag: this session's ask is to log unconditionally so the
@@ -434,11 +438,31 @@ public:
         fseek( f, data_offset + tensor_offset, SEEK_SET );
 #endif
         size_t r = fread( out.data(), nbytes, 1, f );
+        // Fix A (page cache): this range won't be re-read (each tensor's raw
+        // bytes are read exactly once), so tell the kernel to drop it from
+        // the page cache immediately rather than let it accumulate across
+        // all 62 tensors. Advisory only — doesn't touch `out`'s contents.
+#ifndef _WIN32
+        posix_fadvise( fileno(f), (off_t)(data_offset + tensor_offset), (off_t)nbytes, POSIX_FADV_DONTNEED );
+#endif
         fclose( f );
         if ( r != 1 ) {
             fprintf( stderr, "error: failed to read tensor %s from file (BMO host-side read)\n", name.c_str() );
             exit(1);
         }
+    }
+
+    // Fix A (page cache): drop the whole GGUF file from page cache once BMO
+    // loading is done, in case any cache pages accumulated outside the
+    // per-tensor ranges above (e.g. from load_gguf()'s own earlier read of
+    // the non-BMO tensors, which goes through a separate code path).
+    void fadvise_dontneed_whole_file() {
+#ifndef _WIN32
+        FILE * f = fopen( filename.c_str(), "rb" );
+        if ( ! f ) return;
+        posix_fadvise( fileno(f), 0, 0, POSIX_FADV_DONTNEED ); // len=0 means "to EOF"
+        fclose( f );
+#endif
     }
 
     std::vector<float> dequantize_attn_to_f32(std::string & base_name, int32_t & rows, int32_t & cols) {
