@@ -7,6 +7,68 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
+
+// MEMLEDGER instrumentation — measurement-only diagnostic for Stage 2 OOM investigation.
+// Not gated behind a build flag: this session's ask is to log unconditionally so the
+// exact same binary that OOMs also produces the ledger.
+static size_t memledger_cuda_free_mib( ggml_backend * backend ) {
+    if ( ! backend ) return 0;
+    ggml_backend_dev_t dev = ggml_backend_get_device( backend );
+    if ( ! dev ) return 0;
+    ggml_backend_dev_props props;
+    ggml_backend_dev_get_props( dev, &props );
+    return props.memory_free / 1024 / 1024;
+}
+
+static size_t memledger_rss_mib() {
+    FILE * f = fopen( "/proc/self/status", "r" );
+    if ( ! f ) return 0;
+    size_t rss_kb = 0;
+    char line[256];
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, "VmRSS:", 6 ) == 0 ) {
+            sscanf( line + 6, "%zu", &rss_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return rss_kb / 1024;
+}
+
+static void memledger_log( const char * event, const char * name, const char * type,
+                            size_t payload_B, size_t alloc_B, size_t nbytes_B,
+                            ggml_backend * backend ) {
+    fprintf( stderr,
+        "MEMLEDGER event=%-20s name=%-60s type=%-10s payload_B=%10zu alloc_B=%10zu nbytes_B=%10zu cuda_free_MiB=%7zu rss_MiB=%7zu\n",
+        event, name, type, payload_B, alloc_B, nbytes_B,
+        memledger_cuda_free_mib(backend), memledger_rss_mib() );
+    fflush( stderr );
+}
+
+// BMO double-storage fix: identifies the 4 LARGE raw sub-component tensors of
+// BMO_TIER gating weights (layers 0-30 only — layer 31's gating is a single
+// plain tensor with no dot-suffix, so it never matches this and is untouched,
+// per the "layer 31 stays F16, do not optimize" constraint). The small scalar
+// siblings (.rows/.cols/.n_outliers/.scale_*/.zp_*/.n_tiles/.tier_offsets/
+// .packing_version, all 4-20 bytes) are deliberately left on the normal
+// device-buffer path — they're negligible and touching them adds risk for
+// no measurable gain.
+static bool is_bmo_big_subcomponent( const std::string & name ) {
+    if ( name.find( "_gating_linear_in_weight." ) == std::string::npos &&
+         name.find( "_gating_linear_out_weight." ) == std::string::npos )
+        return false;
+    static const char * big_suffixes[] = {
+        ".packed_weights", ".tile_tiers", ".outlier_indices", ".outlier_values"
+    };
+    for ( auto suf : big_suffixes ) {
+        size_t L = strlen(suf);
+        if ( name.size() >= L && name.compare( name.size() - L, L, suf ) == 0 )
+            return true;
+    }
+    return false;
+}
 
 inline void quantize_wht_nf2(const float * src, void * dst, int64_t nrows, int64_t n_per_row) {
     struct block_q2_K {
@@ -144,6 +206,10 @@ class WeightLoader {
     bool is_gguf;
     std::map<std::string,ggml_tensor*> tensors;
 
+    // MEMLEDGER: tracks how many of a BMO gating layer's 2 tensors (in/out) have
+    // been repacked, so bmo_layer_done can be logged once per layer (not per tensor).
+    std::map<int,int> memledger_bmo_layer_tensor_count;
+
 private:
     WeightLoader(const char * filename, SafeTensorFile * stf, ScratchContext * scratch, ggml_backend * backend = NULL) {
         this->filename = filename;
@@ -271,6 +337,44 @@ public:
         size_t nbytes = ggml_nbytes(it->second);
         std::vector<uint8_t> buf(nbytes);
         ggml_backend_tensor_get(it->second, buf.data(), 0, nbytes);
+        return buf;
+    }
+
+    // BMO double-storage fix: reads a large sub-component's bytes directly from
+    // the GGUF file, bypassing the device buffer entirely. Used only for the
+    // 4 large BMO sub-components (see is_bmo_big_subcomponent) — those are
+    // never allocated in the shared device buffer (load_gguf marks them with
+    // a sentinel data pointer so ggml_backend_alloc_ctx_tensors skips them),
+    // so read_bytes()/ggml_backend_tensor_get() cannot be used for them.
+    // Called lazily, one tensor at a time, from build_custom_ffn_tensor() —
+    // the returned vector is a local that goes out of scope and frees itself
+    // as soon as that call finishes, bounding peak host memory to a single
+    // tensor's worth (~24-36 MiB) rather than the full 1.7 GiB.
+    std::vector<uint8_t> read_raw_bytes_from_gguf_file( const std::string & name ) {
+        int64_t tid = gguf_find_tensor( gguf, name.c_str() );
+        if ( tid < 0 ) return {};
+        size_t data_offset   = gguf_get_data_offset( gguf );
+        size_t tensor_offset = gguf_get_tensor_offset( gguf, tid );
+        size_t nbytes        = gguf_get_tensor_size( gguf, tid );
+        std::vector<uint8_t> buf( nbytes );
+        if ( nbytes == 0 ) return buf;
+        FILE * f = fopen( filename.c_str(), "rb" );
+        if ( ! f ) {
+            fprintf( stderr, "error: failed to reopen \"%s\" for BMO host-side read of %s\n",
+                      filename.c_str(), name.c_str() );
+            exit(1);
+        }
+#ifdef _WIN32
+        _fseeki64( f, data_offset + tensor_offset, SEEK_SET );
+#else
+        fseek( f, data_offset + tensor_offset, SEEK_SET );
+#endif
+        size_t r = fread( buf.data(), nbytes, 1, f );
+        fclose( f );
+        if ( r != 1 ) {
+            fprintf( stderr, "error: failed to read tensor %s from file (BMO host-side read)\n", name.c_str() );
+            exit(1);
+        }
         return buf;
     }
 
@@ -476,7 +580,10 @@ public:
         std::replace(base_name.begin(), base_name.end(), '.', '_');
 
         std::string name_pw = base_name + ".packed_weights";
-        if (tensors.find(name_pw) == tensors.end()) {
+        // BMO double-storage fix: .packed_weights is deliberately excluded from
+        // `tensors[]` (see load_gguf()), so existence must be checked against the
+        // GGUF file's own tensor index instead of the device-tensor map.
+        if (gguf_find_tensor(gguf, name_pw.c_str()) < 0) {
             return NULL;
         }
 
@@ -493,12 +600,16 @@ public:
         float scale_low = read_scalar_f32(base_name + ".scale_low", 1.0f);
         float zp_low = read_scalar_f32(base_name + ".zp_low", 0.0f);
 
-        auto pw = read_bytes(base_name + ".packed_weights");
-        auto tt = read_bytes(base_name + ".tile_tiers");
+        // BMO double-storage fix: these 4 are the large fields, excluded from the
+        // device buffer in load_gguf() — read directly from the file instead. The
+        // small scalar fields below (n_tiles, tier_offsets) were left on the normal
+        // device-buffer path (negligible size, not worth the extra risk to touch).
+        auto pw = read_raw_bytes_from_gguf_file(base_name + ".packed_weights");
+        auto tt = read_raw_bytes_from_gguf_file(base_name + ".tile_tiers");
         auto n_tiles_buf = read_bytes(base_name + ".n_tiles");
         auto tier_offsets_buf = read_bytes(base_name + ".tier_offsets");
-        auto oi = read_bytes(base_name + ".outlier_indices");
-        auto ov = read_bytes(base_name + ".outlier_values");
+        auto oi = read_raw_bytes_from_gguf_file(base_name + ".outlier_indices");
+        auto ov = read_raw_bytes_from_gguf_file(base_name + ".outlier_values");
 
         // Pre-compute payload offset to optimize memory allocation size
         size_t offset = sizeof(block_bmo_tier);
@@ -539,6 +650,7 @@ public:
             fflush(stderr);
         }
 
+        size_t memledger_bmo_alloc_B = 0;
         if (backend) {
             // EXPERIMENT BRANCH ONLY — DO NOT SHIP WITHOUT AUDIT.
             // We temporarily lie to the ggml allocator about tensor shape so it allocates
@@ -558,7 +670,12 @@ public:
             custom_tensor->nb[1] = offset;
             custom_tensor->nb[2] = offset;
             custom_tensor->nb[3] = offset;
-            ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+            // MEMLEDGER: capture the buffer this call actually allocates (previously discarded).
+            // Each call to ggml_backend_alloc_ctx_tensors on the shared custom_ctx allocates a
+            // NEW separate backend buffer for whatever tensor(s) in custom_ctx are still
+            // unallocated — i.e. one dedicated buffer per BMO tensor, not one shared pool.
+            ggml_backend_buffer_t memledger_buf = ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+            if (memledger_buf) memledger_bmo_alloc_B = ggml_backend_buffer_get_size(memledger_buf);
             // Restore logical shape so ggml graph dispatch sees correct rows/cols.
             // Strides nb[2]/nb[3] are set to cols*rows to keep ggml_is_contiguous() == true.
             custom_tensor->ne[0] = cols;
@@ -651,6 +768,35 @@ public:
             memcpy(custom_tensor->data, payload.data(), offset);
         }
 
+        // MEMLEDGER: nbytes_B uses ggml_nbytes() as literally specified — note this reads
+        // cols*rows (the logical/restored shape), NOT the offset bytes actually resident,
+        // per the KNOWN LANDMINE comment above. payload_B is the true physical byte count.
+        memledger_log("per_tensor_bmo", base_name.c_str(), ggml_type_name(custom_tensor->type),
+                       offset, memledger_bmo_alloc_B, ggml_nbytes(custom_tensor), backend);
+
+        // MEMLEDGER: log bmo_layer_done once both of a layer's gating tensors
+        // (in + out) have been repacked — requested as one line per LAYER, not
+        // per tensor. Parses "transformer_layers_<N>_gating_linear_..." for N;
+        // any name not matching this exact pattern (there shouldn't be any,
+        // since is_bmo_big_subcomponent already restricts to this family) is
+        // silently skipped rather than crashing.
+        {
+            const std::string prefix = "transformer_layers_";
+            if ( base_name.compare(0, prefix.size(), prefix) == 0 ) {
+                size_t digits_start = prefix.size();
+                size_t digits_end = base_name.find('_', digits_start);
+                if ( digits_end != std::string::npos ) {
+                    int layer = atoi( base_name.substr(digits_start, digits_end - digits_start).c_str() );
+                    int count = ++memledger_bmo_layer_tensor_count[layer];
+                    if ( count >= 2 ) {
+                        char layer_name[32];
+                        snprintf(layer_name, sizeof(layer_name), "layer=%d", layer);
+                        memledger_log("bmo_layer_done", layer_name, "-", 0, 0, 0, backend);
+                    }
+                }
+            }
+        }
+
         tensors[base_name] = custom_tensor;
         return custom_tensor;
     }
@@ -737,7 +883,14 @@ public:
         }
         
         std::string name_pw = lookup_name + ".packed_weights";
-        if ( tensors.find( name_pw ) != tensors.end() ) {
+        // BMO double-storage fix: BMO gating tensors' .packed_weights is deliberately
+        // excluded from `tensors[]` (see load_gguf()), so this existence check must
+        // use the GGUF file's own tensor index instead — tensors.find() would always
+        // return false for BMO tensors otherwise, silently skipping build_custom_ffn_tensor()
+        // entirely. gguf_find_tensor() also correctly finds attention's (packing_version==10)
+        // .packed_weights, which is untouched by the exclusion — so this single check is
+        // correct for both branches below.
+        if ( gguf_find_tensor( gguf, name_pw.c_str() ) >= 0 ) {
             int32_t packing_version = read_scalar_i32( lookup_name + ".packing_version", 0 );
             if ( packing_version == 10 ) {
                 auto built = build_quantized_attn_tensor( lookup_name );
@@ -1030,7 +1183,36 @@ public:
     bool load_gguf() {
 
         assert( backend );
+
+        // BMO double-storage fix: pre-mark the 4 large BMO sub-component tensors
+        // (per layer, layers 0-30 only) with a non-NULL sentinel `data` pointer.
+        // ggml_backend_alloc_ctx_tensors's internal allocator (ggml-alloc.c) skips
+        // any tensor where `t->data != NULL`, so this excludes them from the shared
+        // buffer's size and backing memory entirely — their bytes are never uploaded
+        // to the device at all; build_custom_ffn_tensor() reads them straight from
+        // the file instead (read_raw_bytes_from_gguf_file). The sentinel value is
+        // never dereferenced — nothing below touches these tensors' ->data again.
+        int n_tensors_prescan = (int) gguf_get_n_tensors( gguf );
+        int n_bmo_excluded = 0;
+        for (int i = 0; i < n_tensors_prescan; i++) {
+            std::string name = gguf_get_tensor_name( gguf, i );
+            if ( is_bmo_big_subcomponent( name ) ) {
+                auto tensor = ggml_get_tensor( ctx, name.c_str() );
+                assert( tensor );
+                tensor->data = (void*)(intptr_t)1;
+                n_bmo_excluded++;
+            }
+        }
+        memledger_log("bmo_subcomponents_excluded", "(prescan_done)", "-", 0, (size_t)n_bmo_excluded, 0, backend);
+
         buffer = ggml_backend_alloc_ctx_tensors(ctx, backend);
+
+        // MEMLEDGER: this is ONE shared buffer sized for every non-BMO tensor in ctx
+        // (now correctly excluding the large BMO sub-components marked above) —
+        // contrast with build_custom_ffn_tensor(), which allocates a separate buffer
+        // PER BMO tensor. alloc_B here is the total shared-buffer size, not per-tensor.
+        memledger_log("after_gguf_buffer_alloc", "(shared_ctx_buffer)", "-",
+                       0, buffer ? ggml_backend_buffer_get_size(buffer) : 0, 0, backend);
 
         auto f = fopen( filename.c_str(), "rb" );
 
@@ -1039,6 +1221,16 @@ public:
         int n_tensors = (int) gguf_get_n_tensors( gguf );
         for (int i = 0; i < n_tensors; i++) {
             std::string name = gguf_get_tensor_name( gguf, i );
+
+            if ( is_bmo_big_subcomponent( name ) ) {
+                // Excluded above — no device tensor to upload to, and deliberately
+                // not added to `tensors[]` so any accidental lookup elsewhere fails
+                // loudly (empty/NULL) instead of silently reading the sentinel pointer.
+                memledger_log("bmo_subcomponent_skipped", name.c_str(), "-",
+                               (size_t)gguf_get_tensor_size(gguf, i), 0, 0, backend);
+                continue;
+            }
+
             auto tensor      = ggml_get_tensor( ctx, name.c_str() );
             auto offset      = data_offset + gguf_get_tensor_offset( gguf, i );
             auto nbytes      = gguf_get_tensor_size( gguf, i );
@@ -1058,9 +1250,17 @@ public:
             ggml_backend_tensor_set(tensor, data.data(), 0, nbytes);
 
             tensors[name] = tensor;
+
+            // MEMLEDGER: alloc_B=0 here is deliberate, not a bug — this tensor lives inside
+            // the ONE shared buffer already accounted for in the "after_gguf_buffer_alloc"
+            // milestone line; there is no separate per-tensor buffer to query for this path.
+            memledger_log("per_tensor_regular", name.c_str(), ggml_type_name(tensor->type),
+                           (size_t)nbytes, 0, ggml_nbytes(tensor), backend);
         }
 
         fclose( f );
+
+        memledger_log("after_load_gguf_raw", "(all_raw_tensors_done)", "-", 0, 0, 0, backend);
 
         return true;
     }
