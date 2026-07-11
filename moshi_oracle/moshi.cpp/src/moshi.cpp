@@ -728,14 +728,14 @@ struct moshi_lm_gen_t {
     std::vector<int> text_prompt_tokens;
 
     moshi_lmgen_t lmgen;
-    StateMachine * machine;
-    State * machine_state;
-    StateContext * state_ctx;
-    ScratchContext * ctx;
+    StateMachine * machine = NULL;
+    State * machine_state = NULL;
+    StateContext * state_ctx = NULL;
+    ScratchContext * ctx = NULL;
     std::vector<int> audio_tokens;
 
-    moshi_lmmodel_states_t * lm_states;
-    moshi_lmgen_state_t * lmgen_state;
+    moshi_lmmodel_states_t * lm_states = NULL;
+    moshi_lmgen_state_t * lmgen_state = NULL;
 };
 
 moshi_lm_gen_t * moshi_lm_generator( moshi_lm_t * lm ) {
