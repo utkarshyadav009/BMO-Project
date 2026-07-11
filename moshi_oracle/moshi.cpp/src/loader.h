@@ -47,6 +47,54 @@ static void memledger_log( const char * event, const char * name, const char * t
     fflush( stderr );
 }
 
+// Attribution instrumentation: per-class breakdown at each bmo_layer_done,
+// to distinguish page-cache (Cached), anon-heap (AnonPages), and other
+// memory classes from /proc/meminfo — none of this changes any allocation
+// behavior, measurement only.
+static size_t memledger_meminfo_field_mib( const char * field ) {
+    FILE * f = fopen( "/proc/meminfo", "r" );
+    if ( ! f ) return 0;
+    char line[256];
+    size_t field_len = strlen(field);
+    size_t val_kb = 0;
+    while ( fgets( line, sizeof(line), f ) ) {
+        if ( strncmp( line, field, field_len ) == 0 && line[field_len] == ':' ) {
+            sscanf( line + field_len + 1, "%zu", &val_kb );
+            break;
+        }
+    }
+    fclose( f );
+    return val_kb / 1024;
+}
+
+static void memledger_log_meminfo( const char * layer_label ) {
+    size_t mem_free  = memledger_meminfo_field_mib( "MemFree" );
+    size_t cached    = memledger_meminfo_field_mib( "Cached" );
+    size_t buffers   = memledger_meminfo_field_mib( "Buffers" );
+    size_t anon      = memledger_meminfo_field_mib( "AnonPages" );
+    size_t mapped    = memledger_meminfo_field_mib( "Mapped" );
+
+    // /sys/kernel/debug/nvmap/iovmm/clients requires root; log "unavailable"
+    // explicitly rather than silently omitting the column when unreadable.
+    FILE * nvf = fopen( "/sys/kernel/debug/nvmap/iovmm/clients", "r" );
+    char nvmap_str[32];
+    if ( nvf ) {
+        // Content format is client-listing text, not a single number — report
+        // that it WAS readable (root) rather than parse the whole table here;
+        // the actual root-cause question this instrumentation answers is
+        // page-cache vs anon-heap, both already covered by the fields above.
+        snprintf( nvmap_str, sizeof(nvmap_str), "readable" );
+        fclose( nvf );
+    } else {
+        snprintf( nvmap_str, sizeof(nvmap_str), "unavailable" );
+    }
+
+    fprintf( stderr,
+        "MEMLEDGER_MEMINFO layer=%-8s MemFree_MiB=%7zu Cached_MiB=%7zu Buffers_MiB=%7zu AnonPages_MiB=%7zu Mapped_MiB=%7zu nvmap_iovmm=%s\n",
+        layer_label, mem_free, cached, buffers, anon, mapped, nvmap_str );
+    fflush( stderr );
+}
+
 // BMO double-storage fix: identifies the 4 LARGE raw sub-component tensors of
 // BMO_TIER gating weights (layers 0-30 only — layer 31's gating is a single
 // plain tensor with no dot-suffix, so it never matches this and is untouched,
@@ -813,6 +861,9 @@ public:
                         char layer_name[32];
                         snprintf(layer_name, sizeof(layer_name), "layer=%d", layer);
                         memledger_log("bmo_layer_done", layer_name, "-", 0, 0, 0, backend);
+                        char layer_label[16];
+                        snprintf(layer_label, sizeof(layer_label), "%d", layer);
+                        memledger_log_meminfo(layer_label);
                     }
                 }
             }
