@@ -535,13 +535,55 @@ class GraphContext {
         std::sort( entries.begin(), entries.end(), []( const entry_t & a, const entry_t & b ) { return a.bytes > b.bytes; } );
         fprintf(stderr, "MEMLEDGER_GRAPH label=%s total_bytes=%zu total_MiB=%.2f n_tensors=%zu\n",
                 label.c_str(), total, total / 1024.0 / 1024.0, entries.size());
-        for ( size_t i = 0; i < entries.size() && i < 10; i++ ) {
+
+        // Log ALL tensors (not just top-10) so bucket categorization is complete.
+        for ( size_t i = 0; i < entries.size(); i++ ) {
             auto & e = entries[i];
-            fprintf(stderr, "MEMLEDGER_GRAPH_TOP label=%s rank=%zu name=%-40s type=%-8s ne=[%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "] bytes=%10zu MiB=%8.2f\n",
+            fprintf(stderr, "MEMLEDGER_GRAPH_ALL label=%s rank=%zu name=%-40s type=%-8s ne=[%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "] bytes=%10zu MiB=%8.4f\n",
                     label.c_str(), i, e.name.c_str(), e.type.c_str(), e.ne[0], e.ne[1], e.ne[2], e.ne[3], e.bytes, e.bytes / 1024.0 / 1024.0);
         }
+
+        // Four-bucket category aggregation (task-specified):
+        // (a) Attention KV copies: large tensors with ne[1] > 1 where shape is [head_dim, ctx, n_heads, 1]
+        //     These are Q/K/V copies where ne[1] == context_length (dominant mass in large contexts).
+        // (b) Attention score tensors: shape [ctx, T, n_heads, 1] where T is 1 or ctx (softmax input/output)
+        // (c) Logits / vocab-sized: ne[0] is 32000 (text vocab) or 2048/1024 (audio codebook)
+        // (d) Other: everything not in (a)-(c)
+        size_t cat_a = 0, cat_b = 0, cat_c = 0, cat_d = 0;
+        size_t cnt_a = 0, cnt_b = 0, cnt_c = 0, cnt_d = 0;
+
+        // Find the dominant context length from largest tensors with ne[1] > 1 && ne[2] > 1
+        int64_t ctx_len = 0;
+        for ( auto & e : entries ) {
+            if ( e.ne[1] > 1 && e.ne[2] > 1 && e.ne[3] == 1 && e.bytes > 1024*1024 ) {
+                if ( e.ne[1] > ctx_len ) ctx_len = e.ne[1];
+            }
+        }
+
+        for ( auto & e : entries ) {
+            bool in_c = ( e.ne[0] == 32000 || e.ne[0] == 2048 || e.ne[0] == 1024 );
+            // KV copy: [head_dim, ctx_len, n_heads, 1] — ne[1] == ctx_len, ne[2] > 1, f32/f16
+            bool in_a = ( !in_c && ctx_len > 0 && e.ne[1] == ctx_len && e.ne[2] > 1 && e.ne[3] <= 1 );
+            // Attn score: [ctx_len, small, n_heads, 1] — ne[0] == ctx_len, n_heads > 1
+            bool in_b = ( !in_c && !in_a && ctx_len > 0 && e.ne[0] == ctx_len && e.ne[2] > 1 );
+            if ( in_c ) { cat_c += e.bytes; cnt_c++; }
+            else if ( in_a ) { cat_a += e.bytes; cnt_a++; }
+            else if ( in_b ) { cat_b += e.bytes; cnt_b++; }
+            else            { cat_d += e.bytes; cnt_d++; }
+        }
+        fprintf(stderr, "MEMLEDGER_GRAPH_CAT label=%s ctx_len_detected=%" PRId64 " "
+                "catA_attn_kv_MiB=%.2f(n=%zu) catB_attn_score_MiB=%.2f(n=%zu) "
+                "catC_logits_MiB=%.2f(n=%zu) catD_other_MiB=%.2f(n=%zu) "
+                "check_total_MiB=%.2f\n",
+                label.c_str(), ctx_len,
+                cat_a/1024.0/1024.0, cnt_a,
+                cat_b/1024.0/1024.0, cnt_b,
+                cat_c/1024.0/1024.0, cnt_c,
+                cat_d/1024.0/1024.0, cnt_d,
+                (cat_a+cat_b+cat_c+cat_d)/1024.0/1024.0);
         fflush(stderr);
     }
+
 
     void alloc() {
         assert( ! buffer );
