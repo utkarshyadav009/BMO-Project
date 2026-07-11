@@ -102,6 +102,19 @@ static void memledger_log_meminfo( const char * layer_label ) {
     fflush( stderr );
 }
 
+// Falsification probe: BMO_DRY_ALLOC=1 runs the full per-layer loop (file
+// reads, payload assembly, MEMLEDGER logging) but SKIPS the actual device
+// allocation (ggml_backend_alloc_ctx_tensors) and upload
+// (ggml_backend_tensor_set) for BMO tensors. If cuda_free/d_free per layer
+// still moves with this set, the gap is not from BMO's own device
+// allocations at all. Measurement only — not for production use, tensors
+// have no valid buffer afterward.
+static bool bmo_dry_alloc_enabled() {
+    static int cached = -1;
+    if ( cached < 0 ) cached = ( getenv("BMO_DRY_ALLOC") != NULL ) ? 1 : 0;
+    return cached == 1;
+}
+
 // BMO double-storage fix: identifies the 4 LARGE raw sub-component tensors of
 // BMO_TIER gating weights (layers 0-30 only — layer 31's gating is a single
 // plain tensor with no dot-suffix, so it never matches this and is untouched,
@@ -773,12 +786,16 @@ public:
             custom_tensor->nb[1] = offset;
             custom_tensor->nb[2] = offset;
             custom_tensor->nb[3] = offset;
-            // MEMLEDGER: capture the buffer this call actually allocates (previously discarded).
-            // Each call to ggml_backend_alloc_ctx_tensors on the shared custom_ctx allocates a
-            // NEW separate backend buffer for whatever tensor(s) in custom_ctx are still
-            // unallocated — i.e. one dedicated buffer per BMO tensor, not one shared pool.
-            ggml_backend_buffer_t memledger_buf = ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
-            if (memledger_buf) memledger_bmo_alloc_B = ggml_backend_buffer_get_size(memledger_buf);
+            if ( ! bmo_dry_alloc_enabled() ) {
+                // MEMLEDGER: capture the buffer this call actually allocates (previously discarded).
+                // Each call to ggml_backend_alloc_ctx_tensors on the shared custom_ctx allocates a
+                // NEW separate backend buffer for whatever tensor(s) in custom_ctx are still
+                // unallocated — i.e. one dedicated buffer per BMO tensor, not one shared pool.
+                ggml_backend_buffer_t memledger_buf = ggml_backend_alloc_ctx_tensors(custom_ctx, backend);
+                if (memledger_buf) memledger_bmo_alloc_B = ggml_backend_buffer_get_size(memledger_buf);
+            }
+            // BMO_DRY_ALLOC: custom_tensor->data/buffer stay NULL — fine, this
+            // mode only observes the loading loop, never reaches compute.
             // Restore logical shape so ggml graph dispatch sees correct rows/cols.
             // Strides nb[2]/nb[3] are set to cols*rows to keep ggml_is_contiguous() == true.
             custom_tensor->ne[0] = cols;
@@ -873,7 +890,9 @@ public:
         header_in_payload->dequantized_cpu_ptr = (int64_t) deq_cpu;
 
         if (backend) {
-            ggml_backend_tensor_set(custom_tensor, payload.data(), 0, offset);
+            if ( ! bmo_dry_alloc_enabled() ) {
+                ggml_backend_tensor_set(custom_tensor, payload.data(), 0, offset);
+            }
         } else {
             memcpy(custom_tensor->data, payload.data(), offset);
         }
