@@ -123,6 +123,12 @@ struct block_bmo_tier {
     int64_t outlier_indices_offset;
     int64_t outlier_values_offset;
     int64_t tile_stream_indices_offset;
+
+    // Outliers are stored sorted by flat index (row-major); CSR-style
+    // per-row ranges (int32 x (rows+1)) live at this offset.
+    // MUST stay in sync with moshi.cpp/src/loader.h and
+    // ggml/src/ggml-cuda/convert.cu.
+    int64_t outlier_row_starts_offset;
 };
 
 GGML_API void dequantize_row_bmo_tier(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k);

@@ -338,6 +338,14 @@ struct block_bmo_tier {
     int64_t outlier_indices_offset;
     int64_t outlier_values_offset;
     int64_t tile_stream_indices_offset;
+
+    // Outliers are stored sorted by flat index (row-major), and a CSR-style
+    // per-row range table (int32 x (rows+1)) lives at this offset, so the
+    // fused GEMV kernel can apply each row's outliers in-kernel instead of
+    // a second atomicAdd kernel launch.
+    // MUST stay in sync with ggml/src/ggml-quants.h and
+    // ggml/src/ggml-cuda/convert.cu.
+    int64_t outlier_row_starts_offset;
 };
 
 class WeightLoader {
@@ -835,6 +843,8 @@ public:
         offset = (offset + 15) & ~15;
         offset += tt.size() * sizeof(uint16_t);
         offset = (offset + 15) & ~15;
+        offset += (size_t)(rows + 1) * sizeof(int32_t); // outlier CSR row starts
+        offset = (offset + 15) & ~15;
 
         if (!custom_ctx) {
             ggml_init_params params;
@@ -935,6 +945,36 @@ public:
             tile_stream_indices[t_idx] = ptrs[tier]++;
         }
 
+        // Fused-outlier GEMV prep: sort the outlier (index, value) pairs by
+        // flat index (== by row, then column; done host-side, once, at load)
+        // and build CSR-style per-row ranges. Order of outliers is
+        // irrelevant to every existing consumer (the CPU dequant and the
+        // atomicAdd correction kernel are both order-independent), so this
+        // is safe on its own.
+        std::vector<int32_t> outlier_row_starts((size_t)rows + 1, 0);
+        if (n_outliers > 0 && !oi.empty() && !ov.empty()) {
+            int32_t * oi32 = (int32_t *) oi.data();
+            uint16_t * ov16 = (uint16_t *) ov.data();
+            std::vector<int32_t> order(n_outliers);
+            for (int32_t i = 0; i < n_outliers; ++i) order[i] = i;
+            std::stable_sort(order.begin(), order.end(),
+                             [&](int32_t a, int32_t b) { return oi32[a] < oi32[b]; });
+            std::vector<int32_t> oi_sorted(n_outliers);
+            std::vector<uint16_t> ov_sorted(n_outliers);
+            for (int32_t i = 0; i < n_outliers; ++i) {
+                oi_sorted[i] = oi32[order[i]];
+                ov_sorted[i] = ov16[order[i]];
+            }
+            memcpy(oi32, oi_sorted.data(), (size_t)n_outliers * sizeof(int32_t));
+            memcpy(ov16, ov_sorted.data(), (size_t)n_outliers * sizeof(uint16_t));
+            for (int32_t i = 0; i < n_outliers; ++i) {
+                outlier_row_starts[oi_sorted[i] / cols + 1]++;
+            }
+            for (int32_t r2 = 0; r2 < rows; ++r2) {
+                outlier_row_starts[r2 + 1] += outlier_row_starts[r2];
+            }
+        }
+
         size_t write_offset = sizeof(block_bmo_tier);
         header.packed_weights_offset = write_offset;
         write_offset += pw.size();
@@ -956,6 +996,10 @@ public:
         write_offset += tile_stream_indices.size() * sizeof(uint16_t);
         write_offset = (write_offset + 15) & ~15;
 
+        header.outlier_row_starts_offset = write_offset;
+        write_offset += (size_t)(rows + 1) * sizeof(int32_t);
+        write_offset = (write_offset + 15) & ~15;
+
         // Fix B: reuse the member buffer instead of a fresh per-call vector.
         // resize() alone would leave stale bytes from the PREVIOUS tensor's
         // payload in any padding gaps between fields — explicitly zero the
@@ -970,6 +1014,7 @@ public:
         if (!oi.empty()) memcpy(payload.data() + header.outlier_indices_offset, oi.data(), oi.size());
         if (!ov.empty()) memcpy(payload.data() + header.outlier_values_offset, ov.data(), ov.size());
         memcpy(payload.data() + header.tile_stream_indices_offset, tile_stream_indices.data(), tile_stream_indices.size() * sizeof(uint16_t));
+        memcpy(payload.data() + header.outlier_row_starts_offset, outlier_row_starts.data(), ((size_t)rows + 1) * sizeof(int32_t));
 
         float * deq_cpu = NULL;
         if (!backend) {
