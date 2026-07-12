@@ -129,6 +129,16 @@ struct block_bmo_tier {
     // MUST stay in sync with moshi.cpp/src/loader.h and
     // ggml/src/ggml-cuda/convert.cu.
     int64_t outlier_row_starts_offset;
+
+    // Band-major packed stream layout (assembled in loader.h): per 64-row
+    // tile band, per tier, tiles in tile-column order. band_table_offset
+    // points at int32 absolute byte offsets [n_bands*4 + 1] (end sentinel).
+    // band_layout: 1 = row-minor [ir][pos][slice], 2 = tile-major
+    // [pos][ir][slice]. tile_stream_indices hold each tile's position
+    // within its band+tier list.
+    int64_t band_table_offset;
+    int32_t band_layout;
+    int32_t reserved2;
 };
 
 GGML_API void dequantize_row_bmo_tier(const void * GGML_RESTRICT vx, float * GGML_RESTRICT y, int64_t k);

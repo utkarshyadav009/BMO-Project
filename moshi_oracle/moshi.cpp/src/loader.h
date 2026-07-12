@@ -346,6 +346,18 @@ struct block_bmo_tier {
     // MUST stay in sync with ggml/src/ggml-quants.h and
     // ggml/src/ggml-cuda/convert.cu.
     int64_t outlier_row_starts_offset;
+
+    // Band-major packed stream layout: per 64-row tile band, per tier,
+    // tiles in tile-column order. band_table_offset points at int32
+    // absolute byte offsets [n_bands*4 + 1] (last entry = end sentinel,
+    // so (tab[i+1]-tab[i])/(64*slice_bytes) is the band+tier tile count).
+    // band_layout: 1 = row-minor [ir][pos][slice] (large cols),
+    //              2 = tile-major [pos][ir][slice] (cols <= 8192).
+    // tile_stream_indices hold each tile's POSITION within its band+tier
+    // list (no longer the global per-tier stream index).
+    int64_t band_table_offset;
+    int32_t band_layout;
+    int32_t reserved2;
 };
 
 class WeightLoader {
@@ -831,8 +843,12 @@ public:
         auto & oi = reuse_buf_outlier_indices;
         auto & ov = reuse_buf_outlier_values;
 
-        // Pre-compute payload offset to optimize memory allocation size
-        size_t offset = sizeof(block_bmo_tier);
+        // Pre-compute payload offset to optimize memory allocation size.
+        // The packed region start is rounded up to 16 so the band-major
+        // sub-streams (whose sizes are all multiples of 1024) stay 16-byte
+        // aligned for the GEMV kernels' uint4/float4 loads — sizeof(header)
+        // itself is not a multiple of 16.
+        size_t offset = (sizeof(block_bmo_tier) + 15) & ~(size_t)15;
         offset += pw.size();
         offset = (offset + 3) & ~3;
         offset += tt.size();
@@ -844,6 +860,8 @@ public:
         offset += tt.size() * sizeof(uint16_t);
         offset = (offset + 15) & ~15;
         offset += (size_t)(rows + 1) * sizeof(int32_t); // outlier CSR row starts
+        offset = (offset + 15) & ~15;
+        offset += ((size_t)(rows / 64) * 4 + 1) * sizeof(int32_t); // band table (+ end sentinel)
         offset = (offset + 15) & ~15;
 
         if (!custom_ctx) {
@@ -937,13 +955,39 @@ public:
             memset(header.tier_offsets, 0, 5 * sizeof(int32_t));
         }
 
-        // Compute tile stream indices
-        std::vector<uint16_t> tile_stream_indices(tt.size());
-        int32_t ptrs[4] = {0, 0, 0, 0};
-        for (size_t t_idx = 0; t_idx < tt.size(); ++t_idx) {
-            uint8_t tier = tt[t_idx];
-            tile_stream_indices[t_idx] = ptrs[tier]++;
+        // Band-major repack prep. tile_stream_indices now hold each tile's
+        // POSITION within its band+tier list (the fused GEMV and dequant
+        // kernels address the band-major streams by position); the GLOBAL
+        // per-tier stream index (original semantics) is still needed below
+        // to locate each tile's source slice inside the raw packed bytes.
+        if (rows % 64 != 0 || cols % 64 != 0) {
+            fprintf(stderr, "FATAL: BMO tensor %s dims (%d x %d) not multiples of 64 — band repack cannot proceed\n",
+                    base_name.c_str(), rows, cols);
+            exit(1);
         }
+        const int32_t n_bands = rows / 64;
+        const int32_t n_tiles_col_rp = cols / 64;
+        std::vector<uint16_t> tile_stream_indices(tt.size()); // within-band positions
+        std::vector<int32_t> tile_global_stream(tt.size());
+        {
+            int32_t gptrs[4] = {0, 0, 0, 0};
+            for (size_t t_idx = 0; t_idx < tt.size(); ++t_idx) {
+                tile_global_stream[t_idx] = gptrs[tt[t_idx]]++;
+            }
+            for (int32_t b = 0; b < n_bands; ++b) {
+                int32_t bptrs[4] = {0, 0, 0, 0};
+                for (int32_t tc2 = 0; tc2 < n_tiles_col_rp; ++tc2) {
+                    const size_t t_idx = (size_t)b * n_tiles_col_rp + tc2;
+                    tile_stream_indices[t_idx] = (uint16_t)bptrs[tt[t_idx]]++;
+                }
+            }
+        }
+
+        // Band-major layout selection — MUST match the dispatch rule in
+        // ggml/src/ggml-cuda/convert.cu mul_mat_vec_bmo_tier_cuda():
+        // tile-major wins when the x vector (cols*4B) is L1-resident.
+        const int32_t band_layout = (cols <= 8192) ? 2 : 1;
+        const int slice_bytes_by_tier[4] = { 128, 64, 32, 16 }; // fp16, int8, int4, int2
 
         // Fused-outlier GEMV prep: sort the outlier (index, value) pairs by
         // flat index (== by row, then column; done host-side, once, at load)
@@ -975,7 +1019,7 @@ public:
             }
         }
 
-        size_t write_offset = sizeof(block_bmo_tier);
+        size_t write_offset = (sizeof(block_bmo_tier) + 15) & ~(size_t)15; // 16-align (see precompute)
         header.packed_weights_offset = write_offset;
         write_offset += pw.size();
         write_offset = (write_offset + 3) & ~3;
@@ -1000,6 +1044,35 @@ public:
         write_offset += (size_t)(rows + 1) * sizeof(int32_t);
         write_offset = (write_offset + 15) & ~15;
 
+        header.band_table_offset = write_offset;
+        write_offset += ((size_t)n_bands * 4 + 1) * sizeof(int32_t);
+        write_offset = (write_offset + 15) & ~15;
+        header.band_layout = band_layout;
+        header.reserved2 = 0;
+
+        // Band table: absolute byte offsets (from struct start) of each
+        // band+tier sub-stream inside the packed region, plus end sentinel.
+        std::vector<int32_t> band_table((size_t)n_bands * 4 + 1);
+        {
+            size_t cur = (size_t)header.packed_weights_offset;
+            for (int32_t b = 0; b < n_bands; ++b) {
+                for (int t2 = 0; t2 < 4; ++t2) {
+                    band_table[(size_t)b * 4 + t2] = (int32_t)cur;
+                    int32_t n_bt = 0;
+                    for (int32_t tc2 = 0; tc2 < n_tiles_col_rp; ++tc2) {
+                        if (tt[(size_t)b * n_tiles_col_rp + tc2] == t2) n_bt++;
+                    }
+                    cur += (size_t)n_bt * 64 * slice_bytes_by_tier[t2];
+                }
+            }
+            band_table[(size_t)n_bands * 4] = (int32_t)cur;
+            if (cur > (size_t)header.packed_weights_offset + pw.size()) {
+                fprintf(stderr, "FATAL: BMO band repack for %s needs %zu bytes but packed region is %zu\n",
+                        base_name.c_str(), cur - (size_t)header.packed_weights_offset, pw.size());
+                exit(1);
+            }
+        }
+
         // Fix B: reuse the member buffer instead of a fresh per-call vector.
         // resize() alone would leave stale bytes from the PREVIOUS tensor's
         // payload in any padding gaps between fields — explicitly zero the
@@ -1009,17 +1082,45 @@ public:
         payload.resize(offset);
         std::fill(payload.begin(), payload.end(), 0);
         memcpy(payload.data(), &header, sizeof(block_bmo_tier));
-        memcpy(payload.data() + header.packed_weights_offset, pw.data(), pw.size());
+        // Band-major repack into the packed region: destination slice order
+        // is [band][tier][pos][ir] (tile-major, band_layout==2) or
+        // [band][tier][ir][pos] (row-minor, ==1); source slices come from
+        // the original per-tier global streams in the raw packed bytes.
+        for (int32_t b = 0; b < n_bands; ++b) {
+            int32_t n_bt[4] = {0, 0, 0, 0};
+            for (int32_t tc2 = 0; tc2 < n_tiles_col_rp; ++tc2) {
+                n_bt[tt[(size_t)b * n_tiles_col_rp + tc2]]++;
+            }
+            for (int32_t tc2 = 0; tc2 < n_tiles_col_rp; ++tc2) {
+                const size_t t_idx = (size_t)b * n_tiles_col_rp + tc2;
+                const int tier = tt[t_idx];
+                const int sb = slice_bytes_by_tier[tier];
+                const int32_t pos = tile_stream_indices[t_idx];
+                const uint8_t * src_tile = pw.data() + header.tier_offsets[tier]
+                                         + (size_t)tile_global_stream[t_idx] * 64 * sb;
+                uint8_t * dst_base = payload.data() + band_table[(size_t)b * 4 + tier];
+                for (int ir = 0; ir < 64; ++ir) {
+                    const size_t dst_slice = (band_layout == 2)
+                        ? ((size_t)pos * 64 + ir)
+                        : ((size_t)ir * n_bt[tier] + pos);
+                    memcpy(dst_base + dst_slice * sb, src_tile + (size_t)ir * sb, sb);
+                }
+            }
+        }
         memcpy(payload.data() + header.tile_tiers_offset, tt.data(), tt.size());
         if (!oi.empty()) memcpy(payload.data() + header.outlier_indices_offset, oi.data(), oi.size());
         if (!ov.empty()) memcpy(payload.data() + header.outlier_values_offset, ov.data(), ov.size());
         memcpy(payload.data() + header.tile_stream_indices_offset, tile_stream_indices.data(), tile_stream_indices.size() * sizeof(uint16_t));
         memcpy(payload.data() + header.outlier_row_starts_offset, outlier_row_starts.data(), ((size_t)rows + 1) * sizeof(int32_t));
+        memcpy(payload.data() + header.band_table_offset, band_table.data(), band_table.size() * sizeof(int32_t));
 
         float * deq_cpu = NULL;
         if (!backend) {
-            // Perform CPU dequantization once to store CPU floats only if CUDA is not used
-            const uint8_t * p_pw = payload.data() + header.packed_weights_offset;
+            // Perform CPU dequantization once to store CPU floats only if CUDA is not used.
+            // NOTE: uses the RAW packed bytes (original per-tier global-stream
+            // layout, which dequantize_ffn_cpu expects) — the payload's packed
+            // region is band-major after the repack above.
+            const uint8_t * p_pw = pw.data();
             const uint8_t * p_tt = payload.data() + header.tile_tiers_offset;
             const int32_t * p_oi = oi.empty() ? NULL : (const int32_t *)(payload.data() + header.outlier_indices_offset);
             const ggml_fp16_t * p_ov = ov.empty() ? NULL : (const ggml_fp16_t *)(payload.data() + header.outlier_values_offset);
