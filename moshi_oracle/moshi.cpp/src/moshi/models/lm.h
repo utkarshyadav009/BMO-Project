@@ -554,13 +554,22 @@ void moshi_lmmodel_depformer_step(
             text_token );
     }
 
+    auto _prof_t_dep_t0 = std::chrono::steady_clock::now();
     ctx.compute();
+    auto _prof_t_dep_t1 = std::chrono::steady_clock::now();
+    g_moshi_phase_timing.t_depformer_ms +=
+        std::chrono::duration<double, std::milli>( _prof_t_dep_t1 - _prof_t_dep_t0 ).count();
+    g_moshi_phase_timing.depformer_substeps = lm->dep_q;
 
     depformer_tokens.resize( ggml_nelements( state->depformer_tokens ) );
+    auto _prof_t_dsample_t0 = std::chrono::steady_clock::now();
     ggml_backend_tensor_get(
         state->depformer_tokens,
         depformer_tokens.data(),
         0, ggml_nbytes( state->depformer_tokens ) );
+    auto _prof_t_dsample_t1 = std::chrono::steady_clock::now();
+    g_moshi_phase_timing.t_sample_sync_ms +=
+        std::chrono::duration<double, std::milli>( _prof_t_dsample_t1 - _prof_t_dsample_t0 ).count();
 }
 
 ggml_tensor * moshi_lmmodel_text_token_embed_build(
@@ -898,14 +907,22 @@ bool moshi_lmgen_step(
     printf("DEBUG: after forward_text_step\n"); fflush(stdout);
 
     printf("DEBUG: before scratch.compute()\n"); fflush(stdout);
+    auto _prof_t_temporal_t0 = std::chrono::steady_clock::now();
     scratch.compute();
     printf("DEBUG: after scratch.compute()\n"); fflush(stdout);
     printf("DEBUG: before graph.compute()\n"); fflush(stdout);
     graph.compute();
+    auto _prof_t_temporal_t1 = std::chrono::steady_clock::now();
+    g_moshi_phase_timing.t_temporal_ms +=
+        std::chrono::duration<double, std::milli>( _prof_t_temporal_t1 - _prof_t_temporal_t0 ).count();
     printf("DEBUG: after graph.compute()\n"); fflush(stdout);
 
     int text_token;
+    auto _prof_t_sample_t0 = std::chrono::steady_clock::now();
     ggml_backend_tensor_get( lm_states->sampler_out, &text_token, 0, 4 );
+    auto _prof_t_sample_t1 = std::chrono::steady_clock::now();
+    g_moshi_phase_timing.t_sample_sync_ms +=
+        std::chrono::duration<double, std::milli>( _prof_t_sample_t1 - _prof_t_sample_t0 ).count();
 #endif
 
     // on_text_hook

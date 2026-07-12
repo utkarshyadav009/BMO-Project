@@ -4,6 +4,9 @@
 #include <math.h>
 #include <assert.h>
 #include <ctype.h> // isdigit (nvmap client-size parsing, MEMLEDGER)
+#include <chrono>  // STEP 1 frame-phase timing instrumentation
+#include <vector>
+#include <algorithm>
 
 #include "common_ggml.h"
 #include <moshi/moshi.h>
@@ -184,6 +187,39 @@ static void memledger_log_simple( const char * event, size_t cuda_free_mib ) {
         nvmap_ok ? " " : "U", nvmap_kib, smaps_rss, smaps_anon, status_file, status_shm,
         mem_avail, mem_cached );
     fflush( stderr );
+}
+
+// STEP 1 (frame-phase timing task): /proc/self/stat field 12 = majflt
+// (major page faults), cumulative since process start. comm (field 2) can
+// contain spaces/parens, so parse from the last ')' rather than splitting
+// the whole line — fields after ')' start at absolute field 3 (state).
+static long read_majflt() {
+    FILE * f = fopen( "/proc/self/stat", "r" );
+    if ( ! f ) return -1;
+    char buf[4096];
+    size_t n = fread( buf, 1, sizeof(buf) - 1, f );
+    fclose( f );
+    if ( n == 0 ) return -1;
+    buf[n] = 0;
+    char * p = strrchr( buf, ')' );
+    if ( ! p ) return -1;
+    p++;
+    int field = 0; // relative to p; absolute field 12 (majflt) = relative field 10
+    long majflt = -1;
+    char * tok = strtok( p, " " );
+    while ( tok ) {
+        field++;
+        if ( field == 10 ) { majflt = atol(tok); break; }
+        tok = strtok( NULL, " " );
+    }
+    return majflt;
+}
+
+static double median_ms( std::vector<double> & v ) {
+    if ( v.empty() ) return 0.0;
+    std::sort( v.begin(), v.end() );
+    size_t n = v.size();
+    return (n % 2) ? v[n/2] : (v[n/2 - 1] + v[n/2]) / 2.0;
 }
 
 int main(int argc, char *argv[]) {
@@ -895,6 +931,17 @@ int main(int argc, char *argv[]) {
 
     std::vector<float> blank(frame_size);
 
+    // STEP 1 (frame-phase timing task): per-frame phase timing windows,
+    // flushed to a median-per-25-frames report. Measurement only — does not
+    // affect the decode path. t_temporal/t_depformer/t_sample_sync come from
+    // g_moshi_phase_timing (accumulated inside lm.h, reset here each frame);
+    // t_mimi_enc/t_mimi_dec are timed directly around the mimi calls below.
+    std::vector<double> prof_t_mimi_enc, prof_t_mimi_dec, prof_t_temporal,
+        prof_t_depformer, prof_t_dep_substep_mean, prof_t_sample_sync,
+        prof_t_other, prof_t_frame_total;
+    std::vector<long> prof_majflt_delta;
+    long prof_last_majflt = read_majflt();
+
     if ( ! bench ) {
         SDL_PauseAudioDevice(cap_dev, 0);
         SDL_PauseAudioDevice(dev, 0);
@@ -962,10 +1009,18 @@ int main(int argc, char *argv[]) {
             lm_start = ggml_time_us();
         }
 
+        // STEP 1 phase timing: frame boundary + reset the LM-side accumulator
+        // (filled inside moshi_lm_receive -> moshi_lmgen_step, see lm.h).
+        auto _prof_frame_t0 = std::chrono::steady_clock::now();
+        moshi_phase_timing_reset();
+
         printf("DEBUG: calling mimi_encode_receive\n"); fflush(stdout);
+        auto _prof_menc_t0 = std::chrono::steady_clock::now();
         mimi_encode_receive( encoder, tokens.data() );
+        auto _prof_menc_t1 = std::chrono::steady_clock::now();
+        double _prof_t_mimi_enc = std::chrono::duration<double, std::milli>( _prof_menc_t1 - _prof_menc_t0 ).count();
         printf("DEBUG: after mimi_encode_receive\n"); fflush(stdout);
-        
+
         printf("DEBUG: calling moshi_lm_send2\n"); fflush(stdout);
         moshi_lm_send2( gen, tokens );
         printf("DEBUG: after moshi_lm_send2\n"); fflush(stdout);
@@ -976,19 +1031,71 @@ int main(int argc, char *argv[]) {
             // audio out
             mimi_decode_send( decoder, tokens.data() );
 
+            double _prof_t_mimi_dec = 0;
             if ( bench ) {
+                auto _prof_mdec_t0 = std::chrono::steady_clock::now();
                 mimi_decode_receive( decoder, blank.data() );
+                auto _prof_mdec_t1 = std::chrono::steady_clock::now();
+                _prof_t_mimi_dec = std::chrono::duration<double, std::milli>( _prof_mdec_t1 - _prof_mdec_t0 ).count();
             } else {
                 // sdl_get_frame can block, don't include in frame rate
                 lm_delta_time += ggml_time_us() - lm_start;
                 sdl_frame_t * frame = sdl_get_frame( output_state );
                 lm_start = ggml_time_us();
 
+                auto _prof_mdec_t0 = std::chrono::steady_clock::now();
                 mimi_decode_receive( decoder, (float*)frame->data );
+                auto _prof_mdec_t1 = std::chrono::steady_clock::now();
+                _prof_t_mimi_dec = std::chrono::duration<double, std::milli>( _prof_mdec_t1 - _prof_mdec_t0 ).count();
                 sdl_send_frame( output_state, frame ); // this can block
             }
             lm_delta_time += ggml_time_us() - lm_start;
             lm_frames++;
+
+            // STEP 1 phase timing: record this frame's window sample (bench only —
+            // matches the existing VRAM_FRAME probe's cadence/scope).
+            if ( bench ) {
+                auto _prof_frame_t1 = std::chrono::steady_clock::now();
+                double _prof_frame_total = std::chrono::duration<double, std::milli>( _prof_frame_t1 - _prof_frame_t0 ).count();
+                double _prof_t_temporal = g_moshi_phase_timing.t_temporal_ms;
+                double _prof_t_depformer = g_moshi_phase_timing.t_depformer_ms;
+                double _prof_t_sample_sync = g_moshi_phase_timing.t_sample_sync_ms;
+                int _prof_dep_substeps = g_moshi_phase_timing.depformer_substeps;
+                double _prof_t_other = _prof_frame_total - ( _prof_t_mimi_enc + _prof_t_mimi_dec +
+                    _prof_t_temporal + _prof_t_depformer + _prof_t_sample_sync );
+                long _prof_majflt_now = read_majflt();
+                long _prof_majflt_delta = ( prof_last_majflt >= 0 && _prof_majflt_now >= 0 )
+                    ? ( _prof_majflt_now - prof_last_majflt ) : -1;
+                prof_last_majflt = _prof_majflt_now;
+
+                prof_t_mimi_enc.push_back( _prof_t_mimi_enc );
+                prof_t_mimi_dec.push_back( _prof_t_mimi_dec );
+                prof_t_temporal.push_back( _prof_t_temporal );
+                prof_t_depformer.push_back( _prof_t_depformer );
+                prof_t_dep_substep_mean.push_back( _prof_dep_substeps > 0 ? _prof_t_depformer / _prof_dep_substeps : 0.0 );
+                prof_t_sample_sync.push_back( _prof_t_sample_sync );
+                prof_t_other.push_back( _prof_t_other );
+                prof_t_frame_total.push_back( _prof_frame_total );
+                prof_majflt_delta.push_back( _prof_majflt_delta );
+
+                if ( lm_frames % 25 == 0 ) {
+                    long majflt_sum = 0;
+                    for ( long d : prof_majflt_delta ) if ( d > 0 ) majflt_sum += d;
+                    printf(
+                        "PHASE_TIMING frame=%4d window=%zu median_ms: "
+                        "t_frame_total=%7.3f t_temporal=%7.3f t_depformer=%7.3f t_depformer_substep_mean(n=%d)=%7.3f "
+                        "t_sample_sync=%7.3f t_mimi_enc=%7.3f t_mimi_dec=%7.3f t_other=%7.3f  majflt_sum_window=%ld majflt_per_frame=%.2f\n",
+                        (int)lm_frames, prof_t_frame_total.size(),
+                        median_ms(prof_t_frame_total), median_ms(prof_t_temporal), median_ms(prof_t_depformer),
+                        _prof_dep_substeps, median_ms(prof_t_dep_substep_mean),
+                        median_ms(prof_t_sample_sync), median_ms(prof_t_mimi_enc), median_ms(prof_t_mimi_dec),
+                        median_ms(prof_t_other), majflt_sum, (double)majflt_sum / prof_t_frame_total.size() );
+                    fflush(stdout);
+                    prof_t_mimi_enc.clear(); prof_t_mimi_dec.clear(); prof_t_temporal.clear();
+                    prof_t_depformer.clear(); prof_t_dep_substep_mean.clear(); prof_t_sample_sync.clear();
+                    prof_t_other.clear(); prof_t_frame_total.clear(); prof_majflt_delta.clear();
+                }
+            }
 
             if ( lm_frames == 1 ) {
                 memledger_log_simple("after_first_decode_frame", device_memory_free(ggml.dev) / 1024 / 1024);

@@ -21,6 +21,20 @@
 #    define MOSHI_API __attribute__ ((visibility ("default"))) extern
 #endif
 
+// MARK: Frame-phase timing instrumentation (measurement only)
+// Accumulated inside lm.h's moshi_lmgen_step / moshi_lmmodel_depformer_step
+// (single TU, moshi.cpp), read + reset once per frame by the bench loop in
+// personaplex.cpp. Not thread-safe, not for production use — diagnostic only.
+struct moshi_phase_timing_t {
+    double t_temporal_ms;      // scratch.compute() + graph.compute() for the text/temporal graph
+    double t_depformer_ms;     // ctx.compute() for the depformer graph (all sub-steps, ONE graph exec — see report)
+    double t_sample_sync_ms;   // ggml_backend_tensor_get() D2H token copies (text + depformer) — the only
+                                // host-visible sample/sync cost; sampling itself (softmax/top-k) is graph-fused
+    int    depformer_substeps; // lm->dep_q for the frame just processed, for per-substep mean
+};
+MOSHI_API moshi_phase_timing_t g_moshi_phase_timing;
+MOSHI_API void moshi_phase_timing_reset();
+
 // MARK: Moshi Context
 
 struct moshi_context_t;

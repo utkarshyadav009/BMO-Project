@@ -1,0 +1,85 @@
+=== 2026-07-11T17:54:15Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 18:54:21 RAM 944/7620MB (lfb 86x4MB) SWAP 10/4096MB (cached 5MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@55.687C soc2@55.25C soc0@56.718C gpu@55.812C tj@56.718C soc1@56.125C VDD_IN 8701mW/8701mW VDD_CPU_GPU_CV 1500mW/1500mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_PARSED: free_MiB=6676 total_MiB=7620 lfb_MiB=344 (lfb_N=86 lfb_block_MiB=4)
+PREFLIGHT_GATE: require free_MiB>=5500 AND lfb_MiB>=512
+PREFLIGHT: FAIL (free_MiB=6676 lfb_MiB=344 — below gate)
+=== 2026-07-11T18:39:14Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 19:39:20 RAM 934/7620MB (lfb 95x4MB) SWAP 10/4096MB (cached 5MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@55.812C soc2@55.343C soc0@56.781C gpu@55.937C tj@56.781C soc1@56.25C VDD_IN 8701mW/8701mW VDD_CPU_GPU_CV 1500mW/1500mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA    121    116    110     91     90     65     64     56     48     45     37     35     77 
+Node 0, zone   Normal   6127   4780   3513   1962   1942    991    406    230    137    126     58     30    198 
+PREFLIGHT_PARSED: free_MiB=6686 total_MiB=7620 lfb_N=95 lfb_block_MiB=4
+PREFLIGHT_GATE: require free_MiB>=5500 AND lfb_N>=128
+PREFLIGHT: FAIL (lfb_N=95 < 128)
+=== 2026-07-11T18:42:34Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 19:42:41 RAM 894/7620MB (lfb 22x4MB) SWAP 0/4096MB (cached 0MB) CPU [3%@1728,0%@1728,0%@1728,1%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@56.281C soc2@55.656C soc0@57.562C gpu@56.656C tj@57.375C soc1@56.875C VDD_IN 8978mW/8978mW VDD_CPU_GPU_CV 1737mW/1737mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   4895   2758   1709   1262    818    550    350    217     89     37     20      7    237 
+PREFLIGHT_PARSED: free_MiB=6726 total_MiB=7620 lfb_N=22 lfb_block_MiB=4
+PREFLIGHT_GATE: require free_MiB>=5500 AND lfb_N>=128
+PREFLIGHT: FAIL (lfb_N=22 < 128)
+=== 2026-07-11T18:45:35Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 19:45:42 RAM 936/7620MB (lfb 25x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@56.093C soc2@55.375C soc0@57.187C gpu@56.281C tj@57.187C soc1@56.5C VDD_IN 8899mW/8899mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   5882   2774   1483    932    468    459    333    205     84     34     23      8    237 
+PREFLIGHT_PARSED: free_MiB=6684 total_MiB=7620 large_block_MiB(order>=10, all zones)=5860
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-11T19:01:15Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 20:01:22 RAM 962/7620MB (lfb 31x4MB) SWAP 0/4096MB (cached 0MB) CPU [1%@1728,2%@1728,0%@1728,1%@1728,1%@1728,1%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@56.687C soc2@56C soc0@57.812C gpu@57C tj@57.812C soc1@57.093C VDD_IN 8938mW/8938mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   3319   1984   1033    724    405    233    139     82     41     53     29     20    239 
+PREFLIGHT_PARSED: free_MiB=6658 total_MiB=7620 large_block_MiB(order>=10, all zones)=6012
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-11T19:24:16Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 20:24:22 RAM 522/7620MB (lfb 11x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@56.687C soc2@55.968C soc0@57.75C gpu@56.875C tj@57.75C soc1@57.031C VDD_IN 8899mW/8899mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   4498   2408   1526   1094    764    444    254    124     47     39      9      6    280 
+PREFLIGHT_PARSED: free_MiB=7098 total_MiB=7620 large_block_MiB(order>=10, all zones)=6476
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-11T19:35:46Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 20:35:52 RAM 909/7620MB (lfb 96x4MB) SWAP 74/4096MB (cached 28MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@55.687C soc2@55.187C soc0@56.687C gpu@55.906C tj@56.687C soc1@56.125C VDD_IN 8701mW/8701mW VDD_CPU_GPU_CV 1500mW/1500mW VDD_SOC 3599mW/3599mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA     96     83     90     76     81     57     40     41     40     37     35     35     83 
+Node 0, zone   Normal   6325   4434   3041   2002   1434    967    546    302    155    108     61     32    195 
+PREFLIGHT_PARSED: free_MiB=6711 total_MiB=7620 large_block_MiB(order>=10, all zones)=5368
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-11T19:52:18Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 20:52:24 RAM 539/7620MB (lfb 20x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@56.937C soc2@56.218C soc0@58.031C gpu@57.187C tj@58.031C soc1@57.437C VDD_IN 8899mW/8899mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      1      3      1      0      1      3      2      2      4      6      4      3    114 
+Node 0, zone   Normal   3618   2211   1340    875    610    397    244    124     64     43     16      3    282 
+PREFLIGHT_PARSED: free_MiB=7081 total_MiB=7620 large_block_MiB(order>=10, all zones)=6464
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-11T20:54:09Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 21:54:15 RAM 530/7620MB (lfb 16x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@56.218C soc2@55.531C soc0@57.375C gpu@56.468C tj@57.375C soc1@56.625C VDD_IN 8899mW/8899mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   4574   2801   1670   1151    770    445    260    118     51     40     14      3    279 
+PREFLIGHT_PARSED: free_MiB=7090 total_MiB=7620 large_block_MiB(order>=10, all zones)=6456
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-11T21:06:11Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-11-2026 22:06:18 RAM 876/7620MB (lfb 19x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,1%@1728,3%@1728,1%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@58.656C soc2@58.062C soc0@59.75C gpu@58.968C tj@59.75C soc1@59.062C VDD_IN 9057mW/9057mW VDD_CPU_GPU_CV 1776mW/1776mW VDD_SOC 3672mW/3672mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   5963   2915   1841   1150    717    362    167     96     53     42     17     13    246 
+PREFLIGHT_PARSED: free_MiB=6744 total_MiB=7620 large_block_MiB(order>=10, all zones)=6020
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
+=== 2026-07-12T18:24:43Z ===
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-12-2026 19:24:49 RAM 548/7620MB (lfb 17x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@55.656C soc2@55.156C soc0@56.906C gpu@55.968C tj@56.906C soc1@56.312C VDD_IN 8859mW/8859mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      1      3      1      0      1      3      2      2      4      6      4      3    114 
+Node 0, zone   Normal   4053   2388   1443    970    713    404    242    122     67     44     13      5    280 
+PREFLIGHT_PARSED: free_MiB=7072 total_MiB=7620 large_block_MiB(order>=10, all zones)=6436
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS

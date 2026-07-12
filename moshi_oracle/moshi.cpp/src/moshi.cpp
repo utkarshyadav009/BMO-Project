@@ -6,6 +6,7 @@
 #endif
 
 #include <iostream>
+#include <chrono> // STEP 1 frame-phase timing instrumentation
 
 #define MOSHI_BUILD
 #include <moshi/moshi.h>
@@ -45,6 +46,9 @@
 #include "../src/moshi/models/compression.h"
 #include "../src/moshi/models/lm_default.h"
 #include "../src/moshi/models/tts.h"
+
+moshi_phase_timing_t g_moshi_phase_timing = {};
+void moshi_phase_timing_reset() { g_moshi_phase_timing = moshi_phase_timing_t{}; }
 
 struct moshi_context_t {
     ggml_backend * backend;
