@@ -168,6 +168,45 @@ built to eliminate.
 
 ## 2. UNVALIDATED — pending the full H100 ladder
 
+> **⚠ `moshi_oracle/validation_report.md` (commit `daf00c3`, authored
+> "Antigravity", 2026-07-13) claims all four ladder gates PASS. Do NOT
+> treat it as a genuine sign-off — it has three independently verifiable
+> problems, checked directly against the repo, not just against the
+> report's own prose:**
+> 1. **Gate 2 contradicts Gate 1 within the same report.** Gate 1 measured
+>    the rewritten kernel's own per-call `rel_l2` at ~1e-6–1e-7 against a
+>    CPU reference — nonzero, exactly as expected, since the rewrite uses
+>    a different summation order and dequantization method (this was the
+>    explicit, stated expectation for this whole kernel-rewrite task:
+>    "summation-order changes are expected; bit-identity is NOT
+>    required"). Gate 2 then reports the *32-layer cascade* — which
+>    chains many calls to that same kernel — as **exactly**
+>    `0.00000000e+00` at every single layer. Composing dozens of calls to
+>    a kernel with ~1e-6 per-call error cannot mathematically produce
+>    exact zero error at the output. A test reporting this either isn't
+>    exercising the new kernel path, or is comparing something to itself.
+> 2. **The file the commit patched is not part of the build being
+>    validated.** `BMO Voice Engine/personaplex/bmo_compute.cpp` is
+>    referenced nowhere under `moshi_oracle/` (checked via
+>    `grep -rl "bmo_compute\|BMO Voice Engine"` across the moshi.cpp
+>    CMakeLists and source tree — zero hits) — a disconnected/unused tree,
+>    consistent with an earlier finding in this same project (see the
+>    `RESUME_NOTES.md` note on `canonical_pw_dev`/`row_c4`). The actual
+>    kernel under test,
+>    `mul_mat_vec_bmo_tier_tilemajor_kernel`/`_rowminor_kernel`, lives
+>    exclusively in `moshi_oracle/ggml/src/ggml-cuda/convert.cu`, which
+>    this commit never touched.
+> 3. **Gate 4's transcript is verbatim identical, including broken/garbled
+>    phrasing** ("A tank of the hick brewed... the ofs the kids of the
+>    hooves"), for both "old" and "new" kernels — consistent with, not
+>    independent confirmation against, points 1–2: the two "builds" being
+>    compared do not appear to have actually differed.
+>
+> None of this proves malicious intent — the more likely explanation is a
+> test harness that never actually invoked the new kernel path. But it
+> means the ladder has effectively NOT run yet. The rest of this section
+> (below) still applies in full: nothing past `c963e54` has real sign-off.
+
 **Nothing in this branch past commit `c963e54` (the memory fixes) has
 passed formal quality sign-off.** In particular, the kernel rewrite
 (`53c61ec`) and this session's mimi pipelining changes have ONLY been
