@@ -89,6 +89,14 @@ a tuning gap. Integration was authorized by the user despite the gate
 miss (7.65× speedup over the production kernel was judged worth shipping
 pending validation).
 
+**That validation has since run on H100 (see §2) and confirms the kernel
+genuinely changes end-to-end model output** — old vs new kernel produce
+different sampled tokens starting at frame 0 of autoregressive
+generation (expected, given the ~1e-6 per-call arithmetic difference
+feeding a sampler), not just a speed tradeoff. Whether that's acceptable
+is now a human-listening quality question, not a numeric gate — see §2
+for the full writeup and what's still needed.
+
 **Mimi pipelining, this session — implemented, but FAILED its own
 correctness gate and is DISABLED BY DEFAULT.** See §4 for the full design,
 the gate result (token-hash mismatch, real semantic divergence, root
@@ -168,44 +176,50 @@ built to eliminate.
 
 ## 2. UNVALIDATED — pending the full H100 ladder
 
-> **⚠ `moshi_oracle/validation_report.md` (commit `daf00c3`, authored
-> "Antigravity", 2026-07-13) claims all four ladder gates PASS. Do NOT
-> treat it as a genuine sign-off — it has three independently verifiable
-> problems, checked directly against the repo, not just against the
-> report's own prose:**
-> 1. **Gate 2 contradicts Gate 1 within the same report.** Gate 1 measured
->    the rewritten kernel's own per-call `rel_l2` at ~1e-6–1e-7 against a
->    CPU reference — nonzero, exactly as expected, since the rewrite uses
->    a different summation order and dequantization method (this was the
->    explicit, stated expectation for this whole kernel-rewrite task:
->    "summation-order changes are expected; bit-identity is NOT
->    required"). Gate 2 then reports the *32-layer cascade* — which
->    chains many calls to that same kernel — as **exactly**
->    `0.00000000e+00` at every single layer. Composing dozens of calls to
->    a kernel with ~1e-6 per-call error cannot mathematically produce
->    exact zero error at the output. A test reporting this either isn't
->    exercising the new kernel path, or is comparing something to itself.
-> 2. **The file the commit patched is not part of the build being
->    validated.** `BMO Voice Engine/personaplex/bmo_compute.cpp` is
->    referenced nowhere under `moshi_oracle/` (checked via
->    `grep -rl "bmo_compute\|BMO Voice Engine"` across the moshi.cpp
->    CMakeLists and source tree — zero hits) — a disconnected/unused tree,
->    consistent with an earlier finding in this same project (see the
->    `RESUME_NOTES.md` note on `canonical_pw_dev`/`row_c4`). The actual
->    kernel under test,
->    `mul_mat_vec_bmo_tier_tilemajor_kernel`/`_rowminor_kernel`, lives
->    exclusively in `moshi_oracle/ggml/src/ggml-cuda/convert.cu`, which
->    this commit never touched.
-> 3. **Gate 4's transcript is verbatim identical, including broken/garbled
->    phrasing** ("A tank of the hick brewed... the ofs the kids of the
->    hooves"), for both "old" and "new" kernels — consistent with, not
->    independent confirmation against, points 1–2: the two "builds" being
->    compared do not appear to have actually differed.
->
-> None of this proves malicious intent — the more likely explanation is a
-> test harness that never actually invoked the new kernel path. But it
-> means the ladder has effectively NOT run yet. The rest of this section
-> (below) still applies in full: nothing past `c963e54` has real sign-off.
+> **⚠ `moshi_oracle/validation_report.md` went through two versions —
+> read both, trust only the second:**
+> - **v1 (commit `daf00c3`)** claimed all four ladder gates PASS,
+>   including an exact `0.00000000e+00` 32-layer residual diff. That's
+>   mathematically impossible given Gate 1's own ~1e-6 per-call `rel_l2`
+>   in the *same report* (nonzero error can't compose into exact zero),
+>   and the commit's only code change touched
+>   `BMO Voice Engine/personaplex/bmo_compute.cpp` — a file with zero
+>   references anywhere under `moshi_oracle/` (verified by grep), i.e.
+>   not part of the build being validated at all. This was flagged in
+>   this file at the time (see git history of this section) and should
+>   be treated as never having happened.
+> - **v2 (commit `7b5d2c3`) self-corrects v1** and is credible: it states
+>   plainly that v1's harness ran against `bmo_septq_v5.gguf`, a file
+>   that "does not contain `BMO_TIER` layout weights and therefore
+>   bypasses the rewritten kernels entirely" — matching the conclusion
+>   already reached independently above. Re-run against the correct
+>   model (`qat_heavy_int2.gguf`) gives: **Gate 0 PASS, Gate 1 PASS**
+>   (same numbers as v1 — unchanged, and the variant names
+>   `v0_current`...`v11_regdiet` match this project's own
+>   `tools/bmo_kernel_bench.cu` exactly), **Gates 2/3/4 FAIL**: old vs
+>   new kernel token sequences diverge starting at frame 0 (concrete
+>   token dumps given, e.g. frame 0 audio codebooks match on token 0
+>   `948` then diverge from index 2 onward). This is the expected,
+>   previously-predicted consequence of a kernel with non-bit-identical
+>   per-call arithmetic feeding an autoregressive sampler: a ~1e-6
+>   logit-level difference is enough to flip a discrete sampling
+>   decision, and once one token differs the entire subsequent
+>   generation trajectory diverges (each depformer codebook step
+>   conditions on the previous one — see `moshi_scaled_embedding_chained`
+>   in `lm.h`). **This means the "z_s delta < 0.005" and "joke-loop
+>   transcript" gates cannot be evaluated in their originally-intended
+>   form at all** — the sequences aren't "close but for rounding," they
+>   are a completely different sampled path, so there is nothing
+>   meaningful left to compute a continuous similarity score over. The
+>   only way to judge whether this rewrite is production-acceptable now
+>   is a genuine **human listening comparison** of the two divergent
+>   audio outputs (does the new kernel still sound coherent/on-topic,
+>   just saying different specific words? or does quality degrade?) —
+>   which has NOT happened yet, per §6's "never judge audio by metrics
+>   alone" constraint. **Bottom line: the kernel rewrite is confirmed to
+>   change end-to-end model output, and is not validated for production
+>   either way** — this isn't a broken-test story anymore, it's a real,
+>   open quality question.
 
 **Nothing in this branch past commit `c963e54` (the memory fixes) has
 passed formal quality sign-off.** In particular, the kernel rewrite
