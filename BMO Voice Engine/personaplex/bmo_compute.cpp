@@ -1757,6 +1757,25 @@ ggml_tensor * bmo_embed_input_tokens(
                 for (int64_t i = 0; i < n_embd; ++i) acc[i] += ggml_fp16_to_fp32(h[i]);
                 break;
             }
+            case GGML_TYPE_Q4_0: {
+                const uint8_t * pb = row;
+                int64_t i = 0;
+                while (i < n_embd) {
+                    ggml_fp16_t d_hp16;
+                    std::memcpy(&d_hp16, pb, sizeof(ggml_fp16_t));
+                    const float d_val = ggml_fp16_to_fp32(d_hp16);
+                    const uint8_t * qs = pb + sizeof(ggml_fp16_t);
+                    for (int j = 0; j < 32 && i < n_embd; ++j) {
+                        const uint8_t val_u8 = qs[j / 2];
+                        const int val_i4 = (j % 2 == 0) ? (val_u8 & 0x0F) : (val_u8 >> 4);
+                        const float val = (float)(val_i4 - 8) * d_val;
+                        acc[i] += val;
+                        ++i;
+                    }
+                    pb += 18;
+                }
+                break;
+            }
             default:
                 throw std::runtime_error(
                     "bmo_embed_input_tokens: unsupported dtype "
