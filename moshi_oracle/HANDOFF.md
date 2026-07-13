@@ -48,10 +48,12 @@ f7f31a4 memledger: snapshots closing the driver-delta vs tracked-allocation gap
 c963e54 loader: host-stage BMO raw components, free after repack (fixes Jetson double-storage OOM)
 ```
 
-**This session's mimi-pipelining commit(s) are NOT in the list above** — see
-§4; they land after this document, as the final commits of the session
-(see the commit-hash list at the very end of the chat response that shipped
-this file).
+**This session's commits, on top of the list above** (see §4 for what's in
+each):
+```
+e285fe9 docs: add HANDOFF.md
+52b6de9 personaplex: mimi encode/decode worker threads + scratch reuse (pipelining DISABLED BY DEFAULT — failed correctness gate)
+```
 
 ### Current measured numbers (Jetson Orin Nano 8GB, sm_87, MAXN_SUPER, jetson_clocks locked)
 
