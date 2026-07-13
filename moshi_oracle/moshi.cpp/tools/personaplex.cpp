@@ -4,9 +4,17 @@
 #include <math.h>
 #include <assert.h>
 #include <ctype.h> // isdigit (nvmap client-size parsing, MEMLEDGER)
+#include <inttypes.h> // PRIx64 (token-hash correctness gate)
 #include <chrono>  // STEP 1 frame-phase timing instrumentation
 #include <vector>
 #include <algorithm>
+// PIPELINE (mimi off the critical path): worker threads + bounded queues
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <atomic>
+#include <functional>
 
 #include "common_ggml.h"
 #include <moshi/moshi.h>
@@ -221,6 +229,59 @@ static double median_ms( std::vector<double> & v ) {
     size_t n = v.size();
     return (n % 2) ? v[n/2] : (v[n/2 - 1] + v[n/2]) / 2.0;
 }
+
+// PIPELINE: bounded FIFO between the frame loop and the codec workers.
+// push() blocks when full, pop() blocks when empty; both record how often
+// and for how long they waited (the frame loop is the only pusher of dec_in
+// and the only popper of enc_out, so those counters are exactly the
+// critical-path stalls). close() wakes everyone; pop() keeps returning
+// queued items after close (drain) and returns false only when closed+empty.
+template<typename T>
+struct BoundedQueue {
+    std::mutex m;
+    std::condition_variable cv_push, cv_pop;
+    std::deque<T> q;
+    size_t cap;
+    bool closed = false;
+    long push_waits = 0, pop_waits = 0;
+    double push_wait_ms = 0.0, pop_wait_ms = 0.0;
+    explicit BoundedQueue( size_t cap ) : cap(cap) {}
+    bool push( T && v ) {
+        std::unique_lock<std::mutex> lk(m);
+        if ( q.size() >= cap && ! closed ) {
+            auto t0 = std::chrono::steady_clock::now();
+            cv_push.wait( lk, [&]{ return q.size() < cap || closed; } );
+            push_waits++;
+            push_wait_ms += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t0 ).count();
+        }
+        if ( closed ) return false;
+        q.push_back( std::move(v) );
+        cv_pop.notify_one();
+        return true;
+    }
+    bool pop( T & out ) {
+        std::unique_lock<std::mutex> lk(m);
+        if ( q.empty() && ! closed ) {
+            auto t0 = std::chrono::steady_clock::now();
+            cv_pop.wait( lk, [&]{ return ! q.empty() || closed; } );
+            pop_waits++;
+            pop_wait_ms += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t0 ).count();
+        }
+        if ( q.empty() ) return false; // closed and fully drained
+        out = std::move( q.front() );
+        q.pop_front();
+        cv_push.notify_one();
+        return true;
+    }
+    void close() {
+        std::lock_guard<std::mutex> lk(m);
+        closed = true;
+        cv_push.notify_all();
+        cv_pop.notify_all();
+    }
+};
 
 int main(int argc, char *argv[]) {
     signal(SIGINT, signal_handler);
@@ -926,6 +987,43 @@ int main(int argc, char *argv[]) {
     moshi_lm_start( moshi, gen, depth_temperature, text_temperature );
     printf("DEBUG: moshi_lm_start returned successfully\n"); fflush(stdout);
 
+    // PIPELINE: enable scratch buffer reuse now that prompt prefill is done —
+    // steady decode then performs zero cudaMalloc/cudaFree on the LM thread
+    // (cudaFree blocks the caller against in-flight kernels on other streams;
+    // measured 100.7 ms vs a 100 ms busy stream on Orin). Enabled in BOTH
+    // serial and pipelined modes so the two differ only in scheduling.
+    moshi_lm_scratch_reuse( gen, 1 );
+
+    // DEFAULTS TO SERIAL. The pipelined path failed its own correctness gate
+    // (TOKEN_HASH mismatch vs serial at identical seed/frame-count, this-boot
+    // smoke test — see HANDOFF.md §4) and root cause is NOT YET FOUND (ruled
+    // out: shared/global rand() touched from a worker thread — grep confirms
+    // no ctx.exponential()/rand() call anywhere in the mimi encode/decode
+    // path). Per explicit instruction not to spend further session budget
+    // debugging concurrency, this reverts the DEFAULT to the known-correct
+    // serial loop; the pipelined implementation and its correctness-gate
+    // instrumentation are left in place (BMO_PIPELINE=1 opts in) for whoever
+    // picks up the root-cause investigation next.
+    bool pipeline_on = false;
+    {
+        const char * e = getenv( "BMO_PIPELINE" );
+        if ( e && strcmp( e, "1" ) == 0 ) pipeline_on = true;
+    }
+    printf( "PIPELINE: %s\n", pipeline_on
+        ? "ON (mimi encode/decode on worker threads, own CUDA streams) -- KNOWN BROKEN, opt-in via BMO_PIPELINE=1 for debugging only, see HANDOFF.md"
+        : "OFF (serial loop)" );
+    fflush( stdout );
+
+    // Correctness gate: FNV-1a 64 over the generated token sequence
+    // (text token + 8 audio codes per emitted frame, frame order).
+    // Identical placement in both loops; serial vs pipelined must match.
+    uint64_t token_hash = 1469598103934665603ULL;
+    long token_hash_frames = 0;
+    auto token_hash_mix = [&]( uint64_t v ) {
+        token_hash ^= v;
+        token_hash *= 1099511628211ULL;
+    };
+
     std::vector<int16_t> tokens(num_audio_codebooks);
     int text_token;
 
@@ -953,6 +1051,245 @@ int main(int argc, char *argv[]) {
     printf("ready\n");
 
     uint64_t lm_start = ggml_time_us();
+
+    // ---- PIPELINE state (threads started only when pipeline_on) ----
+    BoundedQueue<std::vector<int16_t>> pipe_enc_out( 2 ); // encode worker -> frame loop
+    BoundedQueue<std::vector<int16_t>> pipe_dec_in( 2 );  // frame loop -> decode worker
+    std::atomic<bool> pipe_enc_stop( false );
+    std::thread pipe_enc_thread, pipe_dec_thread;
+    std::atomic<long> pipe_enc_frames( 0 ), pipe_dec_frames( 0 );
+    std::mutex pipe_stat_m;
+    std::vector<double> pipe_enc_ms, pipe_dec_ms; // worker-side compute times
+    bool first_pop_pending = true;
+    long enc_first_pop_waits = 0; // frame-1 encode wait is structural, reported separately
+
+    if ( pipeline_on ) {
+        // Input acquisition, one frame ahead of the LM, mirroring the serial
+        // loop's mode branches verbatim (file -> live handover included).
+        // Runs exclusively on the encode worker after this point.
+        std::function<bool(std::vector<float>&)> input_source =
+            [&]( std::vector<float> & audio ) -> bool {
+            if ( input ) {
+                if ( input_delay > 0 ) {
+                    input_delay--;
+                    memset( audio.data(), 0, audio.size() * sizeof(float) );
+                    if ( input_delay == 0 ) {
+                        printf(" | ");
+                        fflush( stdout );
+                    }
+                    return true;
+                }
+                if ( res_frame ) {
+                    // drain resampler
+                    res_frame = resampler.frame();
+                }
+                while ( ! res_frame ) { // fill resampler if needed
+                    dec_frame = input_decoder.frame();
+                    if ( ! dec_frame ) { // we are done
+                        break;
+                    } else {
+                        res_frame = resampler.frame( dec_frame );
+                    }
+                }
+                if ( res_frame ) {
+                    memcpy( audio.data(), res_frame->data[0], audio.size() * sizeof(float) );
+                    res_frame = resampler.frame();
+                } else {
+                    // no more decoder frames
+                    input = NULL;
+                    memset( audio.data(), 0, audio.size() * sizeof(float) );
+                    printf(" | ");
+                    fflush( stdout );
+                }
+                return true;
+            } else if ( bench ) {
+                memset( audio.data(), 0, audio.size() * sizeof(float) );
+                return true;
+            } else {
+                sdl_frame_t * input_frame = sdl_receive_frame( input_state, true );
+                memcpy( audio.data(), input_frame->data, audio.size() * sizeof(float) );
+                sdl_free_frame( input_state, input_frame );
+                return true;
+            }
+        };
+
+        // ---- encode worker: own backend/stream, feeds the frame loop ----
+        pipe_enc_thread = std::thread( [&]() {
+            std::vector<float> audio( frame_size );
+            std::vector<int16_t> codes( num_audio_codebooks );
+            while ( ! pipe_enc_stop.load() && ! shutdown ) {
+                if ( ! input_source( audio ) ) break;
+                auto t0 = std::chrono::steady_clock::now();
+                mimi_encode_send( encoder, audio.data() );
+                mimi_encode_receive( encoder, codes.data() );
+                double ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0 ).count();
+                {
+                    std::lock_guard<std::mutex> lk( pipe_stat_m );
+                    pipe_enc_ms.push_back( ms );
+                }
+                pipe_enc_frames++;
+                std::vector<int16_t> out( codes );
+                if ( ! pipe_enc_out.push( std::move( out ) ) ) break; // closed
+            }
+        } );
+
+        // ---- decode worker: own backend/stream, consumes generated codes ----
+        pipe_dec_thread = std::thread( [&]() {
+            std::vector<int16_t> codes;
+            std::vector<float> audio_out( frame_size );
+            while ( pipe_dec_in.pop( codes ) ) { // drains queued frames after close
+                auto t0 = std::chrono::steady_clock::now();
+                mimi_decode_send( decoder, codes.data() );
+                if ( bench ) {
+                    mimi_decode_receive( decoder, audio_out.data() );
+                } else {
+                    // sdl_get_frame/sdl_send_frame pace against the audio device
+                    sdl_frame_t * frame = sdl_get_frame( output_state );
+                    mimi_decode_receive( decoder, (float*)frame->data );
+                    sdl_send_frame( output_state, frame );
+                }
+                double ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0 ).count();
+                {
+                    std::lock_guard<std::mutex> lk( pipe_stat_m );
+                    pipe_dec_ms.push_back( ms );
+                }
+                pipe_dec_frames++;
+            }
+        } );
+
+        // ---- pipelined frame loop: temporal/depformer/sampling only ----
+        while ( ! shutdown ) {
+            if ( bench ) lm_start = ggml_time_us();
+            auto _prof_frame_t0 = std::chrono::steady_clock::now();
+            moshi_phase_timing_reset();
+
+            // this frame's input codes (worker runs one frame ahead);
+            // t_mimi_enc now measures the critical-path WAIT, not encode itself
+            auto _prof_menc_t0 = std::chrono::steady_clock::now();
+            std::vector<int16_t> in_codes;
+            bool got = pipe_enc_out.pop( in_codes );
+            auto _prof_menc_t1 = std::chrono::steady_clock::now();
+            double _prof_t_mimi_enc = std::chrono::duration<double, std::milli>( _prof_menc_t1 - _prof_menc_t0 ).count();
+            if ( first_pop_pending ) {
+                first_pop_pending = false;
+                enc_first_pop_waits = pipe_enc_out.pop_waits;
+            }
+            if ( ! got ) break;
+            for ( int i = 0; i < num_audio_codebooks; i++ )
+                tokens[i] = in_codes[i];
+            if ( ! bench ) lm_start = ggml_time_us(); // live mode: mic pacing excluded
+
+            printf("DEBUG: calling moshi_lm_send2\n"); fflush(stdout);
+            moshi_lm_send2( gen, tokens );
+            printf("DEBUG: after moshi_lm_send2\n"); fflush(stdout);
+
+            printf("DEBUG: calling moshi_lm_receive\n"); fflush(stdout);
+            if ( moshi_lm_receive( gen, text_token, tokens ) ) {
+                printf("DEBUG: after moshi_lm_receive\n"); fflush(stdout);
+
+                token_hash_mix( (uint64_t)(uint32_t)text_token );
+                for ( int i = 0; i < num_audio_codebooks; i++ )
+                    token_hash_mix( (uint64_t)(uint16_t)tokens[i] );
+                token_hash_frames++;
+
+                // audio out -> decode worker; t_mimi_dec now measures the
+                // critical-path WAIT (queue-full = decode not keeping up)
+                auto _prof_mdec_t0 = std::chrono::steady_clock::now();
+                std::vector<int16_t> out_codes( tokens.begin(), tokens.end() );
+                pipe_dec_in.push( std::move( out_codes ) );
+                auto _prof_mdec_t1 = std::chrono::steady_clock::now();
+                double _prof_t_mimi_dec = std::chrono::duration<double, std::milli>( _prof_mdec_t1 - _prof_mdec_t0 ).count();
+
+                lm_delta_time += ggml_time_us() - lm_start;
+                lm_frames++;
+
+                // STEP 1 phase timing: identical window/report format to the
+                // serial loop; t_mimi_enc/t_mimi_dec are queue waits here.
+                if ( bench ) {
+                    auto _prof_frame_t1 = std::chrono::steady_clock::now();
+                    double _prof_frame_total = std::chrono::duration<double, std::milli>( _prof_frame_t1 - _prof_frame_t0 ).count();
+                    double _prof_t_temporal = g_moshi_phase_timing.t_temporal_ms;
+                    double _prof_t_depformer = g_moshi_phase_timing.t_depformer_ms;
+                    double _prof_t_sample_sync = g_moshi_phase_timing.t_sample_sync_ms;
+                    int _prof_dep_substeps = g_moshi_phase_timing.depformer_substeps;
+                    double _prof_t_other = _prof_frame_total - ( _prof_t_mimi_enc + _prof_t_mimi_dec +
+                        _prof_t_temporal + _prof_t_depformer + _prof_t_sample_sync );
+                    long _prof_majflt_now = read_majflt();
+                    long _prof_majflt_delta = ( prof_last_majflt >= 0 && _prof_majflt_now >= 0 )
+                        ? ( _prof_majflt_now - prof_last_majflt ) : -1;
+                    prof_last_majflt = _prof_majflt_now;
+
+                    prof_t_mimi_enc.push_back( _prof_t_mimi_enc );
+                    prof_t_mimi_dec.push_back( _prof_t_mimi_dec );
+                    prof_t_temporal.push_back( _prof_t_temporal );
+                    prof_t_depformer.push_back( _prof_t_depformer );
+                    prof_t_dep_substep_mean.push_back( _prof_dep_substeps > 0 ? _prof_t_depformer / _prof_dep_substeps : 0.0 );
+                    prof_t_sample_sync.push_back( _prof_t_sample_sync );
+                    prof_t_other.push_back( _prof_t_other );
+                    prof_t_frame_total.push_back( _prof_frame_total );
+                    prof_majflt_delta.push_back( _prof_majflt_delta );
+
+                    if ( lm_frames % 25 == 0 ) {
+                        long majflt_sum = 0;
+                        for ( long d : prof_majflt_delta ) if ( d > 0 ) majflt_sum += d;
+                        printf(
+                            "PHASE_TIMING frame=%4d window=%zu median_ms: "
+                            "t_frame_total=%7.3f t_temporal=%7.3f t_depformer=%7.3f t_depformer_substep_mean(n=%d)=%7.3f "
+                            "t_sample_sync=%7.3f t_mimi_enc=%7.3f t_mimi_dec=%7.3f t_other=%7.3f  majflt_sum_window=%ld majflt_per_frame=%.2f\n",
+                            (int)lm_frames, prof_t_frame_total.size(),
+                            median_ms(prof_t_frame_total), median_ms(prof_t_temporal), median_ms(prof_t_depformer),
+                            _prof_dep_substeps, median_ms(prof_t_dep_substep_mean),
+                            median_ms(prof_t_sample_sync), median_ms(prof_t_mimi_enc), median_ms(prof_t_mimi_dec),
+                            median_ms(prof_t_other), majflt_sum, (double)majflt_sum / prof_t_frame_total.size() );
+                        fflush(stdout);
+                        prof_t_mimi_enc.clear(); prof_t_mimi_dec.clear(); prof_t_temporal.clear();
+                        prof_t_depformer.clear(); prof_t_dep_substep_mean.clear(); prof_t_sample_sync.clear();
+                        prof_t_other.clear(); prof_t_frame_total.clear(); prof_majflt_delta.clear();
+                    }
+                }
+
+                if ( lm_frames == 1 ) {
+                    memledger_log_simple("after_first_decode_frame", device_memory_free(ggml.dev) / 1024 / 1024);
+                }
+
+                if ( bench && (lm_frames % 25 == 0) ) {
+                    size_t cur_driver_free = device_memory_free(ggml.dev);
+                    size_t m1 = ggml.memory_free - cur_driver_free;
+                    size_t m2 = moshi_get_allocated_memory(moshi, lm, codec, gen, encoder, decoder);
+                    printf("VRAM_FRAME: frame=%4d  M1_driver_delta_MiB=%5zu  M2_phys_alloc_MiB=%5zu  outside_ggml_MiB=%5zd\n",
+                           lm_frames,
+                           m1 / 1024 / 1024,
+                           m2 / 1024 / 1024,
+                           ((long long)m1 - (long long)m2) / 1024 / 1024);
+                    fflush(stdout);
+                }
+
+                if ( bench && lm_frames >= 1250 ) {
+                    break;
+                }
+
+                // text out
+                if ( text_token != 0 && text_token != 3 /*&& text_token > 0*/ ) {
+                    auto piece = tokenizer_id_to_piece( tok, text_token );
+                    std::string _text;
+                    for ( size_t ci = 0; ci < piece.size(); ci++ ) {
+                        if ( piece.c_str()[ci] == -30 ) {
+                            _text += ' ';
+                            ci += 2;
+                            continue;
+                        }
+                        _text += piece[ci];
+                    }
+                    fprintf( stdout, "%s", _text.c_str() );
+                    fflush( stdout );
+                }
+            }
+        }
+    }
+
+    if ( ! pipeline_on )
     while ( ! shutdown ) {
         if ( input ) {
             if ( input_delay > 0 ) {
@@ -1028,6 +1365,12 @@ int main(int argc, char *argv[]) {
         printf("DEBUG: calling moshi_lm_receive\n"); fflush(stdout);
         if ( moshi_lm_receive( gen, text_token, tokens ) ) {
             printf("DEBUG: after moshi_lm_receive\n"); fflush(stdout);
+
+            token_hash_mix( (uint64_t)(uint32_t)text_token );
+            for ( int i = 0; i < num_audio_codebooks; i++ )
+                token_hash_mix( (uint64_t)(uint16_t)tokens[i] );
+            token_hash_frames++;
+
             // audio out
             mimi_decode_send( decoder, tokens.data() );
 
@@ -1138,6 +1481,59 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+
+    // PIPELINE: shut down workers cleanly. Encode worker exits its own loop
+    // once told to stop (shutdown flag / pipe_enc_stop) or once input runs
+    // out; closing pipe_enc_out also wakes it if blocked mid-push. Decode
+    // worker keeps draining pipe_dec_in after close() (finishes whatever the
+    // frame loop already queued) and exits only once empty+closed.
+    if ( pipeline_on ) {
+        pipe_enc_stop.store( true );
+        pipe_enc_out.close();
+        if ( pipe_enc_thread.joinable() ) pipe_enc_thread.join();
+
+        pipe_dec_in.close();
+        if ( pipe_dec_thread.joinable() ) pipe_dec_thread.join();
+
+        // Critical-path stall audit. enc_out.pop() is called by the frame
+        // loop (consumer) and dec_in.push() is called by the frame loop
+        // (producer) — those are the only two queue operations the
+        // temporal/depformer/sampling chain performs, so waits there are the
+        // only ones that count as the chain blocking on codec work. Frame 1's
+        // enc_out pop is a structural startup fill (nothing to pop_wait on
+        // dec_in.push() at that point ever a startup case, since the queue
+        // starts empty with capacity 2). dec_in.pop_waits (decode worker idle
+        // between frames) and enc_out.push_waits (encode worker throttled 2
+        // frames ahead) are expected/benign and reported for completeness only.
+        long enc_out_pop_waits_steady = pipe_enc_out.pop_waits - enc_first_pop_waits;
+        long dec_in_push_waits = pipe_dec_in.push_waits;
+        long underrun_count = enc_out_pop_waits_steady + dec_in_push_waits;
+
+        double enc_ms_sum = 0, dec_ms_sum = 0;
+        {
+            std::lock_guard<std::mutex> lk( pipe_stat_m );
+            for ( double v : pipe_enc_ms ) enc_ms_sum += v;
+            for ( double v : pipe_dec_ms ) dec_ms_sum += v;
+        }
+        printf( "\nPIPELINE_STATS enc_frames=%ld dec_frames=%ld "
+                "enc_out_pop_waits_total=%ld enc_out_pop_waits_startup=%ld enc_out_pop_waits_steady=%ld "
+                "enc_out_push_waits=%ld (benign) dec_in_pop_waits=%ld (benign, decode-idle) "
+                "dec_in_push_waits=%ld enc_mean_ms=%.3f dec_mean_ms=%.3f\n",
+                (long)pipe_enc_frames.load(), (long)pipe_dec_frames.load(),
+                pipe_enc_out.pop_waits, enc_first_pop_waits, enc_out_pop_waits_steady,
+                pipe_enc_out.push_waits, pipe_dec_in.pop_waits,
+                dec_in_push_waits,
+                pipe_enc_frames.load() ? enc_ms_sum / pipe_enc_frames.load() : 0.0,
+                pipe_dec_frames.load() ? dec_ms_sum / pipe_dec_frames.load() : 0.0 );
+        printf( "QUEUE_UNDERRUNS: %ld (%s)\n", underrun_count,
+                underrun_count == 0 ? "PASS — critical path never blocked on codec work beyond startup fill"
+                                    : "FAIL — critical path stalled on codec queue" );
+        fflush( stdout );
+    }
+
+    printf( "TOKEN_HASH: 0x%016" PRIx64 " frames=%ld mode=%s\n",
+            token_hash, token_hash_frames, pipeline_on ? "pipelined" : "serial" );
+    fflush( stdout );
 
     auto memory_delta = ggml.memory_free - device_memory_free( ggml.dev );
     printf("\ndevice memory delta: %d MiB", (int)( memory_delta / 1024 / 1024 ) );
