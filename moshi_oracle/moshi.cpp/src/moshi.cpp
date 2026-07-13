@@ -64,8 +64,17 @@ struct mimi_codec_t {
     own_ptr<WeightLoader> mimi_weights;
 };
 
+// PIPELINE: each codec context owns a dedicated ggml backend instance (own
+// CUDA stream, cuBLAS handle, and pool) plus a reuse-enabled ScratchContext,
+// so encode/decode graph computes can run from worker threads concurrently
+// with the LM on moshi->backend. The persistent encoder_graph/decoder_graph
+// GraphContexts (compression.h) inherit this backend because they are built
+// lazily from the scratch passed into mimi_encode()/mimi_decode().
+// NOTE: `scratch` must be destroyed before `backend` — unref() handles this.
 struct mimi_encode_context_t {
     mimi_codec_t * codec;
+    ggml_backend * backend = NULL;
+    own_ptr<ScratchContext> scratch;
     own_ptr<StateContext> state_ctx;
     own_ptr<moshi_mimi_state_t> states;
     std::vector<int> tokens;
@@ -74,6 +83,8 @@ struct mimi_encode_context_t {
 
 struct mimi_decode_context_t {
     mimi_codec_t * codec;
+    ggml_backend * backend = NULL;
+    own_ptr<ScratchContext> scratch;
     own_ptr<StateContext> state_ctx;
     own_ptr<moshi_mimi_state_t> states;
     std::vector<int> tokens;
@@ -193,14 +204,29 @@ void mimi_save_gguf( mimi_codec_t * codec, const char * filepath ) {
 
 // MARK: Mimi Encode
 
+static ggml_backend * mimi_own_backend( moshi_context_t * moshi, const char * what ) {
+    ggml_backend * be = ggml_backend_dev_init(
+        ggml_backend_get_device( moshi->backend ), NULL );
+    if ( ! be ) {
+        fprintf( stderr, "FATAL: failed to create dedicated %s backend instance\n", what );
+        fflush( stderr );
+        exit( 1 );
+    }
+    return be;
+}
+
 static void mimi_encode_alloc_context( mimi_encode_context_t * context, mimi_codec_t * codec ) {
     auto state_ctx = new StateContext( codec->moshi->backend );
     auto mimi_states = moshi_mimi_encoder_states( state_ctx, codec->mimi );
     int frame_size = mimi_frame_size( codec );
 
+    context->backend = mimi_own_backend( codec->moshi, "mimi encode" );
+    context->scratch = new ScratchContext( 256, context->backend );
+    context->scratch->reuse_buffer = true;
+
     state_ctx->alloc();
     state_ctx->init();
-    init( codec->moshi->scratch, mimi_states, codec->mimi );
+    init( context->scratch, mimi_states, codec->mimi );
 
     context->codec = codec;
     context->state_ctx = state_ctx;
@@ -215,11 +241,14 @@ mimi_encode_context_t * mimi_encode_alloc_context( mimi_codec_t * codec ) {
 }
 
 void unref( mimi_encode_context_t * context ) {
-    delete context;
+    ggml_backend * be = context->backend;
+    delete context; // frees scratch + graph buffers first
+    if ( be )
+        ggml_backend_free( be );
 }
 
 void mimi_encode_reset( mimi_encode_context_t * context ) {
-    auto scratch = context->codec->moshi->scratch.ptr;
+    auto scratch = context->scratch.ptr;
     auto mimi = context->codec->mimi.ptr;
     auto states = context->states.ptr;
     init( scratch, states, mimi );
@@ -230,7 +259,7 @@ void mimi_encode_send( mimi_encode_context_t * context, float * frame ) {
 }
 
 void mimi_encode_receive( mimi_encode_context_t * context, int16_t * tokens ) {
-    auto & ctx = *context->codec->moshi->scratch;
+    auto & ctx = *context->scratch;
     auto mimi = context->codec->mimi.ptr;
     auto states = context->states.ptr;
 
@@ -255,9 +284,13 @@ static void mimi_decode_alloc_context( mimi_decode_context_t * context, mimi_cod
     auto mimi_states = moshi_mimi_states( state_ctx, codec->mimi, upsample_ne, decoder_ne );
     int frame_size = mimi_frame_size( codec );
 
+    context->backend = mimi_own_backend( codec->moshi, "mimi decode" );
+    context->scratch = new ScratchContext( 256, context->backend );
+    context->scratch->reuse_buffer = true;
+
     state_ctx->alloc();
     state_ctx->init();
-    init( codec->moshi->scratch, mimi_states, codec->mimi );
+    init( context->scratch, mimi_states, codec->mimi );
 
     context->codec = codec;
     context->state_ctx = state_ctx;
@@ -273,11 +306,14 @@ mimi_decode_context_t * mimi_decode_alloc_context( mimi_codec_t * codec ) {
 }
 
 void unref( mimi_decode_context_t * context ) {
-    delete context;
+    ggml_backend * be = context->backend;
+    delete context; // frees scratch + graph buffers first
+    if ( be )
+        ggml_backend_free( be );
 }
 
 void mimi_decode_reset( mimi_decode_context_t * context ) {
-    auto scratch = context->codec->moshi->scratch.ptr;
+    auto scratch = context->scratch.ptr;
     auto mimi = context->codec->mimi.ptr;
     auto states = context->states.ptr;
     init( scratch, states, mimi );
@@ -290,7 +326,7 @@ void mimi_decode_send( mimi_decode_context_t * context, int16_t * tokens ) {
 }
 
 void mimi_decode_receive( mimi_decode_context_t * context, float * frame ) {
-    auto & ctx = *context->codec->moshi->scratch;
+    auto & ctx = *context->scratch;
     auto mimi = context->codec->mimi.ptr;
     auto states = context->states.ptr;
     mimi_decode(
@@ -1010,6 +1046,11 @@ void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry ) {
     gen->machine_state->entries.push_back( *entry );
 }
 
+void moshi_lm_scratch_reuse( moshi_lm_gen_t * gen, int enable ) {
+    if ( gen->ctx )
+        gen->ctx->reuse_buffer = ( enable != 0 );
+}
+
 int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_t> & audio_tokens ) {
     bool depformer_replace_tokens = (gen->lmgen_state->offset < gen->lm->model->delay_steps);
     bool has_audio_tokens = moshi_lmgen_step(
@@ -1083,12 +1124,19 @@ size_t moshi_get_allocated_memory(
     if (gen) {
         if (gen->state_ctx && gen->state_ctx->buffer) total += ggml_backend_buffer_get_size(gen->state_ctx->buffer);
         if (gen->voice_weights && gen->voice_weights->buffer) total += ggml_backend_buffer_get_size(gen->voice_weights->buffer);
+        // PIPELINE (scratch reuse): the per-frame scratch buffer is transient
+        // (NULL between calls) unless reuse_buffer is on, in which case it
+        // persists as a high-water buffer and must be counted here or M2
+        // silently under-reports VRAM after the first reuse-enabled frame.
+        if (gen->ctx && gen->ctx->buffer) total += ggml_backend_buffer_get_size(gen->ctx->buffer);
     }
     if (encoder) {
         if (encoder->state_ctx && encoder->state_ctx->buffer) total += ggml_backend_buffer_get_size(encoder->state_ctx->buffer);
+        if (encoder->scratch && encoder->scratch->buffer) total += ggml_backend_buffer_get_size(encoder->scratch->buffer);
     }
     if (decoder) {
         if (decoder->state_ctx && decoder->state_ctx->buffer) total += ggml_backend_buffer_get_size(decoder->state_ctx->buffer);
+        if (decoder->scratch && decoder->scratch->buffer) total += ggml_backend_buffer_get_size(decoder->scratch->buffer);
     }
     return total;
 }

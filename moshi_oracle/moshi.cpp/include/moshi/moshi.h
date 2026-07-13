@@ -209,6 +209,12 @@ MOSHI_API int moshi_lm_personaplex_system_prompt(
 );
 
 MOSHI_API void moshi_lm_start( moshi_context_t * moshi, moshi_lm_gen_t * gen, float depth_temperature, float text_temperature, bool logging = false );
+// PIPELINE: enable high-water reuse of the generator's scratch buffer so the
+// steady-decode loop performs no cudaMalloc/cudaFree on the critical path
+// (cudaFree blocks the calling thread against in-flight kernels on other
+// streams — measured 100.7 ms on Orin). Call after moshi_lm_start so prompt
+// prefill graphs do not set the high-water mark.
+MOSHI_API void moshi_lm_scratch_reuse( moshi_lm_gen_t * gen, int enable );
 MOSHI_API void moshi_lm_send( moshi_lm_gen_t * gen, Entry * entry );
 MOSHI_API int moshi_lm_receive( moshi_lm_gen_t * gen, int & text_token, std::vector<int16_t> & audio_tokens );
 MOSHI_API void moshi_lm_send2( moshi_lm_gen_t * gen, std::vector<int16_t> & audio_tokens );

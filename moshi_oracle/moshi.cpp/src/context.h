@@ -277,6 +277,18 @@ class GraphContext {
     };
     std::vector<copy_t> copies;
 
+    // PIPELINE (mimi off the critical path): cudaFree blocks the calling
+    // thread until every in-flight kernel on the device finishes (measured
+    // 100.7 ms against a 100 ms busy stream on Orin, cudafree_stall_test).
+    // The default per-compute() alloc/free of scratch buffers is therefore a
+    // cross-thread stall once mimi decode runs concurrently on its own
+    // stream. With reuse_buffer enabled the backing buffer is kept high-water
+    // style: steady state performs zero cudaMalloc/cudaFree. Growth (warmup
+    // only, if a later graph is bigger) still frees, loudly.
+    bool reuse_buffer = false;
+    ggml_backend_buffer_t reuse_buf = NULL;
+    size_t reuse_buf_size = 0;
+
     GraphContext( size_t mb, ggml_backend * backend = NULL ) {
         this->backend = backend;
         ctx = ggml_init({
@@ -289,8 +301,10 @@ class GraphContext {
     }
 
     ~GraphContext() {
-        if ( buffer )
+        if ( buffer && buffer != reuse_buf )
             ggml_backend_buffer_free( buffer );
+        if ( reuse_buf )
+            ggml_backend_buffer_free( reuse_buf );
         ggml_free(ctx);
     }
 
@@ -585,10 +599,67 @@ class GraphContext {
     }
 
 
+    // Reuse-mode replacement for ggml_backend_alloc_ctx_tensors: identical
+    // size formula and placement loop as upstream alloc_tensor_range /
+    // ggml_backend_alloc_ctx_tensors_from_buft (ggml-alloc.c), but the
+    // backing buffer is retained across clear() and only grows.
+    ggml_backend_buffer_t alloc_ctx_tensors_reused() {
+        ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type( backend );
+        size_t alignment = ggml_backend_buft_get_alignment( buft );
+        size_t needed = 0;
+        for ( ggml_tensor * t = ggml_get_first_tensor( ctx ); t != NULL; t = ggml_get_next_tensor( ctx, t ) ) {
+            if ( t->data == NULL && t->view_src == NULL )
+                needed += GGML_PAD( ggml_backend_buft_get_alloc_size( buft, t ), alignment );
+        }
+        if ( needed == 0 )
+            needed = alignment; // degenerate graph: keep a valid buffer anyway
+        if ( needed > reuse_buf_size ) {
+            if ( reuse_buf ) {
+                fprintf( stderr, "SCRATCH_REUSE grow name=%s old_B=%zu new_B=%zu\n",
+                    name.size() ? name.c_str() : "(unnamed)", reuse_buf_size, needed );
+                fflush( stderr );
+                ggml_backend_buffer_free( reuse_buf ); // warmup-only cudaFree
+                reuse_buf = NULL;
+                reuse_buf_size = 0;
+            }
+            reuse_buf = ggml_backend_buft_alloc_buffer( buft, needed );
+            if ( ! reuse_buf ) {
+                fprintf( stderr, "FATAL: SCRATCH_REUSE failed to allocate %zu bytes\n", needed );
+                fflush( stderr );
+                exit( 1 );
+            }
+            reuse_buf_size = needed;
+        }
+        ggml_backend_buffer_reset( reuse_buf );
+        ggml_tallocr tallocr = ggml_tallocr_new( reuse_buf );
+        for ( ggml_tensor * t = ggml_get_first_tensor( ctx ); t != NULL; t = ggml_get_next_tensor( ctx, t ) ) {
+            enum ggml_status status = GGML_STATUS_SUCCESS;
+            if ( t->data == NULL ) {
+                if ( t->view_src == NULL ) {
+                    status = ggml_tallocr_alloc( &tallocr, t );
+                } else if ( t->buffer == NULL ) {
+                    status = ggml_backend_view_init( t );
+                }
+            } else if ( t->view_src != NULL && t->buffer == NULL ) {
+                status = ggml_backend_view_init( t );
+            }
+            if ( status != GGML_STATUS_SUCCESS ) {
+                fprintf( stderr, "FATAL: SCRATCH_REUSE failed to place tensor %s\n", ggml_get_name( t ) );
+                fflush( stderr );
+                exit( 1 );
+            }
+        }
+        return reuse_buf;
+    }
+
     void alloc() {
         assert( ! buffer );
         memledger_graph_alloc_prescan( ctx, name.size() ? name : "(unnamed)" );
-        buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
+        if ( reuse_buffer && backend ) {
+            buffer = alloc_ctx_tensors_reused();
+        } else {
+            buffer = ggml_backend_alloc_ctx_tensors( ctx, backend );
+        }
         assert( buffer );
         for (auto load : loaders) {
             load.src->init( load.safetensor, load.tensor, backend );
@@ -687,7 +758,8 @@ class ScratchContext : public GraphContext {
         constants.clear();
         constants32.clear();
         loaders.clear();
-        ggml_backend_buffer_free( buffer );
+        if ( buffer != reuse_buf ) // reuse mode keeps the backing buffer (no cudaFree)
+            ggml_backend_buffer_free( buffer );
         buffer = NULL;
         ggml_reset(ctx);
         gf = NULL;
