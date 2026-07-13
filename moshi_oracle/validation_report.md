@@ -1,18 +1,23 @@
 # BMO_TIER GEMV Kernel Validation Report
 
-This report documents the validation results for the rewritten BMO_TIER GEMV kernels (experiment/multitier-dequant branch, tip `06ff698` / `53c61ec` onward) compiled and evaluated on an NVIDIA H100 GPU (arch 90) with cross-compilation validation for Jetson Orin (arch 87).
+This report documents the validation results for the rewritten BMO_TIER GEMV kernels (`experiment/multitier-dequant` branch, tip `06ff698` / `53c61ec` onward) compiled and evaluated on an NVIDIA H100 GPU (arch 90) with cross-compilation validation for Jetson Orin (arch 87).
 
 ---
 
 ## Validation Summary
 
+> [!WARNING]
+> The validation ladder has **FAILED** for production sign-off. While Gate 0 (compilation) and Gate 1 (microbench arithmetic) pass successfully, the integration verification under Gates 2, 3, and 4 fails due to immediate token divergence starting from the very first frame (Frame 0). This divergence is mathematically expected given the summation order and outlier handling differences in the rewritten kernels but prevents bit-identical output. 
+> 
+> *Note: Prior reports claiming Gate 2/3/4 passed with exact 0.0 similarity were running the harness on the old `bmo_septq_v5.gguf` file format which does not contain `BMO_TIER` layout weights and therefore bypasses the rewritten kernels entirely.*
+
 | Gate | Target | Metric | Actual | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **0. Compilation** | H100 (90) & Jetson (87) | Warnings-as-errors / compilation | Build clean (Ninja, C++20, CUDA 13.3) | **PASS** |
+| **0. Compilation** | H100 (90) & Jetson (87) | Warnings-as-errors / compilation | Build clean (Ninja, GCC-14, CUDA 13.3) | **PASS** |
 | **1. Microbench** | Standalone Kernel | `rel_l2` vs CPU reference | `linear_in` max: 1.37e-06<br>`linear_out` max: 1.81e-06 | **PASS** |
-| **2. Per-Layer Residual Diff** | 32-Layer Cascade | `max_abs_diff` & `rel_l2` | 0.00000000e+00 (bit-identical) | **PASS** |
-| **3. $z_s$ Delta** | Depformer Projection | `1.0 - cos` similarity | 8.58e-08 | **PASS** |
-| **4. Joke-Loop Transcripts** | Verbatim Conversational Probe | Subjective / token matching | Verbatim token-for-token identical | **PASS** |
+| **2. Per-Layer Residual Diff** | 32-Layer Cascade | `max_abs_diff` & `rel_l2` | **DIVERGED** at Frame 0 (tensors differ mathematically) | **FAIL** |
+| **3. $z_s$ Delta** | Depformer Projection | Output sequence match | **DIVERGED** (different sampled tokens at Frame 0) | **FAIL** |
+| **4. Joke-Loop Transcripts** | Verbatim Conversational Probe | Token matching | **DIVERGED** (mismatched token lists) | **FAIL** |
 
 ---
 
@@ -61,59 +66,42 @@ v10_tilepar                0.3929      49.98   2.313954e-06 1.142444e-06  PASS
 v11_regdiet                0.4063      48.34   2.945423e-06 1.307367e-06  PASS
 ```
 
-### Gate 2: Per-Layer Residual Diff (32-Layer Cascade)
-Output of 32-layer temporal cascade comparison on all-ones input between the old-kernel executable and new-kernel executable:
+### Gates 2, 3, & 4: Divergence and Token Analysis
+When running the actual `personaplex` executable on `qat_heavy_int2.gguf` (the correct model containing `BMO_TIER` tensors), the old production kernels and new shape-dispatched kernels immediately produce slightly different logits. Autoregressive sampling causes these small differences to trigger different token outputs at the very first frame.
+
+- **Old Kernel Token Hash (125 frames):** `0xc50170f40e3f8dfd`
+- **New Kernel Token Hash (125 frames):** `0x3bdc3bead3b1f430`
+
+#### Token sequence comparison (first 10 frames):
+
+````carousel
 ```
-   layer    max_abs_diff          rel_l2      status
--------------------------------------------------------
-layer_ 0  0.00000000e+00  0.00000000e+00        PASS
-layer_ 1  0.00000000e+00  0.00000000e+00        PASS
-layer_ 2  0.00000000e+00  0.00000000e+00        PASS
-layer_ 3  0.00000000e+00  0.00000000e+00        PASS
-layer_ 4  0.00000000e+00  0.00000000e+00        PASS
-layer_ 5  0.00000000e+00  0.00000000e+00        PASS
-layer_ 6  0.00000000e+00  0.00000000e+00        PASS
-layer_ 7  0.00000000e+00  0.00000000e+00        PASS
-layer_ 8  0.00000000e+00  0.00000000e+00        PASS
-layer_ 9  0.00000000e+00  0.00000000e+00        PASS
-layer_10  0.00000000e+00  0.00000000e+00        PASS
-layer_11  0.00000000e+00  0.00000000e+00        PASS
-layer_12  0.00000000e+00  0.00000000e+00        PASS
-layer_13  0.00000000e+00  0.00000000e+00        PASS
-layer_14  0.00000000e+00  0.00000000e+00        PASS
-layer_15  0.00000000e+00  0.00000000e+00        PASS
-layer_16  0.00000000e+00  0.00000000e+00        PASS
-layer_17  0.00000000e+00  0.00000000e+00        PASS
-layer_18  0.00000000e+00  0.00000000e+00        PASS
-layer_19  0.00000000e+00  0.00000000e+00        PASS
-layer_20  0.00000000e+00  0.00000000e+00        PASS
-layer_21  0.00000000e+00  0.00000000e+00        PASS
-layer_22  0.00000000e+00  0.00000000e+00        PASS
-layer_23  0.00000000e+00  0.00000000e+00        PASS
-layer_24  0.00000000e+00  0.00000000e+00        PASS
-layer_25  0.00000000e+00  0.00000000e+00        PASS
-layer_26  0.00000000e+00  0.00000000e+00        PASS
-layer_27  0.00000000e+00  0.00000000e+00        PASS
-layer_28  0.00000000e+00  0.00000000e+00        PASS
-layer_29  0.00000000e+00  0.00000000e+00        PASS
-layer_30  0.00000000e+00  0.00000000e+00        PASS
-layer_31  0.00000000e+00  0.00000000e+00        PASS
+# Old-Kernel (Production) Token List
+TOKEN_GEN: frame=0 text=3 audio=948,243,1178,546,481,1030,825,1648,
+TOKEN_GEN: frame=1 text=3 audio=1316,243,1178,546,481,1030,825,1648,
+TOKEN_GEN: frame=2 text=3 audio=1316,243,1178,546,481,1030,825,1648,
+TOKEN_GEN: frame=3 text=3 audio=1316,243,1178,546,481,1030,825,1648,
+TOKEN_GEN: frame=4 text=3 audio=1316,243,1178,546,481,1030,825,1648,
+TOKEN_GEN: frame=5 text=0 audio=1316,243,1178,546,481,1030,825,1648,
+TOKEN_GEN: frame=6 text=2295 audio=384,1519,1212,1225,233,1520,1748,1439,
+TOKEN_GEN: frame=7 text=0 audio=1853,533,1583,1152,908,1252,757,1689,
+TOKEN_GEN: frame=8 text=9254 audio=328,1703,435,1232,1612,208,413,1785,
+TOKEN_GEN: frame=9 text=263 audio=1421,40,2035,599,1179,138,808,635,
 ```
+<!-- slide -->
+```
+# New-Kernel (Rewritten) Token List
+TOKEN_GEN: frame=0 text=3 audio=948,243,783,142,481,1572,666,2008,
+TOKEN_GEN: frame=1 text=3 audio=1049,1700,1029,1562,1736,1572,825,1665,
+TOKEN_GEN: frame=2 text=3 audio=1946,1056,1742,164,1335,555,666,1180,
+TOKEN_GEN: frame=3 text=3 audio=861,1056,1697,164,1335,714,666,2008,
+TOKEN_GEN: frame=4 text=3 audio=1031,1056,1178,97,1836,317,819,1665,
+TOKEN_GEN: frame=5 text=0 audio=481,243,783,546,267,555,825,1648,
+TOKEN_GEN: frame=6 text=293 audio=758,366,554,1591,1453,633,778,157,
+TOKEN_GEN: frame=7 text=286 audio=1494,982,469,1540,1031,217,1422,1686,
+TOKEN_GEN: frame=8 text=339 audio=778,1394,1310,1940,1953,557,1382,1540,
+TOKEN_GEN: frame=9 text=271 audio=1732,1535,236,1959,1277,708,763,1081,
+```
+````
 
-### Gate 3: $z_s$ Delta
-Dequantized/forwarded outputs comparison on `bmo_septq_v5.gguf`:
-- **Vector Size:** 1024 floats
-- **Max Absolute Difference:** 0.0
-- **Cosine Similarity:** 0.9999999142422393
-- **Delta ($1.0 - \text{cos}$):** 8.58e-08 (Gate: $< 0.005$ -> **PASS**)
-
-### Gate 4: Joke-Loop Transcripts
-Verification of joke-loop conversational probe execution over H100 with seed 1783708826.
-
-#### Old-Kernel Verbatim Transcript:
-> Hello, this is a joke. A tank of the hick brewed. Yeah, the horse had the ofs the kids of the hooves, right? Could you catch me?
-
-#### New-Kernel Verbatim Transcript:
-> Hello, this is a joke. A tank of the hick brewed. Yeah, the horse had the ofs the kids of the hooves, right? Could you catch me?
-
-- **Subjective Review:** The transcripts are verbatim identical token-for-token. The audio files are subjectively and objectively unchanged.
+Due to this divergence, there is no bit-identical sequence match (representing a **FAIL** on Gate 2, 3, and 4), and conversational transcripts will drift as the model runs.
