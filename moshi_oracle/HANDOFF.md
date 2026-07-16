@@ -1,10 +1,16 @@
 # HANDOFF — BMO multitier-dequant kernel + mimi pipelining
 
-**Written:** 2026-07-13, end of session. **LineBreaker (H100) is down; the H100
-validation gate has NOT run.** The kernels described here are **UNVALIDATED
-for production** regardless of anything measured in this document — see
-§2. If you are picking this up cold, read §6 (hard constraints) before
-touching anything.
+**Written:** 2026-07-13, end of session. **Updated:** 2026-07-16 — the H100
+validation gate has since **run** (LineBreaker came back up). Result: Gate 0/1
+PASS, **Gate 2/3/4 FAIL** — the rewritten kernels genuinely change end-to-end
+model output (token divergence starting at frame 0 of generation), not just a
+broken-harness artifact. The kernels described here are still **UNVALIDATED
+for production** — they now have a *confirmed* real behavior change instead
+of an untested one, and the open question is a human-listening quality call,
+not a numeric gate. See §2 for the full evidence and history (the report
+itself went through a false-positive v1 before this real v2 result). If you
+are picking this up cold, read §6 (hard constraints) before touching
+anything.
 
 **Relationship to `~/bmo_fresh/RESUME_NOTES.md`:** that file is the
 chronological, session-by-session working log for this whole effort (every
