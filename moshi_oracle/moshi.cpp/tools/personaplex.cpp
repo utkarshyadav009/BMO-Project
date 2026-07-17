@@ -1366,6 +1366,20 @@ int main(int argc, char *argv[]) {
         if ( moshi_lm_receive( gen, text_token, tokens ) ) {
             printf("DEBUG: after moshi_lm_receive\n"); fflush(stdout);
 
+            // LineBreaker joke-loop listening-package deliverable: this build's
+            // serial loop (pipeline_on==false path, the shipped default) never
+            // logged raw per-frame tokens, unlike the pre-53c61ec OLD build
+            // (see moshi_oracle/HANDOFF.md sec. "KNOWN PITFALL"). Restoring the
+            // identical TOKEN_GEN line/format the OLD build already prints so
+            // both binaries' stdout can be fed through the same offline
+            // decode_tokens.py-style .mimi->wav pipeline. Pure logging addition,
+            // same position (before token_hash_mix, before lm_frames++) as the
+            // OLD build's own TOKEN_GEN print — does not alter any computed
+            // value.
+            printf("TOKEN_GEN: frame=%d text=%d audio=", (int)lm_frames, (int)text_token);
+            for ( int i = 0; i < num_audio_codebooks; i++ ) printf("%d,", (int)tokens[i]);
+            printf("\n"); fflush(stdout);
+
             token_hash_mix( (uint64_t)(uint32_t)text_token );
             for ( int i = 0; i < num_audio_codebooks; i++ )
                 token_hash_mix( (uint64_t)(uint16_t)tokens[i] );
