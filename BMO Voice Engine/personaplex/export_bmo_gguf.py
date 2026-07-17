@@ -32,7 +32,12 @@ from typing import Any, Dict, Tuple
 import numpy as np
 import torch
 
-# Try to import gguf; we'll detect a usable writer API at runtime.
+# Try to import gguf; search in llama.cpp/gguf-py locally first.
+_REPO_ROOT = Path(__file__).resolve().parent
+_LOCAL_GGUF_PY = _REPO_ROOT / "llama.cpp" / "gguf-py"
+if _LOCAL_GGUF_PY.is_dir():
+    sys.path.insert(0, str(_LOCAL_GGUF_PY))
+
 try:
     import gguf
 except Exception:
@@ -712,28 +717,41 @@ def write_with_gguf(out_path: str, blobs: Dict[str, Any]) -> None:
 
     # use numpy arrays for writing
     for name, val in blobs.items():
-        arr = val
-        if torch.is_tensor(arr):
-            arr = arr.detach().cpu().numpy()
-        if np.isscalar(arr) or isinstance(arr, np.generic):
-            arr = np.array([arr])
-        if not isinstance(arr, np.ndarray):
-            try:
-                arr = np.array(arr)
-            except Exception:
-                continue
-        if arr.ndim == 0:
-            arr = arr.reshape(1)
+        is_qtype = False
+        qtype = None
+        
+        if isinstance(val, dict) and "qtype" in val:
+            arr = val["qdata"]
+            qtype = val["qtype"]
+            is_qtype = True
+        else:
+            arr = val
+            if torch.is_tensor(arr):
+                arr = arr.detach().cpu().numpy()
+            if np.isscalar(arr) or isinstance(arr, np.generic):
+                arr = np.array([arr])
+            if not isinstance(arr, np.ndarray):
+                try:
+                    arr = np.array(arr)
+                except Exception:
+                    continue
+            if arr.ndim == 0:
+                arr = arr.reshape(1)
+                
         if isinstance(arr, np.ndarray) and arr.size > 0:
             _assert_single_tensor_payload_fits(str(name), int(arr.nbytes))
-        if hasattr(arr, 'dtype') and arr.dtype.kind == 'u':
+            
+        if not is_qtype and hasattr(arr, 'dtype') and arr.dtype.kind == 'u':
             mapping = {1: np.int8, 2: np.int16, 4: np.int32, 8: np.int64}
             arr = arr.view(mapping.get(arr.dtype.itemsize, np.int8))
 
         added = False
         for m in add_methods:
             try:
-                getattr(writer, m)(name, arr)
+                if is_qtype:
+                    getattr(writer, m)(name, arr, raw_dtype=qtype)
+                else:
+                    getattr(writer, m)(name, arr)
                 added = True
                 break
             except TypeError:
@@ -863,36 +881,210 @@ def main() -> None:
         total_packed_bytes += packed_bytes
         return packed_bytes
 
+    def pack_tile_region_ffn(src_key: str, dst_key: str, bias_key: str | None = None) -> bool:
+        nonlocal total_orig_bytes, total_packed_bytes
+        actual_key = src_key
+        if actual_key not in state_dict:
+            if f"{actual_key}.weight" in state_dict:
+                actual_key = f"{actual_key}.weight"
+            else:
+                return False
+                
+        tile_region_meta = ckpt.get("tile_region_metadata", {})
+        if not tile_region_meta or "tiles" not in tile_region_meta or actual_key not in tile_region_meta["tiles"]:
+            return False
+            
+        tile_info = tile_region_meta["tiles"][actual_key]
+        tile_tiers = tile_info["tile_tiers"]
+        tile_grid = tile_info["tile_grid"]
+        tile_shape = tile_info["tile_shape"]
+        n_tiles_total = len(tile_tiers)
+        
+        outlier_meta = ckpt.get("outlier_metadata", {})
+        outlier_info = outlier_meta.get(actual_key, None)
+        
+        stats = module_meta_lookup.get(actual_key, {})
+        scale_int8 = float(stats.get("quant_scale_int8", 1.0))
+        zp_int8 = float(stats.get("quant_zero_point_int8", 0.0))
+        scale_int4 = float(stats.get("quant_scale_int4", 1.0))
+        zp_int4 = float(stats.get("quant_zero_point_int4", 0.0))
+        scale_low = float(stats.get("quant_scale_low", 1.0))
+        zp_low = float(stats.get("quant_zero_point_low", 0.0))
+        
+        w_orig = state_dict[actual_key].float()
+        rows, cols = w_orig.shape
+        
+        w_bulk = w_orig.clone()
+        if outlier_info is not None:
+            indices = outlier_info["indices"]
+            w_bulk.reshape(-1)[indices] = 0.0
+            
+        tile_rows, tile_cols = tile_shape
+        n_tiles_col = tile_grid[1]
+        
+        fp16_tiles = []
+        int8_tiles = []
+        int4_tiles = []
+        int2_tiles = []
+        
+        for t_idx in range(n_tiles_total):
+            tile_r = t_idx // n_tiles_col
+            tile_c = t_idx % n_tiles_col
+            row_start = tile_r * tile_rows
+            col_start = tile_c * tile_cols
+            tile = w_bulk[row_start:row_start+tile_rows, col_start:col_start+tile_cols]
+            
+            tier = int(tile_tiers[t_idx])
+            if tier == 0:
+                fp16_tiles.append(tile.to(torch.float16).numpy())
+            elif tier == 1:
+                q = torch.round(tile / scale_int8 + zp_int8).clamp(0, 255).to(torch.uint8).numpy()
+                int8_tiles.append(q)
+            elif tier == 2:
+                q = torch.round(tile / scale_int4 + zp_int4).clamp(0, 15).to(torch.uint8).numpy()
+                int4_tiles.append(q)
+            elif tier == 3:
+                q = torch.round(tile / scale_low + zp_low).clamp(0, 3).to(torch.uint8).numpy()
+                int2_tiles.append(q)
+                
+        fp16_bytes = np.stack(fp16_tiles).tobytes() if fp16_tiles else b""
+        int8_bytes = np.stack(int8_tiles).tobytes() if int8_tiles else b""
+        
+        if int4_tiles:
+            int4_flat = np.stack(int4_tiles).ravel()
+            int4_packed = (int4_flat[0::2] | (int4_flat[1::2] << 4)).astype(np.uint8)
+            int4_bytes = int4_packed.tobytes()
+        else:
+            int4_bytes = b""
+            
+        if int2_tiles:
+            int2_flat = np.stack(int2_tiles).ravel()
+            int2_packed = (
+                int2_flat[0::4]
+                | (int2_flat[1::4] << 2)
+                | (int2_flat[2::4] << 4)
+                | (int2_flat[3::4] << 6)
+            ).astype(np.uint8)
+            int2_bytes = int2_packed.tobytes()
+        else:
+            int2_bytes = b""
+            
+        packed_weights = np.frombuffer(fp16_bytes + int8_bytes + int4_bytes + int2_bytes, dtype=np.uint8)
+        
+        n_fp16 = len(fp16_tiles)
+        n_int8 = len(int8_tiles)
+        n_int4 = len(int4_tiles)
+        n_int2 = len(int2_tiles)
+        n_tiles = np.array([n_fp16, n_int8, n_int4, n_int2], dtype=np.int32)
+        
+        off0 = 0
+        off1 = len(fp16_bytes)
+        off2 = off1 + len(int8_bytes)
+        off3 = off2 + len(int4_bytes)
+        off4 = off3 + len(int2_bytes)
+        tier_offsets = np.array([off0, off1, off2, off3, off4], dtype=np.int32)
+        
+        blobs[f"{dst_key}.packed_weights"] = packed_weights
+        blobs[f"{dst_key}.tile_tiers"] = tile_tiers.numpy().astype(np.uint8)
+        blobs[f"{dst_key}.n_tiles"] = n_tiles
+        blobs[f"{dst_key}.tier_offsets"] = tier_offsets
+        blobs[f"{dst_key}.rows"] = np.int32(rows)
+        blobs[f"{dst_key}.cols"] = np.int32(cols)
+        blobs[f"{dst_key}.packing_version"] = np.int32(6)
+        
+        if outlier_info is not None:
+            blobs[f"{dst_key}.outlier_indices"] = outlier_info["indices"].numpy().astype(np.int32)
+            blobs[f"{dst_key}.outlier_values"] = outlier_info["values"].to(torch.float16).numpy()
+            blobs[f"{dst_key}.n_outliers"] = np.int32(len(outlier_info["indices"]))
+        else:
+            blobs[f"{dst_key}.n_outliers"] = np.int32(0)
+            
+        blobs[f"{dst_key}.scale_int8"] = np.float32(scale_int8)
+        blobs[f"{dst_key}.zp_int8"] = np.float32(zp_int8)
+        blobs[f"{dst_key}.scale_int4"] = np.float32(scale_int4)
+        blobs[f"{dst_key}.zp_int4"] = np.float32(zp_int4)
+        blobs[f"{dst_key}.scale_low"] = np.float32(scale_low)
+        blobs[f"{dst_key}.zp_low"] = np.float32(zp_low)
+        
+        resolved_bias_key = bias_key
+        if resolved_bias_key and resolved_bias_key not in state_dict:
+            if f"{resolved_bias_key}.bias" in state_dict:
+                resolved_bias_key = f"{resolved_bias_key}.bias"
+        if resolved_bias_key and resolved_bias_key in state_dict:
+            blobs[f"{dst_key}.bias"] = state_dict[resolved_bias_key].float().numpy()
+            
+        orig_bytes = w_orig.numel() * w_orig.element_size()
+        packed_bytes_count = len(packed_weights) + len(tile_tiers) + n_tiles.nbytes + tier_offsets.nbytes
+        if outlier_info is not None:
+            packed_bytes_count += outlier_info["indices"].numel() * 4 + outlier_info["values"].numel() * 2
+            
+        total_orig_bytes += orig_bytes
+        total_packed_bytes += packed_bytes_count
+        
+        print(f"[EXPORT]   tile-region ffn {actual_key} -> {dst_key} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes_count/1e9:.4f} GB")
+        return True
+
+    def pack_group_int4_attn(src_key: str, dst_key: str) -> bool:
+        nonlocal total_orig_bytes, total_packed_bytes
+        actual_key = src_key
+        if actual_key not in state_dict:
+            if f"{actual_key}.weight" in state_dict:
+                actual_key = f"{actual_key}.weight"
+            else:
+                return False
+                
+        attn_meta = stats_source.get("attn_int4_meta", {})
+        if not attn_meta or actual_key not in attn_meta:
+            return False
+            
+        meta = attn_meta[actual_key]
+        group_size = int(meta["group_size"])
+        n_groups = int(meta["n_groups"])
+        scale = meta["scale"]
+        zero = meta["zero"]
+        
+        w_orig = state_dict[actual_key].float()
+        rows, cols = w_orig.shape
+        
+        w_grouped = w_orig.view(rows, n_groups, group_size)
+        scale_expanded = scale.unsqueeze(-1)
+        zero_expanded = zero.unsqueeze(-1)
+        q = torch.clamp(torch.round((w_grouped - zero_expanded) / scale_expanded), 0, 15).to(torch.uint8)
+        
+        q_flat = q.view(-1).numpy()
+        packed_weights = (q_flat[0::2] | (q_flat[1::2] << 4)).astype(np.uint8)
+        
+        blobs[f"{dst_key}.packed_weights"] = packed_weights
+        blobs[f"{dst_key}.scales"] = scale.float().numpy()
+        blobs[f"{dst_key}.zeros"] = zero.float().numpy()
+        blobs[f"{dst_key}.group_size"] = np.int32(group_size)
+        blobs[f"{dst_key}.n_groups"] = np.int32(n_groups)
+        blobs[f"{dst_key}.rows"] = np.int32(rows)
+        blobs[f"{dst_key}.cols"] = np.int32(cols)
+        blobs[f"{dst_key}.packing_version"] = np.int32(10)
+        
+        orig_bytes = w_orig.numel() * w_orig.element_size()
+        packed_bytes_count = packed_weights.nbytes + scale.numel() * 4 + zero.numel() * 4
+        
+        total_orig_bytes += orig_bytes
+        total_packed_bytes += packed_bytes_count
+        
+        print(f"[EXPORT]   uniform-group-int4 {actual_key} -> {dst_key} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes_count/1e9:.4f} GB")
+        return True
+
     def pack_temporal_tensor(src_key: str, dst_key: str, bias_key: str | None = None) -> bool:
         nonlocal total_orig_bytes
         if src_key not in state_dict or f"{dst_key}.packed_weights" in blobs:
             return False
-        dense_tensor = state_dict[src_key]
-        if not torch.is_tensor(dense_tensor) or dense_tensor.ndim != 2:
-            return False
-        module_meta = module_meta_lookup.get(src_key, {})
-        bias = state_dict.get(bias_key) if bias_key else None
-        packed_mask_tensor = _lookup_tier_mask_uint2_for_weight_key(tier_masks_resolved, src_key)
-        blobs_for_layer = create_packed_layer(
-            src_key,
-            dense_tensor,
-            packed_mask_tensor,
-            module_meta,
-            bias=bias,
-            ratio_fp16=ratio_fp16,
-            ratio_int8=ratio_int8,
-            ratio_int4=ratio_int4,
-            block_tier_map_tensor=block_tier_map.get(src_key),
-            export_gguf_base=dst_key,
-            require_ptq_scales=bool(args.require_ptq_scales),
-        )
-        _count_scale_source(blobs_for_layer)
-        orig_bytes = dense_tensor.numel() * dense_tensor.element_size()
-        total_orig_bytes += orig_bytes
-        packed_bytes = add_packed_blobs(dst_key, blobs_for_layer)
-        tag = "septq-pack" if int(blobs_for_layer.get("packing_version", 3)) >= 5 else "block-pack"
-        print(f"[EXPORT]   {tag} {src_key} -> {dst_key} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
-        return True
+            
+        if pack_tile_region_ffn(src_key, dst_key, bias_key=bias_key):
+            return True
+        if pack_group_int4_attn(src_key, dst_key):
+            return True
+            
+        # Any layer that doesn't match the new FFN/Attention quant formats is skipped (remains dense float16).
+        return False
+
 
     # Iterate through state_dict and find layers that match MultiTier naming
     # Use the module_meta_lookup keys as canonical layer names when present.
@@ -949,6 +1141,9 @@ def main() -> None:
         bias = state_dict.get(f"{layer_name}.bias", None)
 
         base = canonical_transformer_multitier_gguf_base(layer_name.replace('.', '_'))
+        if pack_tile_region_ffn(layer_name, base, bias_key=f"{layer_name}.bias"):
+            continue
+
         blobs_for_layer = create_packed_layer(
             layer_name,
             dense_tensor,
@@ -1009,6 +1204,22 @@ def main() -> None:
     print("[EXPORT] Processing dense attention/output/embedding tensors...")
     dense_export_count = 0
 
+    def is_q4_0_tensor(name: str) -> bool:
+        if name in ("text_emb.weight", "text_linear.weight", "depformer_text_emb.weight"):
+            return True
+        # any emb/depformer_emb
+        if name.startswith("emb.") and name.endswith(".weight"):
+            return True
+        if name.startswith("depformer_in.") and name.endswith(".weight"):
+            return True
+        if name.startswith("depformer_emb.") and name.endswith(".weight"):
+            return True
+        # Any depth layer weights if depth_int4_meta exists
+        if ("depformer_layers_" in name or "depformer.layers." in name) and (name.endswith("_weight") or name.endswith(".weight")) and "norm" not in name and "bias" not in name:
+            if ckpt.get("depth_int4_meta", {}):
+                return True
+        return False
+
     def export_dense_tensor(
         src_key: str,
         dst_key: str | None = None,
@@ -1028,6 +1239,26 @@ def main() -> None:
         nonlocal dense_export_count, total_orig_bytes, total_packed_bytes
         if src_key not in state_dict:
             return
+            
+        key_name = dst_key or src_key
+        if is_q4_0_tensor(key_name):
+            tensor = state_dict[src_key].detach().cpu()
+            w_orig = tensor.float().numpy()
+            import gguf
+            qdata = gguf.quantize(w_orig, gguf.GGMLQuantizationType.Q4_0)
+            blobs[key_name] = {
+                "qdata": qdata,
+                "shape": w_orig.shape,
+                "qtype": gguf.GGMLQuantizationType.Q4_0
+            }
+            orig_bytes = w_orig.nbytes
+            packed_bytes = qdata.nbytes
+            total_orig_bytes += orig_bytes
+            total_packed_bytes += packed_bytes
+            dense_export_count += 1
+            print(f"[EXPORT]   Q4_0 quantize {src_key} -> {key_name} orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
+            return
+
         tensor = state_dict[src_key].detach().cpu()
         if preserve_half:
             # bf16 -> fp16 (numpy doesn't support bf16 natively)
@@ -1052,7 +1283,10 @@ def main() -> None:
         dst_key = f"transformer_layers_{i}_self_attn_out_proj_weight"
         if weight_key is None:
             continue
-        if not pack_temporal_tensor(weight_key, dst_key, bias_key=bias_key):
+        if pack_temporal_tensor(weight_key, dst_key, bias_key=bias_key):
+            if bias_key is not None and f"{dst_key}.bias" not in blobs:
+                export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
+        else:
             export_dense_tensor(weight_key, dst_key, preserve_half=True)
             if bias_key is not None:
                 export_dense_tensor(bias_key, f"transformer_layers_{i}_self_attn_out_proj_bias")
@@ -1066,18 +1300,69 @@ def main() -> None:
 
         if in_proj_key is not None:
             dst_key = f"transformer_layers_{i}_self_attn_in_proj_weight"
-            if f"{dst_key}.packed_weights" not in blobs:
-                pack_temporal_tensor(in_proj_key, dst_key)
+            if f"{dst_key}.packed_weights" not in blobs and dst_key not in blobs:
+                if not pack_temporal_tensor(in_proj_key, dst_key):
+                    export_dense_tensor(in_proj_key, dst_key, preserve_half=True)
 
         if gating_in_key is not None:
             dst_key = f"transformer_layers_{i}_gating_linear_in_weight"
-            if f"{dst_key}.packed_weights" not in blobs:
-                pack_temporal_tensor(gating_in_key, dst_key)
+            if f"{dst_key}.packed_weights" not in blobs and dst_key not in blobs:
+                if not pack_temporal_tensor(gating_in_key, dst_key):
+                    export_dense_tensor(gating_in_key, dst_key, preserve_half=True)
 
         if gating_out_key is not None:
             dst_key = f"transformer_layers_{i}_gating_linear_out_weight"
-            if f"{dst_key}.packed_weights" not in blobs:
-                pack_temporal_tensor(gating_out_key, dst_key)
+            if f"{dst_key}.packed_weights" not in blobs and dst_key not in blobs:
+                if not pack_temporal_tensor(gating_out_key, dst_key):
+                    export_dense_tensor(gating_out_key, dst_key, preserve_half=True)
+
+    def export_depth_tensor(src_key: str, dst_key: str) -> None:
+        nonlocal total_orig_bytes, total_packed_bytes, dense_export_count
+        if src_key not in state_dict:
+            return
+            
+        meta_key = src_key
+        if meta_key.endswith(".weight"):
+            meta_key = meta_key[:-7]
+        elif meta_key.endswith("_weight"):
+            meta_key = meta_key[:-7]
+            
+        depth_int8_meta = ckpt.get("depth_int8_meta", {})
+        depth_int4_meta = ckpt.get("depth_int4_meta", {})
+        
+        has_int8_meta = depth_int8_meta and meta_key in depth_int8_meta
+        has_int4_meta = depth_int4_meta and meta_key in depth_int4_meta
+        is_depformer_in_proj = "depformer" in src_key and "self_attn.in_proj_weight" in src_key
+        
+        if has_int4_meta:
+            export_dense_tensor(src_key, dst_key, preserve_half=True)
+        elif has_int8_meta or (is_depformer_in_proj and not depth_int4_meta):
+            w_orig = state_dict[src_key].float()
+            if has_int8_meta:
+                meta = depth_int8_meta[meta_key]
+                scale = meta["scale"]
+            else:
+                # Calculate per-channel scales dynamically
+                absmax = w_orig.abs().amax(dim=1, keepdim=True).clamp_min(1e-8)
+                scale = (absmax / 127.0).squeeze(-1)
+                
+            scale_expanded = scale.unsqueeze(-1)
+            q = torch.clamp(torch.round(w_orig / scale_expanded), -128, 127).to(torch.int8)
+            
+            blobs[f"{dst_key}.packed_weights"] = q.numpy()
+            blobs[f"{dst_key}.scales"] = scale.float().numpy()
+            blobs[f"{dst_key}.rows"] = np.int32(w_orig.shape[0])
+            blobs[f"{dst_key}.cols"] = np.int32(w_orig.shape[1])
+            blobs[f"{dst_key}.packing_version"] = np.int32(20)
+            
+            orig_bytes = w_orig.numel() * w_orig.element_size()
+            packed_bytes = q.numel() * q.element_size() + scale.numel() * scale.element_size()
+            total_orig_bytes += orig_bytes
+            total_packed_bytes += packed_bytes
+            dense_export_count += 1
+            print(f"[EXPORT]   depth-channel-int8 {src_key} -> {dst_key} (dynamic={not has_int8_meta}) orig={orig_bytes/1e9:.4f} GB packed={packed_bytes/1e9:.4f} GB")
+        else:
+            export_dense_tensor(src_key, dst_key, preserve_half=True)
 
     # Depth stack: explicit probe-based exports.
     # Depth norms are (1,1,1024) and must be flattened to (1024,) for C++ RMSNorm.
@@ -1085,18 +1370,16 @@ def main() -> None:
     for i in range(6):
         export_dense_tensor(f"depformer.layers.{i}.norm1.alpha", f"depformer_layers_{i}_norm1_weight", flatten=True)
         export_dense_tensor(f"depformer.layers.{i}.norm2.alpha", f"depformer_layers_{i}_norm2_weight", flatten=True)
-        export_dense_tensor(f"depformer.layers.{i}.self_attn.in_proj_weight", f"depformer_layers_{i}_self_attn_in_proj_weight", preserve_half=True)
-        export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight", preserve_half=True)
+        export_depth_tensor(f"depformer.layers.{i}.self_attn.in_proj_weight", f"depformer_layers_{i}_self_attn_in_proj_weight")
+        export_depth_tensor(f"depformer.layers.{i}.self_attn.out_proj.weight", f"depformer_layers_{i}_self_attn_out_proj_weight")
         for step in range(16):
-            export_dense_tensor(
+            export_depth_tensor(
                 f"depformer.layers.{i}.gating.{step}.linear_in.weight",
                 f"depformer_layers_{i}_gating_{step}_linear_in_weight",
-                preserve_half=True,
             )
-            export_dense_tensor(
+            export_depth_tensor(
                 f"depformer.layers.{i}.gating.{step}.linear_out.weight",
                 f"depformer_layers_{i}_gating_{step}_linear_out_weight",
-                preserve_half=True,
             )
 
     # Depth attention/output tensors: check for per-step split variants.
@@ -1105,10 +1388,9 @@ def main() -> None:
     for i in range(6):
         export_dense_tensor(f"depformer.layers.{i}.self_attn.out_proj.bias", f"depformer_layers_{i}_self_attn_out_proj_bias")
         for step in range(16):
-            export_dense_tensor(
+            export_depth_tensor(
                 f"depformer.layers.{i}.self_attn.in_projs.{step}.weight",
                 f"depformer_layers_{i}_self_attn_in_projs_{step}_weight",
-                preserve_half=True,
             )
             export_dense_tensor(
                 f"depformer.layers.{i}.self_attn.in_projs.{step}.bias",
@@ -1189,7 +1471,8 @@ def main() -> None:
             ))
 
         for src_key, gguf_key in depth_expected:
-            if src_key in state_dict and gguf_key not in blobs:
+            packed_marker = f"{gguf_key}.packed_weights"
+            if src_key in state_dict and gguf_key not in blobs and packed_marker not in blobs:
                 depth_missing.append((layer_idx, src_key, gguf_key))
 
     if depth_missing:
@@ -1208,7 +1491,8 @@ def main() -> None:
             (f"depformer_emb.{idx}.weight", f"depformer_emb.{idx}.weight"),
             (f"depformer_in.{idx}.weight", f"depformer_in.{idx}.weight"),
         ]:
-            if src_key in state_dict and gguf_key not in blobs:
+            packed_marker = f"{gguf_key}.packed_weights"
+            if src_key in state_dict and gguf_key not in blobs and packed_marker not in blobs:
                 extra_missing.append((src_key, gguf_key))
     for src_key, gguf_key in [
         ("out_norm.alpha", "out_norm_weight"),
@@ -1216,7 +1500,8 @@ def main() -> None:
         ("text_emb.weight", "text_emb.weight"),
         ("text_linear.weight", "text_linear.weight"),
     ]:
-        if src_key in state_dict and gguf_key not in blobs:
+        packed_marker = f"{gguf_key}.packed_weights"
+        if src_key in state_dict and gguf_key not in blobs and packed_marker not in blobs:
             extra_missing.append((src_key, gguf_key))
     if extra_missing:
         error_msg = "Completeness check failed: the following tensors were not exported to GGUF:\n"
