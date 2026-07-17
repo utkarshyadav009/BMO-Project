@@ -10,6 +10,17 @@
 # "lfb") is too small. "free" and "available" are not sufficient signals by
 # themselves on this platform.
 #
+# SERVICE NOTE (added 2026-07-17 after three reproducible load-time OOMs):
+# a PASS from the static gates below does NOT protect the multi-minute model
+# load, which runs within ~200-400 MiB of the edge at layers 25-28. During the
+# config-wave session, background services (bmo_app, burningtruth_app + its
+# cloudflared tunnel, packagekit, snapd) plus the coding-agent process itself
+# (~380 MiB RSS) each independently tipped a passing-preflight boot into
+# NvMap error-12 OOM crashes at layer 25/26/28. Preflight therefore now stops
+# those services and FAILS if any survive. They are NOT restarted here —
+# restart manually after the measurement run:
+#   sudo systemctl start bmo_app.service burningtruth_app.service burningtruth_tunnel.service
+#
 # GATE NOTE (revised after direct measurement on this hardware): tegrastats'
 # "lfb NxSIZE" field reports only order-10 (4 MiB) blocks, capped there
 # regardless of what's actually free at higher orders — on THIS kernel,
@@ -44,6 +55,33 @@ fi
 # not a measurement.
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+
+# Stop known memory-competing services BEFORE compaction so their freed pages
+# get coalesced into the large-block pool we then measure. snapd.socket must
+# go down with snapd.service, or socket activation silently restarts it.
+# See SERVICE NOTE in the header for why this exists and how to restart them.
+COMPETING_UNITS=(
+    bmo_app.service
+    burningtruth_app.service
+    burningtruth_tunnel.service
+    packagekit.service
+    snapd.service
+    snapd.socket
+)
+echo "PREFLIGHT_SERVICES: stopping ${COMPETING_UNITS[*]}"
+systemctl stop "${COMPETING_UNITS[@]}" 2>/dev/null || true
+sleep 2
+SURVIVORS=()
+for unit in "${COMPETING_UNITS[@]}"; do
+    if systemctl is-active --quiet "$unit"; then
+        SURVIVORS+=("$unit")
+    fi
+done
+if [ ${#SURVIVORS[@]} -ne 0 ]; then
+    echo "PREFLIGHT: FAIL (competing services survived stop: ${SURVIVORS[*]})"
+    exit 1
+fi
+echo "PREFLIGHT_SERVICES: all competing services confirmed inactive"
 
 # Compaction BEFORE sampling — the whole point is to measure the
 # post-compaction state, not to compact based on what we measured.
