@@ -3419,6 +3419,420 @@ static void launch_v12(const void * vx, const float * x, float * y,
 }
 
 // ============================================================================
+// V13 — "standard q8_1 per-32-element block quantization of x" cross-check
+// variant. Per the task's own STEP 1/STEP 2 framing: V12 ALREADY implements
+// exactly this scheme, verified two ways before writing a single line of V13:
+//   1. Against V12's own local struct/kernel (read above): v12_block_q8_1 is
+//      a 32-element block (qs[32]), delta d = amax/127, and a stored SUM of
+//      the raw (unquantized) block values — not a re-derived approximation.
+//   2. Against the actual real production definitions this bench's comments
+//      claim to match (checked directly in this repo, not taken on faith):
+//      ggml/src/ggml-common.h `QK8_1` is `#define QK8_1 32` and `block_q8_1`
+//      is `{ union { half2; struct{half d; half s;}; } ds; int8_t qs[32]; }`;
+//      ggml/src/ggml-cuda/quantize.cu `quantize_q8_1()` computes exactly
+//      `d = amax/127.0f; q = roundf(xi/d); ds = make_half2(d, sum)` — the
+//      same three quantities, same formulas, same block size as V12.
+//      ggml/src/ggml-cuda/vecdotq.cuh `vec_dot_q4_1_q8_1_impl()` computes
+//      `sumi*d4d8 + m4s8 / (QI8_1/(vdr*QR4_1))` — i.e. V12's own
+//      `sumi*d8*scale + m*s8` rescale IS that formula, with the trailing
+//      divisor (a correction for the production kernel splitting one q8_1
+//      block of work across multiple cooperating threads) reducing to 1
+//      because V12 assigns one thread to a whole 32-element block — exactly
+//      as V12's header comment already claimed, now confirmed against the
+//      cited file directly rather than trusted from the comment alone.
+//
+// Conclusion: V13-as-literally-specified is not a different scheme from
+// V12 — it is the same scheme. Writing a byte-for-byte parallel
+// implementation of the identical formulas in the identical thread/data
+// layout (one thread owns one whole 32-block, dp4a over 8 groups, same
+// shared-memory tier staging) would be relabeled V12, not a cross-check —
+// it would inherit any bug in the shared design (indexing, byte order,
+// zero-point recentering) rather than catch one.
+//
+// So V13 below is a genuine, independently-structured reimplementation of
+// the SAME quantization scheme (same 32-element block, same d=amax/127,
+// same stored raw-sum s, same tier affine dequant), chosen to maximize the
+// chance of catching an implementation-specific bug in V12 rather than
+// reproducing one:
+//   - Quantization kernel: V12 computes (d, s) via a 32-lane warp-shuffle
+//     tree reduction. V13 computes them with a plain sequential per-thread
+//     scalar loop over the 32 elements (one thread owns one whole block,
+//     no shuffles at all) — a different reduction algorithm for the same
+//     two numbers, run once per call and diffed implicitly via the shared
+//     rel_l2 gate.
+//   - GEMV kernel: V12 stages tile_tiers/tile_stream_indices/tier_offsets/
+//     scales into shared memory once per row-block and has ONE thread
+//     process an entire 32-element q8_1 block serially via 8 __dp4a calls
+//     over 4-byte-packed groups. V13 reads all of that metadata directly
+//     from global memory every access (no shared-memory staging at all —
+//     a different data-movement design end to end) and instead makes ONE
+//     WARP of 32 lanes cooperate on one q8_1 block, one lane per column,
+//     computing each lane's own scalar signed-int32 product (no __dp4a
+//     intrinsic, no 4-byte packing/group order to get wrong) and combining
+//     them with a warp-shuffle reduction. If V12 had an off-by-one in its
+//     4-way group packing order, or a sign/byte-order slip in the __dp4a
+//     operand construction, V13's scalar per-lane arithmetic would not
+//     share that bug and the two rel_l2 numbers would diverge well beyond
+//     quantization noise. Landing at the same rel_l2 (within run-to-run
+//     noise) is itself the cross-check result.
+//
+// Gate: rel_l2 < 2e-3 (per task spec — looser than V12's registered 1e-3;
+// both gates are testing the same int8-x-quantization precision loss, the
+// numeric threshold given for V13 in the task is simply looser than the one
+// already chosen for V12 in the prior round).
+// ============================================================================
+struct v13_block_q8_1 {
+    half2  ds;
+    int8_t qs[32];
+};
+static_assert(sizeof(v13_block_q8_1) == 36, "v13_block_q8_1 must match ggml block_q8_1 layout (2*half + 32 int8)");
+
+#define V13_THREADS 256
+#define V13_WARPS (V13_THREADS / 32)
+
+// One thread owns one whole 32-element block; plain sequential scalar loop,
+// no warp shuffle at all (independent of V12's warp-shuffle reduction).
+static __global__ void v13_quantize_x_q8_1_kernel(
+    const float * __restrict__ x_vec,
+    v13_block_q8_1 * __restrict__ xq,
+    const int32_t n_blocks)
+{
+    const int ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    float local[32];
+    float amax = 0.0f, sum = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < 32; ++i) {
+        const float v = x_vec[ib * 32 + i];
+        local[i] = v;
+        amax = fmaxf(amax, fabsf(v));
+        sum += v;
+    }
+    const float d = amax / 127.0f;
+    #pragma unroll
+    for (int i = 0; i < 32; ++i) {
+        xq[ib].qs[i] = (amax == 0.0f) ? (int8_t)0 : (int8_t)roundf(local[i] / d);
+    }
+    xq[ib].ds = __floats2half2_rn(d, sum);
+}
+
+// One warp == one q8_1 block; one lane == one column. No shared-memory tier
+// staging (all metadata read straight from global memory every access, a
+// deliberately different data-movement design from V12's shared-mem cache).
+// No __dp4a — each lane computes its own scalar signed product and the warp
+// combines them with __shfl_down_sync.
+static __global__ void __launch_bounds__(V13_THREADS, 4) v13_mmvq_gemv_kernel(
+    const void * __restrict__ vx,
+    const v13_block_q8_1 * __restrict__ xq,
+    const float * __restrict__ x_vec,
+    float * __restrict__ y_out,
+    const int32_t ncols)
+{
+    const int row = blockIdx.x;
+    const block_bmo_tier * header = (const block_bmo_tier *) vx;
+    const int32_t cols = header->cols;
+    const int32_t n_tiles_col = cols / BMO_TILE_DIM;
+
+    const uint8_t  * tile_tiers          = (const uint8_t *)((const char *)header + header->tile_tiers_offset);
+    const uint16_t * tile_stream_indices = (const uint16_t *)((const char *)header + header->tile_stream_indices_offset);
+    const uint8_t  * pw                  = (const uint8_t *)((const char *)header + header->packed_weights_offset);
+    const int32_t   * tier_offsets       = header->tier_offsets; // direct global reads, no shared-mem staging
+
+    const float scale_i8 = header->scale_int8, zp_i8 = header->zp_int8;
+    const float scale_i4 = header->scale_int4, zp_i4 = header->zp_int4;
+    const float scale_lo = header->scale_low,  zp_lo = header->zp_low;
+
+    const int tile_row = row / BMO_TILE_DIM;
+    const int in_tile_r = row % BMO_TILE_DIM;
+    const int in_tile_row_base = in_tile_r * BMO_TILE_DIM;
+
+    const int32_t n_blocks_col = cols >> 5; // cols/32
+    const int warp_id = threadIdx.x >> 5;
+    const int lane    = threadIdx.x & 31;
+    const int n_warps = blockDim.x >> 5;
+
+    float row_partial = 0.0f; // only meaningful on lane 0 of each warp
+
+    for (int qb = warp_id; qb < n_blocks_col; qb += n_warps) {
+        const int col        = qb * 32 + lane;
+        const int tile_c     = col / BMO_TILE_DIM;
+        const int in_tile_c  = col % BMO_TILE_DIM;
+        const int tile_idx   = tile_row * n_tiles_col + tile_c;
+        const uint8_t  tier       = tile_tiers[tile_idx];
+        const int32_t  stream_idx = tile_stream_indices[tile_idx];
+        const int      in_tile_idx = in_tile_row_base + in_tile_c;
+
+        if (tier == 0) {
+            const half * f16 = (const half *)(pw + tier_offsets[0]);
+            float w = __half2float(f16[(int64_t)stream_idx * BMO_TILE_ELEMS + in_tile_idx]);
+            float partial = w * x_vec[col];
+            #pragma unroll
+            for (int off = 16; off > 0; off >>= 1) partial += __shfl_down_sync(0xFFFFFFFF, partial, off);
+            if (lane == 0) row_partial += partial;
+            continue;
+        }
+
+        int32_t wi_signed;
+        float scale, m;
+        const int flat_idx = (int)stream_idx * BMO_TILE_ELEMS + in_tile_idx;
+        if (tier == 1) {
+            uint8_t q = (pw + tier_offsets[1])[flat_idx];
+            wi_signed = (int32_t)(int8_t)(uint8_t)(q ^ 0x80); // unsigned [0,255] -> signed [-128,127]
+            scale = scale_i8; m = (128.0f - zp_i8) * scale_i8;
+        } else if (tier == 2) {
+            uint8_t b = (pw + tier_offsets[2])[flat_idx >> 1];
+            uint8_t q = (flat_idx & 1) ? ((b >> 4) & 0x0F) : (b & 0x0F);
+            wi_signed = (int32_t)q; // [0,15] already fits signed int8 range
+            scale = scale_i4; m = -zp_i4 * scale_i4;
+        } else { // tier == 3 (INT2)
+            uint8_t b = (pw + tier_offsets[3])[flat_idx >> 2];
+            uint8_t q = (b >> ((flat_idx & 3) * 2)) & 0x03;
+            wi_signed = (int32_t)q; // [0,3] already fits signed int8 range
+            scale = scale_lo; m = -zp_lo * scale_lo;
+        }
+
+        const v13_block_q8_1 xb = xq[qb];
+        const int32_t xi = (int32_t) xb.qs[lane];
+        int32_t prod = wi_signed * xi;
+        #pragma unroll
+        for (int off = 16; off > 0; off >>= 1) prod += __shfl_down_sync(0xFFFFFFFF, prod, off);
+
+        if (lane == 0) {
+            const float2 ds = __half22float2(xb.ds);
+            row_partial += scale * (float)prod * ds.x + m * ds.y;
+        }
+    }
+
+    __shared__ float warp_partial[V13_WARPS];
+    if (lane == 0) warp_partial[warp_id] = row_partial;
+    __syncthreads();
+    if (warp_id == 0) {
+        float v = (lane < n_warps) ? warp_partial[lane] : 0.0f;
+        #pragma unroll
+        for (int off = 16; off > 0; off >>= 1) v += __shfl_down_sync(0xFFFFFFFF, v, off);
+        if (lane == 0) y_out[row] = v;
+    }
+}
+
+static v13_block_q8_1 * g_v13_xq_buf  = nullptr;
+static int              g_v13_xq_cols = -1;
+
+static void v13_free_static_buffers() {
+    if (g_v13_xq_buf) { cudaFree(g_v13_xq_buf); g_v13_xq_buf = nullptr; g_v13_xq_cols = -1; }
+}
+
+static void launch_v13(const void * vx, const float * x, float * y,
+                        int rows, int cols, int n_outliers, cudaStream_t stream) {
+    if (cols % 32 != 0) {
+        fprintf(stderr, "v13_mmvq: cols=%d is not a multiple of 32 (q8_1 block size) — unsupported\n", cols);
+        exit(1);
+    }
+    if (cols != g_v13_xq_cols) {
+        if (g_v13_xq_buf) { CU_CHECK(cudaFree(g_v13_xq_buf)); }
+        CU_CHECK(cudaMalloc(&g_v13_xq_buf, (size_t)(cols / 32) * sizeof(v13_block_q8_1)));
+        g_v13_xq_cols = cols;
+    }
+    const int n_blocks_col = cols / 32;
+    const int qthreads = 128;
+    v13_quantize_x_q8_1_kernel<<<(n_blocks_col + qthreads - 1) / qthreads, qthreads, 0, stream>>>(x, g_v13_xq_buf, n_blocks_col);
+    v13_mmvq_gemv_kernel<<<rows, V13_THREADS, 0, stream>>>(vx, g_v13_xq_buf, x, y, cols);
+    if (n_outliers > 0) {
+        const int bs = 256;
+        v0_outliers_kernel<<<(n_outliers + bs - 1) / bs, bs, 0, stream>>>(vx, x, y, cols);
+    }
+}
+
+// ============================================================================
+// V14 — half2 FP16 activation path. NO integer quantization of x at all
+// (unlike V12/V13): x is converted FP32->FP16 once per call and left at that
+// precision, nothing else. Tier INT8/INT4/INT2 codes are unpacked and
+// dequantized straight to FP16 using the SAME per-tier affine
+// (scale, zero-point) formulas already used by every other variant in this
+// file (bmo_dequant_element_fast / v0_gemv_kernel above), just evaluated in
+// half instead of float. Accumulation uses __hfma2 (half2 2-wide FMA): each
+// thread keeps a running half2 accumulator across its whole strided column
+// range (processing 2 columns per loop iteration, one hfma2 call per
+// iteration), only widening to float ONCE at the end of the loop for the
+// final cross-thread/cross-warp reduction (that final combine step is float,
+// matching every other variant's row-reduction, since combining ~8 warps'
+// worth of partial row sums has nothing to do with the FP16-vs-int8
+// activation question this variant is testing).
+//
+// Dense FP16 tile (tier 0) needs no dequant math at all here (its storage IS
+// half already) — it is read directly as a half2 and hfma2'd in exactly like
+// every other tier, unlike V12/V13 which special-case it back to FP32
+// because their design's whole point (dp4a) doesn't apply to it. V14 has no
+// such asymmetry: everything is FP16 by design, so tier 0 fits the same code
+// path as tiers 1-3 instead of needing a separate branch.
+//
+// Gate: rel_l2 < 1e-3 (tighter than V13's 2e-3, matching V12's 1e-3 — there
+// is no int8 activation-quantization error source here, so if this fails the
+// tight gate the cause has to be something else, e.g. half-precision
+// accumulation error compounding over the per-thread strided-column chain;
+// that would be a genuine, reportable finding, not "expected precision
+// loss").
+// ============================================================================
+#define V14_THREADS 256
+
+static __global__ void v14_x_to_half_kernel(
+    const float * __restrict__ x_vec,
+    half * __restrict__ x_h,
+    const int32_t cols)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < cols) x_h[i] = __float2half(x_vec[i]);
+}
+
+static __global__ void __launch_bounds__(V14_THREADS, 4) v14_half2_gemv_kernel(
+    const void * __restrict__ vx,
+    const half * __restrict__ x_h,
+    float * __restrict__ y_out,
+    const int32_t ncols)
+{
+    const int row = blockIdx.x;
+    const block_bmo_tier * header = (const block_bmo_tier *) vx;
+    const int32_t cols = header->cols;
+    const int32_t n_tiles_col = cols / BMO_TILE_DIM;
+
+    __shared__ uint8_t  s_tiers[512];
+    __shared__ uint16_t s_stream_indices[512];
+    __shared__ int32_t  s_tier_offsets[5];
+    __shared__ half2    s_scale2[3]; // packed (scale,scale): [int8, int4, int2]
+    __shared__ half2    s_m2[3];     // packed (m,m), m = per-tier zero-point term in half: [int8, int4, int2]
+
+    if (n_tiles_col > 512) {
+        if (threadIdx.x == 0 && row == 0) {
+            printf("FATAL: v14_half2_gemv_kernel n_tiles_col=%d exceeds shared memory bound of 512 (max cols=32768).\n", n_tiles_col);
+        }
+        __syncthreads();
+        __trap();
+    }
+
+    const uint8_t  * tile_tiers          = (const uint8_t *)((const char *)header + header->tile_tiers_offset);
+    const uint16_t * tile_stream_indices = (const uint16_t *)((const char *)header + header->tile_stream_indices_offset);
+    const uint8_t  * pw                  = (const uint8_t *)((const char *)header + header->packed_weights_offset);
+
+    const int tile_row = row / BMO_TILE_DIM;
+    const int in_tile_r = row % BMO_TILE_DIM;
+    const int in_tile_row_base = in_tile_r * BMO_TILE_DIM;
+
+    for (int t = threadIdx.x; t < n_tiles_col; t += blockDim.x) {
+        const int tile_idx = tile_row * n_tiles_col + t;
+        s_tiers[t] = tile_tiers[tile_idx];
+        s_stream_indices[t] = tile_stream_indices[tile_idx];
+    }
+    if (threadIdx.x < 5) {
+        s_tier_offsets[threadIdx.x] = header->tier_offsets[threadIdx.x];
+    }
+    if (threadIdx.x == 5) {
+        const half sc8 = __float2half(header->scale_int8);
+        const half m8  = __float2half(-header->zp_int8 * header->scale_int8);
+        s_scale2[0] = __halves2half2(sc8, sc8); s_m2[0] = __halves2half2(m8, m8);
+        const half sc4 = __float2half(header->scale_int4);
+        const half m4  = __float2half(-header->zp_int4 * header->scale_int4);
+        s_scale2[1] = __halves2half2(sc4, sc4); s_m2[1] = __halves2half2(m4, m4);
+        const half scl = __float2half(header->scale_low);
+        const half ml  = __float2half(-header->zp_low * header->scale_low);
+        s_scale2[2] = __halves2half2(scl, scl); s_m2[2] = __halves2half2(ml, ml);
+    }
+    __syncthreads();
+
+    half2 acc = __float2half2_rn(0.0f);
+
+    // 2 columns per iteration (half2 SIMD width); col is always even, so a
+    // pair never straddles a tile boundary (BMO_TILE_DIM=64 is even) and
+    // never straddles an INT4/INT2 sub-byte packing boundary either (checked
+    // below per tier).
+    for (int col = threadIdx.x * 2; col < cols; col += blockDim.x * 2) {
+        const int tile_c    = col / BMO_TILE_DIM;
+        const int in_tile_c = col % BMO_TILE_DIM;
+        const uint8_t  tier       = s_tiers[tile_c];
+        const int32_t  stream_idx = s_stream_indices[tile_c];
+        const int      in_tile_idx = in_tile_row_base + in_tile_c;
+        const int      flat_idx    = (int)stream_idx * BMO_TILE_ELEMS + in_tile_idx;
+
+        const half2 xv = *reinterpret_cast<const half2 *>(&x_h[col]);
+        half2 wv;
+
+        if (tier == 0) {
+            const half * f16 = (const half *)(pw + s_tier_offsets[0]);
+            wv = *reinterpret_cast<const half2 *>(&f16[flat_idx]);
+        } else if (tier == 1) {
+            const uint8_t * raw_int8 = pw + s_tier_offsets[1];
+            const half c0 = __int2half_rn((int)raw_int8[flat_idx]);
+            const half c1 = __int2half_rn((int)raw_int8[flat_idx + 1]);
+            wv = __hfma2(__halves2half2(c0, c1), s_scale2[0], s_m2[0]);
+        } else if (tier == 2) {
+            // flat_idx is even (col even => in_tile_c even => flat_idx even),
+            // so both codes of the pair live in the SAME byte (nibble 0, nibble 1).
+            const uint8_t b = (pw + s_tier_offsets[2])[flat_idx >> 1];
+            const half c0 = __int2half_rn((int)(b & 0x0F));
+            const half c1 = __int2half_rn((int)((b >> 4) & 0x0F));
+            wv = __hfma2(__halves2half2(c0, c1), s_scale2[1], s_m2[1]);
+        } else { // tier == 3 (INT2)
+            // flat_idx even => flat_idx mod 4 in {0,2}, so both codes of the
+            // pair live in the SAME byte (a run of 4 codes per byte).
+            const uint8_t b = (pw + s_tier_offsets[3])[flat_idx >> 2];
+            const int shift0 = (flat_idx & 3) * 2;
+            const half c0 = __int2half_rn((int)((b >> shift0) & 0x03));
+            const half c1 = __int2half_rn((int)((b >> (shift0 + 2)) & 0x03));
+            wv = __hfma2(__halves2half2(c0, c1), s_scale2[2], s_m2[2]);
+        }
+
+        acc = __hfma2(wv, xv, acc);
+    }
+
+    const float2 accf = __half22float2(acc);
+    float thread_sum = accf.x + accf.y;
+
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        thread_sum += __shfl_down_sync(0xFFFFFFFF, thread_sum, offset);
+    }
+    __shared__ float warp_sums[V14_THREADS / 32];
+    const int warp_id = threadIdx.x / 32;
+    const int lane_id = threadIdx.x % 32;
+    if (lane_id == 0) warp_sums[warp_id] = thread_sum;
+    __syncthreads();
+    if (warp_id == 0) {
+        float val = (lane_id < (V14_THREADS / 32)) ? warp_sums[lane_id] : 0.0f;
+        #pragma unroll
+        for (int offset = (V14_THREADS / 64); offset > 0; offset >>= 1) {
+            val += __shfl_down_sync(0xFFFFFFFF, val, offset);
+        }
+        if (lane_id == 0) y_out[row] = val;
+    }
+}
+
+static half * g_v14_xh_buf  = nullptr;
+static int    g_v14_xh_cols = -1;
+
+static void v14_free_static_buffers() {
+    if (g_v14_xh_buf) { cudaFree(g_v14_xh_buf); g_v14_xh_buf = nullptr; g_v14_xh_cols = -1; }
+}
+
+static void launch_v14(const void * vx, const float * x, float * y,
+                        int rows, int cols, int n_outliers, cudaStream_t stream) {
+    if (cols % 2 != 0) {
+        fprintf(stderr, "v14_half2: cols=%d must be even for half2 pairing — unsupported\n", cols);
+        exit(1);
+    }
+    if (cols != g_v14_xh_cols) {
+        if (g_v14_xh_buf) { CU_CHECK(cudaFree(g_v14_xh_buf)); }
+        CU_CHECK(cudaMalloc(&g_v14_xh_buf, (size_t)cols * sizeof(half)));
+        g_v14_xh_cols = cols;
+    }
+    const int bs = 256;
+    v14_x_to_half_kernel<<<(cols + bs - 1) / bs, bs, 0, stream>>>(x, g_v14_xh_buf, cols);
+    v14_half2_gemv_kernel<<<rows, V14_THREADS, 0, stream>>>(vx, g_v14_xh_buf, y, cols);
+    if (n_outliers > 0) {
+        const int bs2 = 256;
+        v0_outliers_kernel<<<(n_outliers + bs2 - 1) / bs2, bs2, 0, stream>>>(vx, x, y, cols);
+    }
+}
+
+// ============================================================================
 // Harness
 // ============================================================================
 typedef void (*launch_fn)(const void *, const float *, float *, int, int, int, cudaStream_t);
@@ -3545,6 +3959,8 @@ int main(int argc, char ** argv) {
         { "v10_tilepar",      launch_v10, 3 },
         { "v11_regdiet",      launch_v11, 3 },
         { "v12_dp4a",         launch_v12, 0, 1e-3 },
+        { "v13_mmvq_x_q8_1",  launch_v13, 0, 2e-3 },
+        { "v14_half2",        launch_v14, 0, 1e-3 },
     };
     if (getenv("BMO_BENCH_DEBUG")) {
         // diagnostics: intentionally wrong output, timing-only
@@ -3614,6 +4030,8 @@ int main(int argc, char ** argv) {
     }
 
     v12_free_static_buffers();
+    v13_free_static_buffers();
+    v14_free_static_buffers();
     cudaFree(d_payload); cudaFree(d_payload_v3); cudaFree(d_payload_v6); cudaFree(d_x); cudaFree(d_y);
     return 0;
 }
