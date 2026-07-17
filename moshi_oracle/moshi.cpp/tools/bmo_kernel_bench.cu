@@ -3178,6 +3178,247 @@ static void launch_v7_dbg_now(const void * vx, const float * x, float * y,
 }
 
 // ============================================================================
+// V12 — DP4A integer dot-product variant (research/microbench candidate;
+// does NOT touch the GGUF export pipeline, loader.h, or convert.cu — this is
+// a new kernel arithmetic path only, reading the exact same shipped
+// block_bmo_tier payload the other payload_kind==0 variants (V0/V1) load).
+//
+// Design: quantize the FP32 activation vector x to q8_1 blocks ONCE per GEMV
+// call (block format matches ggml/src/ggml-cuda/quantize.cu quantize_q8_1 +
+// the block_q8_1 layout in ggml-common.h: per-32-element block of signed
+// int8 quants + a half2{d = amax/127, s = sum of the raw unquantized block
+// values} — pattern-matched from that file rather than reinvented; v12's own
+// local v12_block_q8_1 struct below replicates that exact 36-byte layout
+// since ggml-common.h itself is not on this standalone bench's include path).
+//
+// Per q8_1 block (32 cols), the INT2/INT4/INT8 tier's packed weight
+// nibbles/duads/bytes are unpacked to signed-int8 register values and
+// accumulated against the block's packed int8 activations with __dp4a
+// (4-way int8 dot-product-accumulate into int32), 8 dp4a calls covering the
+// 32-element block. The int32 result is rescaled to FP32 using the tier's
+// own affine (scale, zero-point) AND the q8_1 block's own (d, s) term:
+//     contribution = scale_w * (sumi * d8) + m_w * s8,  m_w = -zp_w * scale_w
+// which is the same rescale algebra as vec_dot_q4_1_q8_1_impl() in
+// ggml/src/ggml-cuda/vecdotq.cuh (sumi*d4d8 + m4s8), specialized here to one
+// thread owning a WHOLE 32-element q8_1 block, so (unlike that production
+// kernel, which splits one block across several threads and therefore has
+// to divide the m/s term down by a partial-coverage factor) no cross-thread
+// correction factor is needed.
+//
+// A 64-col BMO tile is exactly two q8_1 blocks, and every tile carries a
+// single tier (tile-level, not element-level, tier assignment), so every
+// q8_1 block this kernel processes is 100% single-tier — dp4a accumulation
+// never has to split a block across a tier boundary.
+//
+// The INT8 tier's weight codes are a full unsigned byte [0,255]; XOR
+// 0x80808000... (0x80 per byte) recenters each to signed int8 [-128,127]
+// (bit-identical to subtracting 128 mod 256), which is required because the
+// signed __dp4a intrinsic is only valid for operands in signed-int8 range;
+// the zero-point compensation constant m_w is adjusted by +128*scale to
+// match (see s_m[0] below). INT4 ([0,15]) and INT2 ([0,3]) codes already
+// fit the signed int8 range unmodified, no recentering needed.
+//
+// The dense-FP16 tile tier (tier 0, ~2% of tiles, NOT the same thing as the
+// separate flat outlier_indices/outlier_values correction list) and the
+// outlier correction pass are NOT touched by dp4a — both stay FP32/FP16, per
+// the task spec (dp4a doesn't help sparse/dense-precision corrections).
+// Outlier folding reuses the existing v0_outliers_kernel two-pass atomicAdd
+// kernel verbatim, the same "existing pattern" launch_v0/launch_v1 already
+// use, rather than the CSR-fused inline approach v6/v10 use (those require
+// the band-major payload's row_starts table, which this shipped-payload
+// variant does not build — mathematically the two-pass form is identical).
+//
+// GATE for this variant is intentionally looser than the other kernels'
+// (rel_l2 < 1e-3, not < 1e-5): quantizing activations to int8 loses
+// precision vs the FP32-activation variants by design, not by bug.
+// ============================================================================
+struct v12_block_q8_1 {
+    half2  ds;     // x = delta d = amax/127 ; y = sum of the raw (unquantized) activation values in the block
+    int8_t qs[32]; // signed int8 quantized activations, ggml q8_1 layout
+};
+static_assert(sizeof(v12_block_q8_1) == 36, "v12_block_q8_1 must match ggml block_q8_1 layout (2*half + 32 int8)");
+
+#define V12_THREADS 256
+
+// One CUDA block == one warp == one 32-element q8_1 block; grid = cols/32.
+static __global__ void v12_quantize_x_q8_1_kernel(
+    const float * __restrict__ x_vec,
+    v12_block_q8_1 * __restrict__ xq,
+    const int32_t cols)
+{
+    const int ib = blockIdx.x;
+    const int iqs = threadIdx.x; // 0..31
+    const float xi = x_vec[ib * 32 + iqs];
+    float amax = fabsf(xi);
+    float sum = xi;
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFF, amax, offset));
+        sum  += __shfl_xor_sync(0xFFFFFFFF, sum, offset);
+    }
+    const float d = amax / 127.0f;
+    const int8_t q = amax == 0.0f ? 0 : (int8_t)roundf(xi / d);
+    xq[ib].qs[iqs] = q;
+    if (iqs == 0) {
+        xq[ib].ds = __floats2half2_rn(d, sum);
+    }
+}
+
+static __global__ void __launch_bounds__(V12_THREADS, 4) v12_dp4a_gemv_kernel(
+    const void * __restrict__ vx,
+    const v12_block_q8_1 * __restrict__ xq,
+    const float * __restrict__ x_vec,
+    float * __restrict__ y_out,
+    const int32_t ncols)
+{
+    const int row = blockIdx.x;
+    const block_bmo_tier * header = (const block_bmo_tier *) vx;
+    const int32_t cols = header->cols;
+    const int32_t n_tiles_col = cols / BMO_TILE_DIM;
+
+    __shared__ uint8_t  s_tiers[512];
+    __shared__ uint16_t s_stream_indices[512];
+    __shared__ int32_t  s_tier_offsets[5];
+    __shared__ float    s_scale[3]; // [int8, int4, int2]
+    __shared__ float    s_m[3];     // per-tier additive zero-point term (already * scale, INT8 centering-adjusted)
+
+    if (n_tiles_col > 512) {
+        if (threadIdx.x == 0 && row == 0) {
+            printf("FATAL: v12_dp4a_gemv_kernel n_tiles_col=%d exceeds shared memory bound of 512 (max cols=32768).\n", n_tiles_col);
+        }
+        __syncthreads();
+        __trap();
+    }
+
+    const uint8_t  * tile_tiers          = (const uint8_t *)((const char *)header + header->tile_tiers_offset);
+    const uint16_t * tile_stream_indices = (const uint16_t *)((const char *)header + header->tile_stream_indices_offset);
+    const uint8_t  * pw                  = (const uint8_t *)((const char *)header + header->packed_weights_offset);
+
+    const int tile_row = row / BMO_TILE_DIM;
+    const int in_tile_r = row % BMO_TILE_DIM;
+    const int in_tile_row_base = in_tile_r * BMO_TILE_DIM;
+
+    for (int t = threadIdx.x; t < n_tiles_col; t += blockDim.x) {
+        const int tile_idx = tile_row * n_tiles_col + t;
+        s_tiers[t] = tile_tiers[tile_idx];
+        s_stream_indices[t] = tile_stream_indices[tile_idx];
+    }
+    if (threadIdx.x < 5) {
+        s_tier_offsets[threadIdx.x] = header->tier_offsets[threadIdx.x];
+    }
+    if (threadIdx.x == 5) {
+        s_scale[0] = header->scale_int8; s_m[0] = (128.0f - header->zp_int8) * header->scale_int8;
+        s_scale[1] = header->scale_int4; s_m[1] = -header->zp_int4 * header->scale_int4;
+        s_scale[2] = header->scale_low;  s_m[2] = -header->zp_low  * header->scale_low;
+    }
+    __syncthreads();
+
+    const int32_t n_blocks_col = cols >> 5; // cols/32; always exact since cols is a multiple of BMO_TILE_DIM(64)
+    float thread_sum = 0.0f;
+
+    for (int qb = threadIdx.x; qb < n_blocks_col; qb += blockDim.x) {
+        const int col_base = qb << 5;
+        const int tile_c = col_base >> 6;                        // /64
+        const int sub_in_tile = col_base & (BMO_TILE_DIM - 1);   // 0 or 32
+        const uint8_t tier = s_tiers[tile_c];
+        const int32_t stream_idx = s_stream_indices[tile_c];
+        const int in_tile_base = in_tile_row_base + sub_in_tile;
+        const int flat_base = stream_idx * BMO_TILE_ELEMS + in_tile_base;
+
+        if (tier == 0) {
+            // Dense FP16 tile: plain FP32 accumulate against the raw (non-quantized) activation.
+            const half * f16 = (const half *)(pw + s_tier_offsets[0]);
+            #pragma unroll
+            for (int j = 0; j < 32; ++j) {
+                thread_sum = fmaf(__half2float(f16[flat_base + j]), x_vec[col_base + j], thread_sum);
+            }
+            continue;
+        }
+
+        const v12_block_q8_1 xb = xq[qb];
+        const float2 ds8 = __half22float2(xb.ds);
+        const float d8 = ds8.x, s8 = ds8.y;
+        const int * xq_i32 = (const int *)xb.qs; // 8 packed int32 groups of 4 int8 quants
+        int sumi = 0;
+
+        if (tier == 1) {
+            const uint32_t * raw32 = (const uint32_t *)(pw + s_tier_offsets[1] + flat_base);
+            #pragma unroll
+            for (int g = 0; g < 8; ++g) {
+                const int wi = (int)(raw32[g] ^ 0x80808080u); // unsigned [0,255] -> signed [-128,127]
+                sumi = __dp4a(wi, xq_i32[g], sumi);
+            }
+            thread_sum = fmaf(s_scale[0], (float)sumi * d8, thread_sum) + s_m[0] * s8;
+        } else if (tier == 2) {
+            const uint8_t * nib = pw + s_tier_offsets[2] + (flat_base >> 1);
+            #pragma unroll
+            for (int g = 0; g < 8; ++g) {
+                const uint8_t b0 = nib[2 * g], b1 = nib[2 * g + 1];
+                const int32_t wi = (int32_t)(b0 & 0x0F) | ((int32_t)((b0 >> 4) & 0x0F) << 8)
+                                 | ((int32_t)(b1 & 0x0F) << 16) | ((int32_t)((b1 >> 4) & 0x0F) << 24);
+                sumi = __dp4a(wi, xq_i32[g], sumi);
+            }
+            thread_sum = fmaf(s_scale[1], (float)sumi * d8, thread_sum) + s_m[1] * s8;
+        } else { // tier == 3 (INT2)
+            const uint8_t * duad = pw + s_tier_offsets[3] + (flat_base >> 2);
+            #pragma unroll
+            for (int g = 0; g < 8; ++g) {
+                const uint8_t b = duad[g];
+                const int32_t wi = (int32_t)(b & 0x03) | ((int32_t)((b >> 2) & 0x03) << 8)
+                                  | ((int32_t)((b >> 4) & 0x03) << 16) | ((int32_t)((b >> 6) & 0x03) << 24);
+                sumi = __dp4a(wi, xq_i32[g], sumi);
+            }
+            thread_sum = fmaf(s_scale[2], (float)sumi * d8, thread_sum) + s_m[2] * s8;
+        }
+    }
+
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        thread_sum += __shfl_down_sync(0xFFFFFFFF, thread_sum, offset);
+    }
+    __shared__ float warp_sums[V12_THREADS / 32];
+    const int warp_id = threadIdx.x / 32;
+    const int lane_id = threadIdx.x % 32;
+    if (lane_id == 0) warp_sums[warp_id] = thread_sum;
+    __syncthreads();
+    if (warp_id == 0) {
+        float val = (lane_id < (V12_THREADS / 32)) ? warp_sums[lane_id] : 0.0f;
+        #pragma unroll
+        for (int offset = (V12_THREADS / 64); offset > 0; offset >>= 1) {
+            val += __shfl_down_sync(0xFFFFFFFF, val, offset);
+        }
+        if (lane_id == 0) y_out[row] = val;
+    }
+}
+
+static v12_block_q8_1 * g_v12_xq_buf  = nullptr;
+static int              g_v12_xq_cols = -1;
+
+static void v12_free_static_buffers() {
+    if (g_v12_xq_buf) { cudaFree(g_v12_xq_buf); g_v12_xq_buf = nullptr; g_v12_xq_cols = -1; }
+}
+
+static void launch_v12(const void * vx, const float * x, float * y,
+                       int rows, int cols, int n_outliers, cudaStream_t stream) {
+    if (cols % 32 != 0) {
+        fprintf(stderr, "v12_dp4a: cols=%d is not a multiple of 32 (q8_1 block size) — unsupported\n", cols);
+        exit(1);
+    }
+    if (cols != g_v12_xq_cols) {
+        if (g_v12_xq_buf) { CU_CHECK(cudaFree(g_v12_xq_buf)); }
+        CU_CHECK(cudaMalloc(&g_v12_xq_buf, (size_t)(cols / 32) * sizeof(v12_block_q8_1)));
+        g_v12_xq_cols = cols;
+    }
+    const int n_blocks_col = cols / 32;
+    v12_quantize_x_q8_1_kernel<<<n_blocks_col, 32, 0, stream>>>(x, g_v12_xq_buf, cols);
+    v12_dp4a_gemv_kernel<<<rows, V12_THREADS, 0, stream>>>(vx, g_v12_xq_buf, x, y, cols);
+    if (n_outliers > 0) {
+        const int bs = 256;
+        v0_outliers_kernel<<<(n_outliers + bs - 1) / bs, bs, 0, stream>>>(vx, x, y, cols);
+    }
+}
+
+// ============================================================================
 // Harness
 // ============================================================================
 typedef void (*launch_fn)(const void *, const float *, float *, int, int, int, cudaStream_t);
@@ -3186,6 +3427,7 @@ struct VariantSpec {
     const char * name;
     launch_fn fn;
     int payload_kind; // 0 = shipped, 1 = v3 (sorted outliers + CSR), 2 = v6 (band-major)
+    double gate_thresh = 1e-5; // rel_l2 gate; v12_dp4a uses a looser 1e-3 by design (int8-quantized activations)
 };
 
 static double median_of(std::vector<float> v) {
@@ -3302,6 +3544,7 @@ int main(int argc, char ** argv) {
         { "v9_tilewarp",      launch_v9, 3 },
         { "v10_tilepar",      launch_v10, 3 },
         { "v11_regdiet",      launch_v11, 3 },
+        { "v12_dp4a",         launch_v12, 0, 1e-3 },
     };
     if (getenv("BMO_BENCH_DEBUG")) {
         // diagnostics: intentionally wrong output, timing-only
@@ -3318,7 +3561,7 @@ int main(int argc, char ** argv) {
         variants.push_back({ "dbg_v10_no_wload", launch_v10_dbg_now, 3 });
     }
 
-    printf("\n%-22s %10s %10s %14s %12s  %s\n", "variant", "ms/call", "GB/s", "max_abs_diff", "rel_l2", "gate(rel_l2<1e-5)");
+    printf("\n%-22s %10s %10s %14s %12s  %s\n", "variant", "ms/call", "GB/s", "max_abs_diff", "rel_l2", "gate(rel_l2<thresh)");
     std::vector<float> y_host(h.rows);
 
     const char * only = getenv("BMO_BENCH_ONLY"); // substring filter on variant names
@@ -3366,10 +3609,11 @@ int main(int argc, char ** argv) {
         cudaEventDestroy(ea); cudaEventDestroy(eb);
         double med = median_of(ms);
         double gbps = (double)t.shipped_bytes / (med * 1e6);
-        printf("%-22s %10.4f %10.2f %14.6e %12.6e  %s\n",
-               v.name, med, gbps, max_abs, rel_l2, rel_l2 < 1e-5 ? "PASS" : "FAIL");
+        printf("%-22s %10.4f %10.2f %14.6e %12.6e  %s (thresh %.0e)\n",
+               v.name, med, gbps, max_abs, rel_l2, rel_l2 < v.gate_thresh ? "PASS" : "FAIL", v.gate_thresh);
     }
 
+    v12_free_static_buffers();
     cudaFree(d_payload); cudaFree(d_payload_v3); cudaFree(d_payload_v6); cudaFree(d_x); cudaFree(d_y);
     return 0;
 }
