@@ -1029,6 +1029,22 @@ int main(int argc, char *argv[]) {
 
     std::vector<float> blank(frame_size);
 
+    // BENCH_DUMP_PCM=<path>: dump each decoded frame (raw f32, 24 kHz mono)
+    // during serial bench runs, for waveform-parity gates between builds.
+    // Env-gated and bench/serial-only: unset (the official measurement
+    // configuration) it is a single NULL check per frame. Not wired into the
+    // pipelined decode worker — waveform gates run in the serial mode of
+    // record.
+    FILE * bench_pcm_f = NULL;
+    if ( bench ) {
+        const char * e = getenv( "BENCH_DUMP_PCM" );
+        if ( e && e[0] ) {
+            bench_pcm_f = fopen( e, "wb" );
+            if ( ! bench_pcm_f )
+                fprintf( stderr, "BENCH_DUMP_PCM: cannot open %s\n", e );
+        }
+    }
+
     // STEP 1 (frame-phase timing task): per-frame phase timing windows,
     // flushed to a median-per-25-frames report. Measurement only — does not
     // affect the decode path. t_temporal/t_depformer/t_sample_sync come from
@@ -1380,6 +1396,8 @@ int main(int argc, char *argv[]) {
                 mimi_decode_receive( decoder, blank.data() );
                 auto _prof_mdec_t1 = std::chrono::steady_clock::now();
                 _prof_t_mimi_dec = std::chrono::duration<double, std::milli>( _prof_mdec_t1 - _prof_mdec_t0 ).count();
+                if ( bench_pcm_f )
+                    fwrite( blank.data(), sizeof( float ), blank.size(), bench_pcm_f );
             } else {
                 // sdl_get_frame can block, don't include in frame rate
                 lm_delta_time += ggml_time_us() - lm_start;
@@ -1481,6 +1499,9 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+
+    if ( bench_pcm_f )
+        fclose( bench_pcm_f );
 
     // PIPELINE: shut down workers cleanly. Encode worker exits its own loop
     // once told to stop (shutdown flag / pipe_enc_stop) or once input runs
