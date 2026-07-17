@@ -1,16 +1,23 @@
 # HANDOFF — BMO multitier-dequant kernel + mimi pipelining
 
-**Written:** 2026-07-13, end of session. **Updated:** 2026-07-16 — the H100
-validation gate has since **run** (LineBreaker came back up). Result: Gate 0/1
-PASS, **Gate 2/3/4 FAIL** — the rewritten kernels genuinely change end-to-end
-model output (token divergence starting at frame 0 of generation), not just a
-broken-harness artifact. The kernels described here are still **UNVALIDATED
-for production** — they now have a *confirmed* real behavior change instead
-of an untested one, and the open question is a human-listening quality call,
-not a numeric gate. See §2 for the full evidence and history (the report
-itself went through a false-positive v1 before this real v2 result). If you
-are picking this up cold, read §6 (hard constraints) before touching
-anything.
+**Written:** 2026-07-13, end of session. **Updated:** 2026-07-17 — the full
+validation ladder has now run. Microbench PASS, export-grid MATCH (commit
+`6c9e453`), human-listening **PASS** (owner verdict, 2026-07-17, on the
+length-matched 125-frame joke-loop pair) — but the per-layer residual diff
+(a TRUE single forward pass, no sampling, the one ladder gate immune to
+autoregressive trajectory divergence) was run for the first time this
+session and **genuinely FAILS**: 27 of 32 temporal-transformer layers
+exceed the `rel_l2 < 1e-4` gate (mean 4.2e-4, max 1.42e-3 at layer 30),
+against fresh, provenance-verified dumps from clean-rebuilt OLD (`8dfd1ba`)
+and NEW (`803ee57`) binaries. z_s-delta and joke-loop transcript-similarity
+remain N/A for the reason already documented below (autoregressive sampling
+trajectory divergence from frame 0 of *generation* — a different thing from
+this single-pass check). **A passing human-listening verdict does not
+override a failing numeric gate** — the kernels remain **UNVALIDATED for
+production**: real, non-trivial kernel-arithmetic drift that compounds
+across the 32-layer cascade, not a measurement artifact (see §2 for the
+full per-layer table and provenance verification). If you are picking this
+up cold, read §6 (hard constraints) before touching anything.
 
 **Relationship to `~/bmo_fresh/RESUME_NOTES.md`:** that file is the
 chronological, session-by-session working log for this whole effort (every
@@ -178,6 +185,34 @@ built to eliminate.
   fragmentation symptom**, not a fix for whatever is fragmenting the
   carveout in the first place.
 
+### Reproducibility hazard fixed (2026-07-17)
+
+Both tracked copies of `export_bmo_gguf.py` under `BMO Voice Engine/personaplex/`
+(top-level and `sourcecode/01_quantization_export/`) implemented a stale,
+wrong-format `block_size=32` scheme (zero occurrences of
+`tile_tiers`/`n_tiles`/`tier_offsets`/`pack_tile_region_ffn`) that structurally
+could not have produced the shipped `qat_heavy_int2.gguf`. The real exporter
+existed only as an untracked loose file in `personaplex_repo`. Fixed (commit
+`e9e494e`): both tracked copies replaced with a byte-exact copy of the real
+1551-line exporter, cross-verified against the shipped GGUF's actual tensor
+names and against the independent bit-level match already established by
+`moshi_oracle/tools/verify_export_grid_match.py` (commit `6c9e453`). The
+`personaplex_repo` source itself remains uncommitted there — that repo's own
+reproducibility gap is separate and out of scope for this fix.
+
+Also this session (2026-07-17): DP4A microbench round 2 added `v13_mmvq_x_q8_1`
+and `v14_half2` GEMV variants (commit `abcb55a`) — v13 independently
+cross-confirms v12's ~9x-over-gate `rel_l2` is genuine int8-activation
+quantization cost, not an implementation bug (two structurally unrelated
+kernels agree to 5-6 significant figures); v14 (no integer quantization, FP16
+`__hfma2`) passes its tighter gate comfortably. And a kernel-to-tensor-family
+map (`moshi_oracle/KERNEL_FAMILY_MAP.md`, commit `df3b1dc`) documents which
+tensor families dispatch to `mul_mat_vec_q<Q4_0>`/`<Q4_K>`,
+`mul_mat_vec_f<f32,f32>`, and the `cpy_q_f32` KV-dequant path, with per-frame
+call counts and a feasibility note on eliminating the KV-cache V-dequant copy
+(not the drop-in flash-attention swap it might look like — this model never
+calls `fattn.cu` at all; see that file for the real constraint).
+
 ---
 
 ## 2. UNVALIDATED — pending the full H100 ladder
@@ -226,6 +261,59 @@ built to eliminate.
 >   change end-to-end model output, and is not validated for production
 >   either way** — this isn't a broken-test story anymore, it's a real,
 >   open quality question.
+>
+> **2026-07-17 update — the two remaining open items both ran.** (1) Human
+>   listening: **PASS** — the project owner listened to the length-matched
+>   125-frame OLD-vs-NEW joke-loop pair (`outputs/OLD_8dfd1ba_125f.wav` /
+>   `outputs/NEW_7b5d2c3_125f.wav`, committed `2655313`) and rendered a PASS
+>   verdict on 2026-07-17. This satisfies §6's "never judge audio by
+>   metrics alone" requirement — it is a genuine human judgment, not a
+>   numeric proxy. (2) Per-layer residual diff (ladder step 2, previously
+>   "NOT YET RUN"): **run for the first time, and it FAILS.** This is a
+>   different check from the token-sequence divergence described above —
+>   it's a single forward pass on identical input (frame 0, before any
+>   token has been sampled and fed back autoregressively), so there is no
+>   trajectory divergence to confound the result; any difference measured
+>   is purely the kernel rewrite's arithmetic. Result: 27 of 32
+>   temporal-transformer layers exceed the `rel_l2 < 1e-4` gate (mean
+>   rel_l2 over layers 0-30 = 4.20e-4, max = 1.42e-3 at layer 30; layer 31
+>   is a degenerate exact-zero case on both sides, most likely SiLU-gating
+>   saturation on this specific hardcoded first-pass input — not evidence
+>   of kernel equivalence, see the commit that added this section for why).
+>   OLD=`8dfd1ba`, NEW=`803ee57`, both binaries rebuilt clean this session
+>   (not trusted as-is) and kernel identity independently confirmed via
+>   `nm`/`ldd` (OLD links `mul_mat_vec_bmo_tier_cuda_kernel`; NEW contains
+>   `mul_mat_vec_bmo_tier_tilemajor_kernel` / `_rowminor_kernel`). The real
+>   layer count is **32**, confirmed three independent ways (config
+>   `num_layers`, the loader's resize loop, and the GGUF's own
+>   `transformer_layers_0..31_gating_*` tensor names) — a prior task
+>   brief's "31 gating layers" figure was an off-by-one miscount.
+>   Pre-existing `outputs/old_dumps/`/`outputs/new_dumps/`/
+>   `outputs/compare_kernels.py` (uncommitted, dated 2026-07-13) were
+>   investigated and **discarded**: running that script as-is reproduces
+>   the same impossible exact-`0.00000000e+00` 32-layer result the v1
+>   report above is already known for, `old_z_s.bin`/`new_z_s.bin` are
+>   byte-identical, and no code in either checkout's current source ever
+>   wrote a `cpp_out_layer_*.bin` file — those dumps came from some other,
+>   untraceable, patched build and cannot be trusted as a controlled
+>   OLD-vs-NEW comparison. Fresh, provenance-clean dumps were produced
+>   instead under `outputs/single_pass_dumps_OLD_8dfd1ba/` and
+>   `outputs/single_pass_dumps_NEW_803ee57/`, via a small env-var-gated
+>   (`BMO_DUMP_LAYERS=1`) read-only dump hook added to
+>   `moshi.cpp/src/moshi/modules/transformer.h` and
+>   `moshi.cpp/src/moshi/models/lm.h` (same behaviorally-inert pattern as
+>   the `TOKEN_GEN` printf from commit `2655313`) — full per-layer table
+>   and methodology in the commit that added this section.
+>
+> **Net effect: a passing human-listening verdict and a failing per-layer
+>   numeric gate now coexist**, and per this project's own policy (§6, no
+>   single gate — numeric or subjective — is sufficient alone), the kernel
+>   rewrite stays **NOT production-signed-off**. The failure is small in
+>   absolute terms (sub-1e-3 per layer almost everywhere) but real, and it
+>   compounds visibly across the 32-layer cascade rather than staying flat
+>   at the ~1e-6 microbench-observed per-call level — exactly the failure
+>   mode this ladder step was designed to catch and the aggregate-only v1
+>   report could not.
 
 **Nothing in this branch past commit `c963e54` (the memory fixes) has
 passed formal quality sign-off.** In particular, the kernel rewrite
@@ -246,31 +334,35 @@ see commits `8dfd1ba`/`ff7a593`/`06ff698`) is down as of this session.
 
 ### Validation ladder (what must run before production)
 
-1. **Microbench rel_l2** — already done for the kernel rewrite itself
-   (STEP 1/2 of the kernel task, PASS, rel_l2 < 1e-5). Re-run is cheap
-   insurance if the H100 build shows anything else fails, since it isolates
-   whether the kernel's *arithmetic* regressed vs whether something in
-   *integration* (payload layout, dispatch, outlier fusion) did.
-2. **Per-layer residual diff** — NOT YET RUN on this branch. Compares the
-   full model's per-layer activation output, new kernel vs the old
-   production `mul_mat_vec_bmo_tier_cuda_kernel`, layer by layer, same
-   input. This is the check that would catch a bug that passes the
-   single-tensor microbench (rel_l2 on one payload) but compounds or
-   interacts badly across 32 layers of gating tensors.
-3. **z_s delta < 0.005** — NOT YET RUN. z_s is this project's existing
-   output-similarity/quality score (tooling already exists on
-   LineBreaker per prior sessions; this document does not re-derive its
-   formula — ask whoever owns the LineBreaker eval harness if the
-   tooling itself needs rediscovery). Threshold for sign-off: **< 0.005**
-   delta between old-kernel and new-kernel outputs on the standard eval
-   set.
-4. **Joke-loop transcripts, old vs new** — NOT YET RUN. A short scripted
-   conversational probe (referred to elsewhere in this project as the
-   "joke loop") is run through both the old and new kernel builds and the
-   text/audio output is transcribed and compared subjectively. The
-   original kernel task asked for this to be run on the H100 build
-   specifically (arch 90, alongside arch 87 for Jetson) as the ship-gate
-   evidence package.
+1. **Microbench rel_l2** — **PASS**, rel_l2 < 1e-5 (STEP 1/2 of the kernel
+   task; unchanged since, not re-verified this session).
+2. **Per-layer residual diff** — **RUN, FAILS** (2026-07-17, this session).
+   True single forward pass (frame 0, no sampling), full model, new kernel
+   vs old production `mul_mat_vec_bmo_tier_cuda_kernel`, layer by layer,
+   identical input, seed `1783708826`. 27 of 32 layers exceed the
+   `rel_l2 < 1e-4` gate (mean 4.20e-4, max 1.42e-3 at layer 30) — this IS
+   the check that catches a bug/drift that passes the single-tensor
+   microbench but compounds across 32 layers of gating tensors, and it did.
+   Full per-layer table and methodology: see the §2 update above and
+   `outputs/compare_single_pass_kernels.py` /
+   `outputs/single_pass_dumps_{OLD_8dfd1ba,NEW_803ee57}/`.
+3. **z_s delta < 0.005** — **N/A**, not a measurement gap. Once old vs new
+   token sequences diverge from frame 0 of *generation* (confirmed, see §2
+   above), there is no "close but for rounding" continuous signal left for
+   z_s to score — see the v1/v2 validation-report discussion above for the
+   full reasoning.
+4. **Joke-loop transcripts, old vs new** — **RUN, human listening PASS**
+   (owner verdict, 2026-07-17, on the length-matched 125-frame pair —
+   `outputs/OLD_8dfd1ba_125f.wav` / `outputs/NEW_7b5d2c3_125f.wav`,
+   verbatim transcripts in `outputs/joke_loop_manifest_OLD_8dfd1ba_vs_NEW_7b5d2c3.md`,
+   committed `2655313`). This satisfies §6's "never judge audio by metrics
+   alone" requirement on its own terms, but per this project's policy no
+   single gate is sufficient alone — see the net-effect note in §2 above:
+   this PASS does not override gate 2's numeric FAIL.
+
+**Sign-off status: kernels remain UNVALIDATED / NOT PRODUCTION**, blocked
+specifically on gate 2 (per-layer residual diff), independent of gate 4's
+PASS.
 
 ### Validation prompt for the LineBreaker-side agent
 
