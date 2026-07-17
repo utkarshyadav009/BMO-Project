@@ -884,8 +884,15 @@ bool moshi_lmgen_step(
         graph.set_name( "text_graph_onetime_full_forward_pass" );
 
         printf("DEBUG: before forward_text_build\n"); fflush(stdout);
+        // BMO_DUMP_LAYERS instrumentation: bracket ONLY this call (the one-time
+        // build of lm->transformer's 32-layer graph) so g_bmo_dump_layer_tensors
+        // is populated with exactly lm->transformer's per-layer gating-FFN output
+        // tensors, in layer-index order, and nothing from depformer/mimi (which
+        // never see g_bmo_dump_collecting == true).
+        g_bmo_dump_collecting = getenv( "BMO_DUMP_LAYERS" ) != NULL;
         auto [graph_transformer_out, text_logits] = moshi_lmmodel_forward_text_build(
             graph, lm, lm_states, condition_sum );
+        g_bmo_dump_collecting = false;
         printf("DEBUG: after forward_text_build\n"); fflush(stdout);
 
         auto cpy_transformer_out = ggml_cpy( graph,
@@ -916,6 +923,43 @@ bool moshi_lmgen_step(
     g_moshi_phase_timing.t_temporal_ms +=
         std::chrono::duration<double, std::milli>( _prof_t_temporal_t1 - _prof_t_temporal_t0 ).count();
     printf("DEBUG: after graph.compute()\n"); fflush(stdout);
+
+    // BMO_DUMP_LAYERS instrumentation: on the FIRST call to moshi_lmgen_step only
+    // (the process's first-ever forward pass through lm->transformer — nothing
+    // stochastic has been sampled/fed back yet at this point, whether that first
+    // call happens to be hardcoded system-prompt-silence processing or the first
+    // numbered TOKEN_GEN frame, so old vs new binaries are guaranteed to see
+    // byte-identical input here), pull each layer's captured gating-FFN output
+    // tensor to host via ggml_backend_tensor_get (existing backend mechanism,
+    // pure read) and write it float32 to disk. Read-only; does not alter any
+    // computed value or subsequent generation.
+    {
+        static bool g_bmo_dumped_once = false;
+        if ( getenv( "BMO_DUMP_LAYERS" ) && ! g_bmo_dumped_once && g_bmo_dump_layer_tensors.size() ) {
+            const char * dump_dir_env = getenv( "BMO_DUMP_DIR" );
+            std::string dump_dir = dump_dir_env ? dump_dir_env : "/tmp/bmo_dump";
+            for ( size_t li = 0; li < g_bmo_dump_layer_tensors.size(); li++ ) {
+                ggml_tensor * t = g_bmo_dump_layer_tensors[li];
+                size_t n = ggml_nelements( t );
+                std::vector<float> host( n );
+                ggml_backend_tensor_get( t, host.data(), 0, n * sizeof(float) );
+                std::string path = dump_dir + "/cpp_out_layer_" + std::to_string(li) + ".bin";
+                FILE * f = fopen( path.c_str(), "wb" );
+                if ( f ) {
+                    fwrite( host.data(), sizeof(float), n, f );
+                    fclose( f );
+                } else {
+                    printf( "BMO_DUMP: FAILED to open %s for write\n", path.c_str() );
+                }
+            }
+            printf( "BMO_DUMP: wrote %zu layer tensors (n_elements[0]=%zu) to %s\n",
+                g_bmo_dump_layer_tensors.size(),
+                ggml_nelements( g_bmo_dump_layer_tensors[0] ),
+                dump_dir.c_str() );
+            fflush(stdout);
+            g_bmo_dumped_once = true;
+        }
+    }
 
     int text_token;
     auto _prof_t_sample_t0 = std::chrono::steady_clock::now();

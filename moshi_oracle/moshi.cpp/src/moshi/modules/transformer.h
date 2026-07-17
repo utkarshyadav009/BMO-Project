@@ -3,6 +3,21 @@
 #include "gating.h"
 #include "rope.h"
 
+// BMO_DUMP_LAYERS instrumentation (kernel sign-off, single-forward-pass residual
+// diff, OLD vs NEW BMO_TIER GEMV kernel). Pure read/dump, behaviorally inert —
+// does not alter any computed value. Same precedent as the TOKEN_GEN printf
+// added in commit 2655313. Gated at runtime behind the BMO_DUMP_LAYERS env var
+// (checked in lm.h, moshi_lmgen_step) so it is a no-op unless explicitly enabled.
+//
+// g_bmo_dump_collecting is bracketed (set true/false) around the ONE-TIME graph
+// build of lm->transformer (the 32-layer main temporal transformer) in
+// moshi_lmmodel_forward_text_build (lm.h), so only that transformer's per-layer
+// gating-FFN output tensors are captured here, in call order (== layer index),
+// not the depformer's or mimi's (which take different, non-graph-build code
+// paths and never see g_bmo_dump_collecting == true).
+static bool g_bmo_dump_collecting = false;
+static std::vector<ggml_tensor *> g_bmo_dump_layer_tensors;
+
 /*****************************************\
  * moshi.modules.transformer.RMSNorm
 \*****************************************/
@@ -1138,6 +1153,14 @@ ggml_tensor * moshi_streaming_transformer_layer(
         update = torch_nn_linear( ctx, layer->linear2, activated );
     } else {
         update = moshi_activation_gating( ctx, layer->gating[0], nx );
+    }
+
+    // BMO_DUMP_LAYERS instrumentation: capture this layer's gating-FFN output
+    // tensor (the BMO_TIER GEMV kernel's output, pre-layer_scale/pre-residual-add)
+    // in call order == layer index. Read-only registration of a tensor pointer;
+    // does not alter `update` or any downstream computation.
+    if ( g_bmo_dump_collecting ) {
+        g_bmo_dump_layer_tensors.push_back( update );
     }
 
     if ( layer->layer_scale_2 ) {
