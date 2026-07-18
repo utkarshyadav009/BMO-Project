@@ -1,23 +1,30 @@
 # HANDOFF — BMO multitier-dequant kernel + mimi pipelining
 
-**Written:** 2026-07-13, end of session. **Updated:** 2026-07-17 — the full
-validation ladder has now run. Microbench PASS, export-grid MATCH (commit
-`6c9e453`), human-listening **PASS** (owner verdict, 2026-07-17, on the
-length-matched 125-frame joke-loop pair) — but the per-layer residual diff
-(a TRUE single forward pass, no sampling, the one ladder gate immune to
-autoregressive trajectory divergence) was run for the first time this
-session and **genuinely FAILS**: 27 of 32 temporal-transformer layers
-exceed the `rel_l2 < 1e-4` gate (mean 4.2e-4, max 1.42e-3 at layer 30),
-against fresh, provenance-verified dumps from clean-rebuilt OLD (`8dfd1ba`)
-and NEW (`803ee57`) binaries. z_s-delta and joke-loop transcript-similarity
-remain N/A for the reason already documented below (autoregressive sampling
-trajectory divergence from frame 0 of *generation* — a different thing from
-this single-pass check). **A passing human-listening verdict does not
-override a failing numeric gate** — the kernels remain **UNVALIDATED for
-production**: real, non-trivial kernel-arithmetic drift that compounds
-across the 32-layer cascade, not a measurement artifact (see §2 for the
-full per-layer table and provenance verification). If you are picking this
-up cold, read §6 (hard constraints) before touching anything.
+**Written:** 2026-07-13, end of session. **Updated:** 2026-07-18 — the
+2026-07-17 per-layer residual diff (commit `7332756`, 27/32 layers FAIL at
+`rel_l2 < 1e-4`) has been **superseded, not confirmed**: that instrument
+was CASCADED (each build ran its own independent 32-layer forward pass, no
+teacher-forcing between OLD and NEW, so it measured amplified drift through
+30+ un-teacher-forced layers, not per-call kernel error — see §2 for the
+full diagnosis). A corrected, isolated per-call instrument (commit
+`3e395e5`) feeds OLD's real, frozen activation inputs into both kernels in
+isolation, real weight payload, no cascading, and **PASSES cleanly on all
+62 calls** (31 BMO_TIER layers × {linear_in, linear_out}; max `rel_l2` =
+1.67e-6 against a `2e-5` gate — an order of magnitude under). This
+reclassifies the cascaded FAIL as expected numerical divergence, not a
+kernel defect. **However, kernels are still NOT marked PRODUCTION**: the
+absolute-quality z_s gate (OLD-kernel vs NEW-kernel build, against the
+teacher) could not be executed — the only z_s tool in this repo
+(`verify_septq_zs_drift.py`) is confirmed correct but architecturally
+scoped to PyTorch checkpoints, with no path into the moshi.cpp C++/CUDA
+GGUF kernel path being validated. This is an unresolved tooling gap, not a
+measured failure — 2 of the 4 production sign-off conditions remain
+unmeasurable. Microbench PASS, export-grid MATCH (commit `6c9e453`),
+human-listening PASS (owner verdict, 2026-07-17, 125-frame pair) are
+unchanged. If you are picking this up cold, read §6 (hard constraints)
+before touching anything, and see §2 for the full evidence chain
+(cascaded-vs-isolated diagnosis, layer 31 audit, the isolated-diff result,
+and the z_s tooling-gap finding).
 
 **Relationship to `~/bmo_fresh/RESUME_NOTES.md`:** that file is the
 chronological, session-by-session working log for this whole effort (every
@@ -314,6 +321,65 @@ calls `fattn.cu` at all; see that file for the real constraint).
 >   at the ~1e-6 microbench-observed per-call level — exactly the failure
 >   mode this ladder step was designed to catch and the aggregate-only v1
 >   report could not.
+>
+> **2026-07-18 correction — the above gate 2 result was re-diagnosed and
+>   superseded.** The project owner correctly identified that this gate's
+>   design conflated per-call kernel error with cascade amplification: the
+>   `7332756` dump is CASCADED — each build (OLD, NEW) ran one independent
+>   32-layer forward pass, threading its own residual stream
+>   (`x = moshi_streaming_transformer_layer(..., x, ...)` in a loop,
+>   `transformer.h:1370-1403`) with no teacher-forcing between builds. By
+>   layer 1 the two builds' gating-matmul *inputs* already differ (layer
+>   0's own rel_l2 was 8.4e-7), so the 27/32 FAIL measured amplified drift
+>   through 30+ un-teacher-forced layers, not isolated per-call arithmetic.
+>   Separately, layer 31's exact-zero match on both sides was audited and
+>   ruled out as a self-comparison/stale-file bug (distinct files, distinct
+>   mtimes, neither matches layer 30's dump) — the real explanation is
+>   structural: `transformer_layers_31_gating_{linear_in,linear_out}_weight`
+>   are plain F16 tensors in the GGUF (no `.tile_tiers`/`.packed_weights`/
+>   `.outlier_*` sub-tensors), deliberately excluded from BMO_TIER packing
+>   per a pre-existing `loader.h:214-221` comment ("layer 31 stays F16, do
+>   not optimize"). Layer 31 never dispatches to `mul_mat_vec_bmo_tier_*` in
+>   either build, so it was never a valid kernel-equivalence instrument
+>   either way — only layers 0-30 (31 BMO_TIER layers) are actually in scope.
+>
+>   The corrected instrument (commit `3e395e5`): captures OLD's real, frozen
+>   activation input to both gating matmuls (`nx` → `linear_in`, `gated` →
+>   `linear_out`) for all 31 BMO_TIER layers from OLD's actual frame-0
+>   forward pass, then feeds each identical captured input into a verbatim
+>   port of OLD's real `mul_mat_vec_bmo_tier_cuda_kernel` and a verbatim
+>   port of NEW's real `mul_mat_vec_bmo_tier_tilemajor_kernel`/
+>   `_rowminor_kernel` (not the bench tool's unverified `v0_current` proxy),
+>   back-to-back on the same GPU, same real GGUF weight payload, no
+>   cascading. **Result: PASS, 0/62 calls exceed `rel_l2 <= 2e-5`** (max
+>   1.666e-06 at layer 20 linear_out/rowminor, mean 1.03e-06 — an order of
+>   magnitude under gate). Both NEW dispatch paths exercised (`linear_in`
+>   cols=4096 → tilemajor; `linear_out` cols=11264 → rowminor), no error
+>   clustering toward either. **This reclassifies the cascaded FAIL as
+>   expected numerical divergence (same class as the already-documented
+>   autoregressive token-trajectory divergence), not a kernel defect.**
+>   Cascaded old-vs-new full-forward-pass diffs are a **non-instrument** for
+>   kernel-equivalence questions on this system going forward — use the
+>   isolated-diff methodology (`tools/bmo_isolated_diff.cu`) for any future
+>   kernel change instead.
+>
+>   **This does NOT mean production sign-off.** The remaining open item is
+>   an absolute-quality z_s parity check (OLD-kernel build vs NEW-kernel
+>   build, against the teacher) — attempted and **blocked, not measured**:
+>   `BMO Voice Engine/personaplex/verify_septq_zs_drift.py` is confirmed to
+>   be the real z_s tool (its own default thresholds, `--min-median-cos
+>   0.997` / `--min-step-cos 0.99`, exactly match this document's production
+>   thresholds) but is architecturally scoped to PyTorch checkpoints via
+>   `moshi.models.loaders.get_moshi_lm` — it has no path into the moshi.cpp
+>   C++/CUDA GGUF kernel implementation being validated here, so it cannot
+>   express "same weights, different kernel" as a comparison at all. This is
+>   an unresolved tooling gap, not a negative measurement — per this
+>   document's own prior instruction, reported as a finding rather than
+>   reimplemented on the fly. Kernels remain **NOT marked PRODUCTION**: 2 of
+>   the 4 production decision-rule conditions (new-build z_s meets
+>   thresholds; z_s(new) not materially below z_s(old)) are unmeasurable
+>   with current tooling, not satisfied — no self-certification without
+>   them.
 
 **Nothing in this branch past commit `c963e54` (the memory fixes) has
 passed formal quality sign-off.** In particular, the kernel rewrite
@@ -336,33 +402,38 @@ see commits `8dfd1ba`/`ff7a593`/`06ff698`) is down as of this session.
 
 1. **Microbench rel_l2** — **PASS**, rel_l2 < 1e-5 (STEP 1/2 of the kernel
    task; unchanged since, not re-verified this session).
-2. **Per-layer residual diff** — **RUN, FAILS** (2026-07-17, this session).
-   True single forward pass (frame 0, no sampling), full model, new kernel
-   vs old production `mul_mat_vec_bmo_tier_cuda_kernel`, layer by layer,
-   identical input, seed `1783708826`. 27 of 32 layers exceed the
-   `rel_l2 < 1e-4` gate (mean 4.20e-4, max 1.42e-3 at layer 30) — this IS
-   the check that catches a bug/drift that passes the single-tensor
-   microbench but compounds across 32 layers of gating tensors, and it did.
-   Full per-layer table and methodology: see the §2 update above and
-   `outputs/compare_single_pass_kernels.py` /
-   `outputs/single_pass_dumps_{OLD_8dfd1ba,NEW_803ee57}/`.
-3. **z_s delta < 0.005** — **N/A**, not a measurement gap. Once old vs new
-   token sequences diverge from frame 0 of *generation* (confirmed, see §2
-   above), there is no "close but for rounding" continuous signal left for
-   z_s to score — see the v1/v2 validation-report discussion above for the
-   full reasoning.
+2. **Per-layer residual diff** — **RUN, superseded** (2026-07-17 cascaded
+   attempt FAILED at commit `7332756`; 2026-07-18 corrected isolated
+   instrument **PASSES**, commit `3e395e5`). The cascaded version (full
+   model, no teacher-forcing between OLD/NEW) is a non-instrument for this
+   question — see the 2026-07-18 correction in §2 above for the full
+   diagnosis. The isolated per-call instrument (OLD's real frozen
+   activations fed to verbatim ports of both kernels, no cascading): **0/62
+   calls exceed `rel_l2 <= 2e-5`** (max 1.666e-06, layer 20 linear_out/
+   rowminor). Full table: `outputs/step2_isolated_diff_results.csv`;
+   methodology and tool: `tools/bmo_isolated_diff.cu`.
+3. **z_s delta < 0.005** — **BLOCKED (tooling gap), not N/A and not run**.
+   Distinct from the autoregressive-trajectory-divergence N/A reasoning
+   below (§2's v1/v2 discussion) — this is specifically about an
+   OLD-kernel-build vs NEW-kernel-build z_s parity check, which needs a
+   tool that can run the *compiled GGUF kernel path* against the teacher.
+   `verify_septq_zs_drift.py` is confirmed to be the right metric/thresholds
+   but only operates on PyTorch checkpoints — no such tool currently exists
+   for the C++/CUDA path. See the 2026-07-18 correction in §2 above.
 4. **Joke-loop transcripts, old vs new** — **RUN, human listening PASS**
    (owner verdict, 2026-07-17, on the length-matched 125-frame pair —
    `outputs/OLD_8dfd1ba_125f.wav` / `outputs/NEW_7b5d2c3_125f.wav`,
    verbatim transcripts in `outputs/joke_loop_manifest_OLD_8dfd1ba_vs_NEW_7b5d2c3.md`,
    committed `2655313`). This satisfies §6's "never judge audio by metrics
-   alone" requirement on its own terms, but per this project's policy no
-   single gate is sufficient alone — see the net-effect note in §2 above:
-   this PASS does not override gate 2's numeric FAIL.
+   alone" requirement on its own terms.
 
-**Sign-off status: kernels remain UNVALIDATED / NOT PRODUCTION**, blocked
-specifically on gate 2 (per-layer residual diff), independent of gate 4's
-PASS.
+**Sign-off status: kernels remain UNVALIDATED / NOT PRODUCTION.** Gate 2
+(isolated instrument) now PASSES and gate 4 PASSES, but gate 3 (z_s parity,
+OLD-kernel vs NEW-kernel build) is blocked on missing tooling, not
+satisfied — 2 of the 4 production decision-rule conditions from the
+2026-07-18 correction remain unmeasurable. No self-certification without
+them. Building a GGUF/moshi.cpp-path z_s tool (or extending
+`verify_septq_zs_drift.py` with one) is the next concrete blocker to close.
 
 ### Validation prompt for the LineBreaker-side agent
 
