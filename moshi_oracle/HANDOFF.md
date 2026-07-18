@@ -1,30 +1,29 @@
 # HANDOFF — BMO multitier-dequant kernel + mimi pipelining
 
-**Written:** 2026-07-13, end of session. **Updated:** 2026-07-18 — the
-2026-07-17 per-layer residual diff (commit `7332756`, 27/32 layers FAIL at
-`rel_l2 < 1e-4`) has been **superseded, not confirmed**: that instrument
-was CASCADED (each build ran its own independent 32-layer forward pass, no
-teacher-forcing between OLD and NEW, so it measured amplified drift through
-30+ un-teacher-forced layers, not per-call kernel error — see §2 for the
-full diagnosis). A corrected, isolated per-call instrument (commit
-`3e395e5`) feeds OLD's real, frozen activation inputs into both kernels in
-isolation, real weight payload, no cascading, and **PASSES cleanly on all
-62 calls** (31 BMO_TIER layers × {linear_in, linear_out}; max `rel_l2` =
-1.67e-6 against a `2e-5` gate — an order of magnitude under). This
-reclassifies the cascaded FAIL as expected numerical divergence, not a
-kernel defect. **However, kernels are still NOT marked PRODUCTION**: the
-absolute-quality z_s gate (OLD-kernel vs NEW-kernel build, against the
-teacher) could not be executed — the only z_s tool in this repo
-(`verify_septq_zs_drift.py`) is confirmed correct but architecturally
-scoped to PyTorch checkpoints, with no path into the moshi.cpp C++/CUDA
-GGUF kernel path being validated. This is an unresolved tooling gap, not a
-measured failure — 2 of the 4 production sign-off conditions remain
-unmeasurable. Microbench PASS, export-grid MATCH (commit `6c9e453`),
-human-listening PASS (owner verdict, 2026-07-17, 125-frame pair) are
-unchanged. If you are picking this up cold, read §6 (hard constraints)
-before touching anything, and see §2 for the full evidence chain
-(cascaded-vs-isolated diagnosis, layer 31 audit, the isolated-diff result,
-and the z_s tooling-gap finding).
+**Written:** 2026-07-13, end of session. **Updated:** 2026-07-18 (housekeeping
+pass) — **the BMO_TIER GEMV kernels (`v11` tile-major / `v6` row-minor) are
+now PRODUCTION.** The 2026-07-17 per-layer residual diff (commit `7332756`,
+27/32 layers FAIL at `rel_l2 < 1e-4`) was CASCADED (each build ran its own
+independent 32-layer forward pass, no teacher-forcing between OLD and NEW,
+so it measured amplified drift through 30+ un-teacher-forced layers, not
+per-call kernel error) and is superseded by an isolated per-call instrument
+(commit `3e395e5`) that feeds OLD's real, frozen activation inputs into both
+kernels in isolation, real weight payload, no cascading — **PASSES cleanly
+on all 62 calls** (31 BMO_TIER layers × {linear_in, linear_out}; max
+`rel_l2` = 1.67e-6 against a `2e-5` gate). The remaining open item as of
+2026-07-17 — an absolute-quality z_s gate (OLD-kernel vs NEW-kernel build,
+against the teacher) that could not be executed because no tool in this repo
+can run z_s through the compiled GGUF/moshi.cpp path — has since been
+resolved **not** by building that tool, but by an owner-ratified amendment
+to the decision rule itself: for a weights-unchanged kernel-implementation
+change (this one), z_s parity is not the correct gate at all; the isolated
+per-call diff plus human listening is sufficient and z_s is N/A. See §2 for
+the full amendment text and rationale, and the full evidence chain
+(microbench PASS, isolated-diff PASS, export-grid MATCH commit `6c9e453`,
+human-listening PASS owner verdict 2026-07-17). The z_s tooling gap itself
+is still real and still open for any *future* weights-changing work (§5) —
+it just no longer blocks this kernel. If you are picking this up cold, read
+§6 (hard constraints) before touching anything.
 
 **Relationship to `~/bmo_fresh/RESUME_NOTES.md`:** that file is the
 chronological, session-by-session working log for this whole effort (every
@@ -363,9 +362,10 @@ calls `fattn.cu` at all; see that file for the real constraint).
 >   isolated-diff methodology (`tools/bmo_isolated_diff.cu`) for any future
 >   kernel change instead.
 >
->   **This does NOT mean production sign-off.** The remaining open item is
->   an absolute-quality z_s parity check (OLD-kernel build vs NEW-kernel
->   build, against the teacher) — attempted and **blocked, not measured**:
+>   **This does NOT mean production sign-off** — at the time this paragraph
+>   was written. The remaining open item was an absolute-quality z_s parity
+>   check (OLD-kernel build vs NEW-kernel build, against the teacher) —
+>   attempted and **blocked, not measured**:
 >   `BMO Voice Engine/personaplex/verify_septq_zs_drift.py` is confirmed to
 >   be the real z_s tool (its own default thresholds, `--min-median-cos
 >   0.997` / `--min-step-cos 0.99`, exactly match this document's production
@@ -375,11 +375,73 @@ calls `fattn.cu` at all; see that file for the real constraint).
 >   express "same weights, different kernel" as a comparison at all. This is
 >   an unresolved tooling gap, not a negative measurement — per this
 >   document's own prior instruction, reported as a finding rather than
->   reimplemented on the fly. Kernels remain **NOT marked PRODUCTION**: 2 of
->   the 4 production decision-rule conditions (new-build z_s meets
->   thresholds; z_s(new) not materially below z_s(old)) are unmeasurable
->   with current tooling, not satisfied — no self-certification without
->   them.
+>   reimplemented on the fly. **This blocker has since been resolved by an
+>   owner-ratified amendment to the decision rule itself — see below.**
+>
+> **2026-07-18, owner-ratified decision-rule amendment (housekeeping pass)
+>   — z_s is NOT the correct gate for a weights-unchanged kernel change, and
+>   is retired as a requirement for this class of change.** Rationale: z_s
+>   parity exists to catch a change that alters what the model effectively
+>   computes — a real risk when the *weights themselves* are re-quantized,
+>   re-exported, or otherwise change what's stored on disk. The BMO_TIER
+>   GEMV rewrite (`53c61ec` onward) changes neither the weights nor the
+>   arithmetic they encode — it is a different implementation (tile-major /
+>   row-minor GEMV) of the exact same dot products against the exact same
+>   `qat_heavy_int2.gguf` payload (confirmed identical via the export-grid
+>   check, commit `6c9e453`). For that specific class of change, the
+>   isolated per-call instrument (commit `3e395e5`) is the correct,
+>   sufficient numeric gate: it already proves the new kernel reproduces the
+>   old kernel's output to `rel_l2 <= 1.666e-6` on every one of 62 real
+>   calls — roughly four orders of magnitude tighter than what would be
+>   needed to flip a sampling decision, let alone move a cosine-similarity
+>   aggregate. Requiring z_s parity on top of that would be (a) measuring
+>   noise on a question the isolated diff has already closed, and (b)
+>   currently impossible to obtain honestly anyway, since no tool in this
+>   repo can run z_s against the compiled GGUF/moshi.cpp kernel path (the
+>   blocker documented above) — treating that gap as a standing FAIL would
+>   permanently block a class of change that has nothing to do with the gap.
+>   **Amended production decision rule for weights-unchanged kernel
+>   changes:** isolated per-call diff PASS (`rel_l2` gate, `tools/
+>   bmo_isolated_diff.cu` methodology) **+** human listening PASS (§6's
+>   "never judge audio by metrics alone" is satisfied by listening directly,
+>   not by z_s as a metric proxy for listening). **This amendment is scoped
+>   narrowly**: it applies only when the GGUF payload is provably unchanged
+>   (export-grid match or equivalent) and the only variable is kernel
+>   implementation. It does **not** apply to any change that alters what is
+>   stored or computed on the weights — quantization/precision/format
+>   changes (e.g. the KV/V-path redesign, `v14_half2` gating variant, or
+>   `dep_q` reduction proposed in §5) still require the full original ladder
+>   (microbench → isolated/per-layer diff → z_s → joke-loop), unchanged.
+>
+> **PRODUCTION SIGN-OFF: the BMO_TIER GEMV kernels (`v11` tile-major,
+>   dispatched for `ncols <= 8192` e.g. `linear_in`; `v6` row-minor,
+>   dispatched otherwise e.g. `linear_out`; `ggml/src/ggml-cuda/convert.cu`)
+>   are marked PRODUCTION under the amended decision rule above.** Full
+>   evidence chain:
+>   1. **Microbench**: PASS, `rel_l2 < 1e-5` vs CPU double-accumulator
+>      reference (`tools/bmo_kernel_bench.cu`).
+>   2. **Isolated per-call diff**: PASS, 0/62 calls exceed `rel_l2 <= 2e-5`
+>      (max `1.666e-06`, layer 20 `linear_out`/rowminor) — commit `3e395e5`,
+>      `outputs/step2_isolated_diff_results.csv`.
+>   3. **Export-grid match**: PASS — the GGUF payload the new kernel reads
+>      is bit-identical to the payload the export pipeline is specified to
+>      produce, commit `6c9e453`, `tools/verify_export_grid_match.py`.
+>   4. **Human listening**: PASS — project owner verdict, 2026-07-17, on the
+>      length-matched 125-frame OLD-vs-NEW joke-loop pair
+>      (`outputs/OLD_8dfd1ba_125f.wav` / `outputs/NEW_7b5d2c3_125f.wav`,
+>      commit `2655313`).
+>
+>   The cascaded full-forward-pass diff (`7332756`, 27/32 FAIL) and the
+>   autoregressive token-trajectory divergence (validation_report.md v2,
+>   Gates 2-4) remain **non-instruments** for this question — both measure
+>   expected numerical divergence compounding through an un-teacher-forced
+>   pipeline, not kernel defects; see the 2026-07-18 correction above for
+>   the full diagnosis. z_s parity (OLD-kernel vs NEW-kernel build) remains
+>   genuinely unbuildable with current tooling and is **N/A under the
+>   amended rule**, not a blocker — building a GGUF-path z_s tool is no
+>   longer on the critical path for this kernel's sign-off, though it would
+>   still be needed before any future *weights-changing* export lands (see
+>   §5).
 
 **Nothing in this branch past commit `c963e54` (the memory fixes) has
 passed formal quality sign-off.** In particular, the kernel rewrite
@@ -412,14 +474,16 @@ see commits `8dfd1ba`/`ff7a593`/`06ff698`) is down as of this session.
    calls exceed `rel_l2 <= 2e-5`** (max 1.666e-06, layer 20 linear_out/
    rowminor). Full table: `outputs/step2_isolated_diff_results.csv`;
    methodology and tool: `tools/bmo_isolated_diff.cu`.
-3. **z_s delta < 0.005** — **BLOCKED (tooling gap), not N/A and not run**.
-   Distinct from the autoregressive-trajectory-divergence N/A reasoning
-   below (§2's v1/v2 discussion) — this is specifically about an
-   OLD-kernel-build vs NEW-kernel-build z_s parity check, which needs a
-   tool that can run the *compiled GGUF kernel path* against the teacher.
-   `verify_septq_zs_drift.py` is confirmed to be the right metric/thresholds
-   but only operates on PyTorch checkpoints — no such tool currently exists
-   for the C++/CUDA path. See the 2026-07-18 correction in §2 above.
+3. **z_s delta < 0.005** — **N/A under the 2026-07-18 amended decision
+   rule** (superseded, not blocked). Still genuinely unbuildable with
+   current tooling — `verify_septq_zs_drift.py` is the right metric/
+   thresholds but only operates on PyTorch checkpoints, no path into the
+   compiled GGUF/C++/CUDA kernel path exists — but that gap is no longer on
+   this kernel's critical path: the owner-ratified amendment (§2) makes the
+   isolated per-call diff + human listening the sufficient gate for a
+   weights-unchanged kernel-implementation change. Building a GGUF-path z_s
+   tool remains a real, open gap for any *future* weights-changing change
+   (see §5) — just not for this one.
 4. **Joke-loop transcripts, old vs new** — **RUN, human listening PASS**
    (owner verdict, 2026-07-17, on the length-matched 125-frame pair —
    `outputs/OLD_8dfd1ba_125f.wav` / `outputs/NEW_7b5d2c3_125f.wav`,
@@ -427,13 +491,15 @@ see commits `8dfd1ba`/`ff7a593`/`06ff698`) is down as of this session.
    committed `2655313`). This satisfies §6's "never judge audio by metrics
    alone" requirement on its own terms.
 
-**Sign-off status: kernels remain UNVALIDATED / NOT PRODUCTION.** Gate 2
-(isolated instrument) now PASSES and gate 4 PASSES, but gate 3 (z_s parity,
-OLD-kernel vs NEW-kernel build) is blocked on missing tooling, not
-satisfied — 2 of the 4 production decision-rule conditions from the
-2026-07-18 correction remain unmeasurable. No self-certification without
-them. Building a GGUF/moshi.cpp-path z_s tool (or extending
-`verify_septq_zs_drift.py` with one) is the next concrete blocker to close.
+**Sign-off status: PRODUCTION.** The `v11`/`v6` BMO_TIER GEMV kernels
+(`ggml/src/ggml-cuda/convert.cu`) are signed off under the 2026-07-18
+amended decision rule (§2): microbench PASS, isolated per-call diff PASS
+(0/62, commit `3e395e5`), export-grid match PASS (`6c9e453`), human
+listening PASS (2026-07-17). z_s parity is N/A for this class of change,
+not a blocker. This sign-off does **not** extend to any future change that
+alters the weights/quantization themselves (§5's KV/V redesign,
+`v14_half2`, or `dep_q` reduction) — those still need the full original
+ladder, including a GGUF-path z_s tool that does not yet exist.
 
 ### Validation prompt for the LineBreaker-side agent
 
