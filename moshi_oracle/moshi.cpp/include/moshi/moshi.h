@@ -35,6 +35,11 @@ struct moshi_phase_timing_t {
 MOSHI_API moshi_phase_timing_t g_moshi_phase_timing;
 MOSHI_API void moshi_phase_timing_reset();
 
+// BMO_ATTN_DUMP (Phase-1 attention-numerics capture): serialize the stashed
+// temporal-layer-0 SDPA tensors (q, attn_bias, x, K/V caches) to dir.
+// Inert unless the BMO_ATTN_DUMP env var armed the stash at model build.
+MOSHI_API void moshi_debug_attn_dump( const char * dir );
+
 // MARK: Moshi Context
 
 struct moshi_context_t;

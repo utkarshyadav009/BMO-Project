@@ -407,6 +407,99 @@ moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
     return state;
 }
 
+/*****************************************************************************\
+ * BMO_ATTN_DUMP — Phase-1 numerics instrumentation (env-gated, inert when
+ * unset). At graph-build time the first self-attention layer whose context
+ * matches BMO_ATTN_DUMP_CTX (default 256 = the temporal transformer under
+ * the standard bench -c 256) stashes its SDPA graph nodes (q, attn_bias,
+ * raw attention output x) plus the persistent KV cache tensors, and marks
+ * the transient nodes (and their view roots) as graph outputs so ggml-alloc
+ * gives them dedicated buffers instead of recycling them for later nodes in
+ * the same graph. moshi_debug_attn_dump() serializes all five post-compute.
+ * Pointer stash + output flags only — arithmetic is untouched.
+\*****************************************************************************/
+
+struct moshi_attn_dump_stash_t {
+    ggml_tensor * q = NULL;
+    ggml_tensor * attn_bias = NULL;
+    ggml_tensor * x = NULL;
+    ggml_tensor * keys = NULL;
+    ggml_tensor * values = NULL;
+    bool armed = false;
+};
+moshi_attn_dump_stash_t g_moshi_attn_dump_stash;
+
+static void moshi_attn_dump_mark_output( ggml_tensor * t ) {
+    ggml_set_output( t );
+    while ( t->view_src ) {
+        t = t->view_src;
+        ggml_set_output( t );
+    }
+}
+
+static void moshi_attn_dump_stash_maybe( moshi_smha_t * attn,
+        moshi_smha_state_t * state, ggml_tensor * q, ggml_tensor * attn_bias,
+        ggml_tensor * x ) {
+    auto & st = g_moshi_attn_dump_stash;
+    if ( st.armed || ! state->kv_cache || ! attn_bias )
+        return;
+    const char * e = getenv( "BMO_ATTN_DUMP" );
+    if ( ! e || ! e[0] )
+        return;
+    const char * c = getenv( "BMO_ATTN_DUMP_CTX" );
+    int want_ctx = c ? atoi( c ) : 256;
+    if ( attn->context != want_ctx )
+        return;
+    st.q = q;
+    st.attn_bias = attn_bias;
+    st.x = x;
+    st.keys = state->kv_cache->keys;
+    st.values = state->kv_cache->values;
+    moshi_attn_dump_mark_output( q );
+    moshi_attn_dump_mark_output( attn_bias );
+    moshi_attn_dump_mark_output( x );
+    st.armed = true;
+}
+
+static void moshi_attn_dump_write_one( const char * dir, const char * name,
+        ggml_tensor * t, FILE * meta ) {
+    fprintf( meta, "%s type=%d ne=%lld,%lld,%lld,%lld nb=%zu,%zu,%zu,%zu nbytes=%zu\n",
+        name, (int) t->type,
+        (long long) t->ne[0], (long long) t->ne[1],
+        (long long) t->ne[2], (long long) t->ne[3],
+        t->nb[0], t->nb[1], t->nb[2], t->nb[3], ggml_nbytes( t ) );
+    std::vector<uint8_t> buf( ggml_nbytes( t ) );
+    ggml_backend_tensor_get( t, buf.data(), 0, buf.size() );
+    std::string path = std::string( dir ) + "/" + name + ".bin";
+    FILE * f = fopen( path.c_str(), "wb" );
+    if ( ! f ) {
+        fprintf( stderr, "moshi_debug_attn_dump: cannot open %s\n", path.c_str() );
+        return;
+    }
+    fwrite( buf.data(), 1, buf.size(), f );
+    fclose( f );
+}
+
+void moshi_debug_attn_dump( const char * dir ) {
+    auto & st = g_moshi_attn_dump_stash;
+    if ( ! st.armed ) {
+        fprintf( stderr, "moshi_debug_attn_dump: stash not armed\n" );
+        return;
+    }
+    std::string meta_path = std::string( dir ) + "/meta.txt";
+    FILE * meta = fopen( meta_path.c_str(), "w" );
+    if ( ! meta ) {
+        fprintf( stderr, "moshi_debug_attn_dump: cannot open %s\n", meta_path.c_str() );
+        return;
+    }
+    moshi_attn_dump_write_one( dir, "q", st.q, meta );
+    moshi_attn_dump_write_one( dir, "attn_bias", st.attn_bias, meta );
+    moshi_attn_dump_write_one( dir, "x", st.x, meta );
+    moshi_attn_dump_write_one( dir, "keys", st.keys, meta );
+    moshi_attn_dump_write_one( dir, "values", st.values, meta );
+    fclose( meta );
+}
+
 void init( ScratchContext * scratch_ctx, moshi_smha_state_t * state,
         moshi_smha_t * attn, ggml_tensor * condition_cross ) {
     if ( condition_cross && attn->cache_cross_attention ) {
@@ -670,6 +763,8 @@ ggml_tensor * moshi_streaming_multihead_attention(
     auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
 
+    moshi_attn_dump_stash_maybe( attn, state, q, attn_bias, x );
+
     if ( hadamard ) {
         x = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, x ) );
     }
@@ -842,6 +937,8 @@ ggml_tensor * moshi_streaming_multihead_attention(
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
     auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
+
+    moshi_attn_dump_stash_maybe( attn, state, q, attn_bias, x );
 
     if ( hadamard ) {
         x = ggml_mul_mat( ctx, hadamard, ggml_cont( ctx, x ) );

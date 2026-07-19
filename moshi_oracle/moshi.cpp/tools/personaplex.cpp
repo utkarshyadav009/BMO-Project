@@ -1492,6 +1492,20 @@ int main(int argc, char *argv[]) {
                 fflush(stdout);
             }
 
+            // BMO_ATTN_DUMP: Phase-1 attention-numerics capture — serialize
+            // the stashed temporal layer-0 SDPA tensors once at frame 300
+            // (KV ring saturated at the standard -c 256). The temporal
+            // graph's buffers still hold frame-300 values here: depformer
+            // and mimi run in separate graph/scratch contexts.
+            if ( bench && lm_frames == 300 ) {
+                const char * attn_dump_dir = getenv( "BMO_ATTN_DUMP" );
+                if ( attn_dump_dir && attn_dump_dir[0] ) {
+                    moshi_debug_attn_dump( attn_dump_dir );
+                    printf( "\nATTN_DUMP_DONE\n" );
+                    fflush( stdout );
+                }
+            }
+
             if ( bench && lm_frames >= 1250 ) {
                 break;
             }
