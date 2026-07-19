@@ -622,6 +622,19 @@ document.
   This has been the explicit instruction on every phase of this project
   and is why the git history above is many small, single-purpose commits
   rather than a few large ones.
+- **Swap-health rule: flat + `majflt` 0, not an absolute-byte threshold.**
+  A run's swap behavior is judged by two conditions together — swap usage
+  **flat** across the run (no growth over time) **and** major page faults
+  (`majflt_sum_window`, logged every 25 frames per §7) at **zero** — not by
+  comparing swap's absolute MiB figure to some target. A **~400 MB
+  structural baseline** of swap-classified memory has been observed at
+  steady state and is expected, not a leak or a regression on its own —
+  judge only whether that number moves and whether `majflt` stays at 0. A
+  run showing flat swap at any baseline level (§1's 2 MiB steady-decode
+  figure and this ~400 MB structural figure are both consistent with this
+  rule) with zero major faults passes; a run where swap grows over time or
+  `majflt` is nonzero does not, regardless of the absolute MiB number at
+  any single sample point.
 
 ---
 
@@ -899,20 +912,96 @@ risk if done as a pure kernel rewrite** (same arithmetic, same weights,
 same op) — same validation pattern as the GEMV rewrite (microbench first,
 rel_l2 gate, then integrate).
 
-### (b) depformer shared-attn INT4 export — ~24-33 ms, QUALITY-GATED
-`t_depformer` is 53.2 ms for 16 substeps (~3.325 ms/substep), dominated by
-weight traffic (~3.94 GiB/frame re-read across the depformer's 16
-sequential per-codebook attention steps, since each substep re-reads the
-shared attention weights). Exporting those weights as INT4 (they are
-currently a higher-precision format — check `moshi.cpp/src/moshi/models/lm.h`
-`moshi_lmmodel_forward_depformer_transform` for the current tensor
-handling) would cut that traffic roughly in proportion to bit-width, an
-estimated 24-33 ms reduction. **This is QUALITY-GATED — full validation
-ladder (§2) required before this lands**, unlike (a): unlike a kernel
-rewrite that preserves the same arithmetic on the same weights, a
-precision *export* changes the actual numbers the model computes with,
-so it needs the full microbench → residual-diff → z_s → joke-loop chain,
-not just a kernel-correctness check.
+**2026-07-18 note (housekeeping pass, not evaluated as part of this
+update):** five commits merged into this branch from `origin` during this
+session's repo-sync fix (`a8ad0b9`, `d6910d2`, `f84d143`, `b0e525b`,
+`7ce78cf`) land real work on exactly this item — a `conv_transpose_1d`
+GEMM+gather kernel replacement plus a bit-exact fused-gather follow-up and
+a `mimi_conv_bench` microbench tool, done directly against `origin` outside
+this document's own tracked session history. Not reviewed, run, or
+validated as part of this housekeeping pass — flagged here only so this
+item isn't read as untouched. Whoever picks this up next should check
+those commits' own state (bench results, validation status) before
+assuming (a) is still purely a roadmap entry.
+
+### (b) ~~depformer shared-attn INT4 export~~ — DELETED 2026-07-18, already Q4_0
+**This item is wrong and is deleted, not just superseded.** It assumed
+depformer shared-attention weights are "currently a higher-precision
+format." They are not: `moshi_oracle/KERNEL_FAMILY_MAP.md` (commit
+`df3b1dc`, code/GGUF-tensor-type analysis) traces `depformer_layers_{0..5}
+_self_attn_{in,out}_proj_weight`, `depformer_layers_{0..5}_gating_{0..15}
+_linear_{in,out}_weight`, and `depformer_in.{0..15}.weight` all to
+`mul_mat_vec_q<GGML_TYPE_Q4_0>` dispatch (family 1 in that doc's table,
+529 calls/frame, 401 of them weight-linear) — i.e. already 4-bit,
+block-quantized, in the shipped GGUF. This matches the independent,
+Jetson-target optimization note in `moshi_oracle/handoff.md` ("Embeddings &
+Depth Stack: Block-wise quantized to `Q4_0`"). **Both citations are
+code/config-level (Estimated, not a decoded profiler trace — no `nsys`
+export was found in this checkout to cite as a runtime artifact; the two
+raw `.qdstrm` captures under `moshi_oracle/` predate this finding and were
+not decoded here for lack of the `nsys` CLI in this environment)**, but
+they agree with each other and with the GGUF's own tensor metadata, which
+is the authoritative source for "what format is this weight in." There is
+no INT4-export gap to close here — an "export as INT4" task against
+already-INT4 weights would be a no-op. Replaced below with the three real
+options in this area.
+
+### (b) KV/V-path redesign — eliminate the per-frame V-cache dequant copy, QUALITY-GATED, changes arithmetic
+`moshi_oracle/KERNEL_FAMILY_MAP.md` §4/§7 (commit `df3b1dc`) documents that
+K is already read directly from quantized (`Q4_0`) cache storage by the
+attention GEMV (`mul_mat_vec_q`), but V is dequantized to an f32 scratch
+buffer every frame, full cache capacity, for both temporal (cap 3000) and
+depformer (cap 8) — `ggml_cpy_q4_0_f32_cuda`, family 4, 128 calls/frame.
+This is **structural, not an oversight**: `ggml_cuda_cpy` has no
+non-contiguous `Q4_0→Q4_0` branch (`cpy.cu:460-605`), so a quantized tensor
+cannot be transposed-then-made-contiguous without dequantizing first, and
+this model's hand-rolled SDPA (`torch_nn_functional_scaled_dot_product_
+attention_custom`, `torch.h:236-247`) needs V transposed for its second
+`ggml_mul_mat`. **Not a drop-in `fattn.cu` flash-attention swap** — this
+model's attention never calls `ggml_flash_attn_ext` at all, so the
+quantized-KV flash-attention cases in `fattn.cu` are unreachable code here;
+adopting them would mean replacing the entire hand-rolled SDPA, a larger
+and riskier change than this item. The real option is narrower: store V
+transposed *and* quantized at cache-write time, and read it via a
+dedicated "quantized-V, transposed-read" GEMV variant (analogous to what
+`mmvq.cu` already does for K) instead of the current dequant-to-scratch
+copy — genuine kernel design work, not a dispatch flip. **QUALITY-GATED**:
+this changes what's computed (a new quantized-domain accumulation path for
+V, not just a faster implementation of the existing arithmetic), so it is
+explicitly **outside** the 2026-07-18 decision-rule amendment in §2 (that
+amendment covers weights-unchanged kernel swaps only) and requires the
+full original ladder — microbench → per-layer diff → z_s → joke-loop —
+including a GGUF-path z_s tool that does not yet exist (§2).
+
+### (c) `v14_half2` gating GEMV variant — QUALITY-GATED, changes arithmetic, rel_l2=7.06e-4 (measured)
+DP4A round-2 bench (commit `abcb55a`) added `v14_half2`: no integer
+quantization of activations, FP16 throughout, `__hfma2` SIMD accumulation.
+**Measured**: `rel_l2 = 7.058816e-04` against the CPU double-accumulator
+reference, under its `<1e-3` gate, and substantially better than `v12`/`v13`
+int8-quantized-activation variants (`8.93e-3` / `8.93e-3`, both FAIL a
+`<1e-3` gate, confirmed to agree with each other to 5-6 significant figures
+— genuine int8-activation quantization cost, not a bug). GB/s: 169
+(Measured, H100). Passing its own microbench gate does **not** exempt it
+from the full ladder: it changes the numeric computation path (FP16
+accumulation instead of the current scheme), which is a different question
+from "does this implementation compute the same thing the old
+implementation computes" (the question the 2026-07-18 amendment answers for
+the already-shipped `v11`/`v6` kernels). Treat as QUALITY-GATED, same as
+(b), until it clears per-layer diff + z_s + listening.
+
+### (d) `dep_q` 16→8 — owner-level product knob, not an engineering optimization
+`dep_q` (depformer substeps/frame, currently 16 per
+`KERNEL_FAMILY_MAP.md` §2/config) sets the number of audio codebooks
+generated per frame. Halving it to 8 would roughly halve `t_depformer`'s
+53.2 ms, but it directly reduces the audio codec's own richness/quality
+ceiling — this is not a "same output, faster" change like (a) or a
+"different implementation, same numbers" change like the already-shipped
+kernel rewrite. It is a product tradeoff (speed vs. audio fidelity) that
+only the project owner can authorize, and even if authorized it would still
+need the full validation ladder (it changes the model's actual output, not
+just how fast a fixed computation runs) plus an explicit owner listening
+comparison at the reduced codebook count specifically. Documented here as
+an available lever, not queued as engineering work.
 
 ### (c) temporal ~60 ms unattributed
 Even after the GEMV rewrite, `t_temporal` (124.3 ms) is larger than the
