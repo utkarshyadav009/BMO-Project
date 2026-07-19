@@ -47,7 +47,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                 /*.weights_per_step=*/ 0,
                 /*.weights_per_step_schedule=*/ {},
                 /*.in_projs=*/ {new torch_nn_linear_t},
-                /*.out_projs=*/ {new torch_nn_linear_t}
+                /*.out_projs=*/ {new torch_nn_linear_t},
+                /*.use_flash_attn=*/ true
             },
             /*.layer_scale_1=*/ NULL,
             /*.norm_cross=*/ norm_cross,

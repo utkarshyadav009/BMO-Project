@@ -370,6 +370,13 @@ struct moshi_smha_t {
     std::vector<int> weights_per_step_schedule;
     own_ptr_vector<torch_nn_linear_t> in_projs;
     own_ptr_vector<torch_nn_linear_t> out_projs;
+    // Route this attention's decode-shape SDPA through ggml_flash_attn_ext
+    // (fused q4_0/q4_0 fattn-vec: no whole-cache V dequant, no V transpose).
+    // Opt-in per consumer; the graph-build branch additionally requires
+    // T==1, q4_0 K and V, unpadded head dim, ctx % FATTN_KQ_STRIDE == 0 and
+    // an F16 mask, else the original chain is built. Set for the temporal
+    // transformer only (Phase 2, one consumer at a time).
+    bool use_flash_attn = false;
 };
 
 struct moshi_smha_state_t {
@@ -728,6 +735,35 @@ ggml_tensor * moshi_streaming_multihead_attention(
             indices, k, v );
     }
 
+    // fattn fast path (Phase 2, flag-gated per consumer): fused attention
+    // over the native q4_0 K/V ring — no whole-cache V dequant, no V
+    // transpose. Conditions mirror ggml_cuda_get_best_fattn_kernel's
+    // vec-kernel requirements on this platform (D=64/128 instances exist for
+    // q4_0/q4_0; ctx must be a FATTN_KQ_STRIDE=256 multiple; T==1 decode
+    // shape; F16 additive mask). Anything else builds the original chain.
+    bool use_fattn = attn->use_flash_attn
+        && q->ne[1] == 1
+        && k->type == GGML_TYPE_Q4_0
+        && v->type == GGML_TYPE_Q4_0
+        && k->ne[0] == q->ne[0]
+        && ( k->ne[1] % 256 ) == 0
+        && attn_bias && attn_bias->type == GGML_TYPE_F16;
+
+    ggml_tensor * x = NULL;
+    if ( use_fattn ) {
+        float kq_scale = 1.f / sqrtf( (float) q->ne[0] );
+        x = ggml_flash_attn_ext( ctx, q, k, v, attn_bias, kq_scale, 0.f, 0.f );
+        // fattn output is [D, H, T, B] contiguous — d fastest, then h, which
+        // IS the "b t (h d)" order; reshape only, no transpose.
+        if ( hadamard ) {
+            x = ggml_mul_mat( ctx, hadamard, x );
+        }
+        x = ggml_reshape_3d( ctx, x,
+            x->ne[0] * x->ne[1],
+            x->ne[2],
+            x->ne[3] );
+    } else {
+
     if ( k->type != q->type ) {
         if ( ggml_is_quantized( k->type ) ) {
             // For future 2-bit / custom-2bit types, we might need to dequantize K on the read path
@@ -760,7 +796,7 @@ ggml_tensor * moshi_streaming_multihead_attention(
     assert( attn_bias || ! attn->causal );
 
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
-    auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
+    x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
 
     moshi_attn_dump_stash_maybe( attn, state, q, attn_bias, x );
@@ -777,6 +813,8 @@ ggml_tensor * moshi_streaming_multihead_attention(
         x2->ne[0] * x2->ne[1],
         x2->ne[2],
         x2->ne[3] );
+
+    }
 
     x = moshi_apply_weights_per_step_linear( ctx,
         attn->out_projs, attn->weights_per_step_schedule,
@@ -903,6 +941,35 @@ ggml_tensor * moshi_streaming_multihead_attention(
     }
 
 
+    // fattn fast path (Phase 2, flag-gated per consumer): fused attention
+    // over the native q4_0 K/V ring — no whole-cache V dequant, no V
+    // transpose. Conditions mirror ggml_cuda_get_best_fattn_kernel's
+    // vec-kernel requirements on this platform (D=64/128 instances exist for
+    // q4_0/q4_0; ctx must be a FATTN_KQ_STRIDE=256 multiple; T==1 decode
+    // shape; F16 additive mask). Anything else builds the original chain.
+    bool use_fattn = attn->use_flash_attn
+        && q->ne[1] == 1
+        && k->type == GGML_TYPE_Q4_0
+        && v->type == GGML_TYPE_Q4_0
+        && k->ne[0] == q->ne[0]
+        && ( k->ne[1] % 256 ) == 0
+        && attn_bias && attn_bias->type == GGML_TYPE_F16;
+
+    ggml_tensor * x = NULL;
+    if ( use_fattn ) {
+        float kq_scale = 1.f / sqrtf( (float) q->ne[0] );
+        x = ggml_flash_attn_ext( ctx, q, k, v, attn_bias, kq_scale, 0.f, 0.f );
+        // fattn output is [D, H, T, B] contiguous — d fastest, then h, which
+        // IS the "b t (h d)" order; reshape only, no transpose.
+        if ( hadamard ) {
+            x = ggml_mul_mat( ctx, hadamard, x );
+        }
+        x = ggml_reshape_3d( ctx, x,
+            x->ne[0] * x->ne[1],
+            x->ne[2],
+            x->ne[3] );
+    } else {
+
     if ( k->type != q->type ) {
         if ( ggml_is_quantized( k->type ) ) {
             // For future 2-bit / custom-2bit types, we might need to dequantize K on the read path
@@ -935,7 +1002,7 @@ ggml_tensor * moshi_streaming_multihead_attention(
     assert( attn_bias || ! attn->causal );
 
     //x = nn.functional.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
-    auto x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
+    x = torch_nn_functional_scaled_dot_product_attention_custom( ctx,
         q, k, v, attn_bias );//, dropout_p=0.0);
 
     moshi_attn_dump_stash_maybe( attn, state, q, attn_bias, x );
@@ -952,6 +1019,8 @@ ggml_tensor * moshi_streaming_multihead_attention(
         x2->ne[0] * x2->ne[1],
         x2->ne[2],
         x2->ne[3] );
+
+    }
 
     x = torch_nn_linear( ctx, attn->out_projs[0], x );
 
@@ -1550,8 +1619,15 @@ ggml_tensor * moshi_streaming_transformer_graph_build(
 
     // attn_bias
     create_bias_pattern( gctx.backend, m->pattern, capacity, (int) T, 0, -INFINITY );
+    // fattn consumers need the mask in F16 (fattn-common.cuh asserts it);
+    // the per-frame ggml_cpy from the F32 pattern view converts, and the
+    // only values are 0/-inf — both exact in F16, so the fallback
+    // soft_max_ext path reads identical bias values either way.
+    bool bias_f16 = ! m->layers.empty()
+        && m->layers[0]->self_attn
+        && m->layers[0]->self_attn->use_flash_attn;
     states->graph.attn_bias = gctx.new_tensor(
-        GGML_TYPE_F32, GGML_NE( capacity, T ) );
+        bias_f16 ? GGML_TYPE_F16 : GGML_TYPE_F32, GGML_NE( capacity, T ) );
 
     // offset for timestep_embedding
     timestep_embedding_t tsemb = { NULL, NULL };
