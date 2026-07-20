@@ -111,3 +111,13 @@ Node 0, zone   Normal   4177   2674   1560   1055    770    471    233    124   
 PREFLIGHT_PARSED: free_MiB=7070 total_MiB=7620 large_block_MiB(order>=10, all zones)=6444
 PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
 PREFLIGHT: PASS
+=== 2026-07-19T20:43:36Z ===
+PREFLIGHT_SERVICES: stopping bmo_app.service burningtruth_app.service burningtruth_tunnel.service packagekit.service snapd.service snapd.socket
+PREFLIGHT_SERVICES: all competing services confirmed inactive
+PREFLIGHT_TEGRASTATS_SAMPLE: 07-19-2026 21:43:47 RAM 531/7620MB (lfb 12x4MB) SWAP 0/4096MB (cached 0MB) CPU [0%@1728,0%@1728,0%@1728,0%@1728,0%@1728,0%@1728] EMC_FREQ 0%@3199 GR3D_FREQ 0%@[1015] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@55.718C soc2@55C soc0@56.875C gpu@55.906C tj@56.875C soc1@56.25C VDD_IN 8859mW/8859mW VDD_CPU_GPU_CV 1697mW/1697mW VDD_SOC 3638mW/3638mW
+PREFLIGHT_BUDDYINFO:
+Node 0, zone      DMA      0      0      0      0      0      1      1      1      1      2      2      2    118 
+Node 0, zone   Normal   4867   2761   1694   1129    799    459    271    148     53     32     10      3    280 
+PREFLIGHT_PARSED: free_MiB=7089 total_MiB=7620 large_block_MiB(order>=10, all zones)=6456
+PREFLIGHT_GATE: require free_MiB>=5500 AND large_block_MiB>=512
+PREFLIGHT: PASS
