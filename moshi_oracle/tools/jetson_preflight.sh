@@ -17,9 +17,12 @@
 # cloudflared tunnel, packagekit, snapd) plus the coding-agent process itself
 # (~380 MiB RSS) each independently tipped a passing-preflight boot into
 # NvMap error-12 OOM crashes at layer 25/26/28. Preflight therefore now stops
-# those services and FAILS if any survive. They are NOT restarted here —
-# restart manually after the measurement run:
-#   sudo systemctl start bmo_app.service burningtruth_app.service burningtruth_tunnel.service
+# those services and FAILS if any survive. Amended 2026-07-20 after a
+# layer-25 OOM on a fresh preflight-PASS boot: bmo_tunnel.service (the
+# BMO-LabelData cloudflared, distinct from burningtruth_tunnel) and
+# jtop.service survived the original list and consumed the load margin.
+# They are NOT restarted here — restart manually after the measurement run:
+#   sudo systemctl start bmo_app.service bmo_tunnel.service burningtruth_app.service burningtruth_tunnel.service jtop.service
 #
 # GATE NOTE (revised after direct measurement on this hardware): tegrastats'
 # "lfb NxSIZE" field reports only order-10 (4 MiB) blocks, capped there
@@ -62,8 +65,10 @@ echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 # See SERVICE NOTE in the header for why this exists and how to restart them.
 COMPETING_UNITS=(
     bmo_app.service
+    bmo_tunnel.service
     burningtruth_app.service
     burningtruth_tunnel.service
+    jtop.service
     packagekit.service
     snapd.service
     snapd.socket
