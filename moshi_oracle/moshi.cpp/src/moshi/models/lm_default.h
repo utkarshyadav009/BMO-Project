@@ -113,7 +113,8 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
                     /*.weights_per_step=*/ weights_per_step,
                     /*.weights_per_step_schedule=*/ {},
                     /*.in_projs=*/ {},
-                    /*.out_projs=*/ {}
+                    /*.out_projs=*/ {},
+                    /*.use_flash_attn=*/ true
                 },
                 /*.layer_scale_1=*/ NULL,
                 /*.norm_cross=*/ NULL,

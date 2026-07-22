@@ -175,6 +175,12 @@ struct bias_pattern_t {
     int t;
     int start; // = pattern->capacity * 2 - pattern->t
     own_ctx_tensor tensor;
+    // fattn companion (see create_bias_pattern's padded_f16_width): one
+    // complete [padded_width, 1] F16 mask column per distinct offset
+    // 0..capacity-1 — live slice values identical to bias_pattern_index's
+    // F32 view, tail rows permanently `lo` (the ring-pad mask).
+    own_ctx_tensor tensor_f16p;
+    int padded_width = 0;
 };
 
 int g_bias_pattern = 0;
@@ -183,7 +189,8 @@ void create_bias_pattern(
         bias_pattern_t & pattern,
         int capacity,
         int t,
-        float hi = 1.f, float lo = 0.f
+        float hi = 1.f, float lo = 0.f,
+        int padded_f16_width = 0
 ) {
     auto & tensor = pattern.tensor;
     int start = capacity * 2 - t;
@@ -210,7 +217,50 @@ void create_bias_pattern(
         }
     }
     ggml_backend_tensor_set( tensor, values.data(), 0, ggml_nbytes( tensor ) );
+
+    // fattn padded-F16 companion: built from the SAME host values so the
+    // live-slice math cannot drift from the F32 table. T==1 only (the baked
+    // decode shape); offsets beyond capacity never occur in baked graphs.
+    pattern.padded_width = padded_f16_width;
+    if ( padded_f16_width > 0 ) {
+        assert( t == 1 && "padded F16 bias pattern is decode-shape (t==1) only" );
+        assert( padded_f16_width >= capacity );
+        // One column per baked decode offset 0..2*capacity-1, using the SAME
+        // offset->column mapping as bias_pattern_index (incl. the wraparound
+        // branch — the depformer bakes offsets up to weights_per_step-1,
+        // which exceeds its capacity).
+        int n_offsets = 2 * capacity;
+        auto & tf = pattern.tensor_f16p;
+        tf.new_tensor( GGML_NE( padded_f16_width, n_offsets ), GGML_TYPE_F16, backend );
+        std::vector<ggml_fp16_t> pv( (size_t) padded_f16_width * n_offsets );
+        for ( int o = 0; o < n_offsets; o++ ) {
+            int col = ( o <= capacity ) ? ( start - o )
+                                        : ( capacity - ( o % capacity ) );
+            for ( int i = 0; i < padded_f16_width; i++ ) {
+                float v = ( i < capacity ) ? values[ col + i ] : lo;
+                pv[ (size_t) o * padded_f16_width + i ] = ggml_fp32_to_fp16( v );
+            }
+        }
+        ggml_backend_tensor_set( tf, pv.data(), 0, ggml_nbytes( tf ) );
+    }
     g_bias_pattern++;
+}
+
+// fattn mask lookup: [padded_width, 1] F16 view for a baked decode offset.
+ggml_tensor * bias_pattern_index_padded_f16(
+        ggml_context * ctx,
+        bias_pattern_t & pattern,
+        int offset
+) {
+    assert( pattern.padded_width > 0 );
+    assert( offset < 2 * pattern.capacity ); // table covers the baked offsets only
+    int o = offset;
+    auto & tf = pattern.tensor_f16p;
+    auto view = ggml_view_2d( ctx, tf,
+        pattern.padded_width, 1,
+        tf->nb[1],
+        o * tf->nb[1] );
+    return ggml_cont( ctx, view );
 }
 
 ggml_tensor * bias_pattern_index(

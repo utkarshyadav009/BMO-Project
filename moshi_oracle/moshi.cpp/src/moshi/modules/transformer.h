@@ -396,6 +396,18 @@ moshi_smha_state_t * moshi_smha_state( StateContext * state_ctx,
             state_ctx->add_hadamard( dim_per_head );
         }
         int capacity = attn->context? attn->context : attn->weights_per_step;
+        // fattn consumers pad the KV ring to the next FATTN_KQ_STRIDE(256)
+        // multiple: the vec kernel requires n_kv % 256 == 0. Rows past the
+        // live ring are never written (write indices stay % live capacity),
+        // decode to zero (fill_quant zero blocks), and carry a permanent
+        // -inf mask, so both attention paths weight them zero. No-op for
+        // the temporal consumer at the standard -c 256.
+        // Small rings only: large rings (temporal) must be native 256
+        // multiples — padding those would desync the graph-path bias width
+        // and break the T>1 prefill masks; non-multiples there keep the
+        // documented graceful fallback instead.
+        if ( attn->use_flash_attn && capacity < 256 )
+            capacity = GGML_PAD( capacity, 256 );
         int batch_size = 1;
         state->kv_cache = moshi_kv_cache_state( state_ctx, dim_per_head, capacity, num_heads,
             batch_size );
@@ -1582,7 +1594,28 @@ ggml_tensor * moshi_streaming_transformer(
 
     int64_t T = x->ne[1];
 
-    auto attn_bias = get_attn_bias( ctx, &m->pattern, capacity, T, offset );
+    // fattn consumers (depformer): padded F16 masks so the vec kernel's
+    // n_kv % 256 == 0 constraint is met by a ring padded to 256 slots with
+    // a permanently masked tail (moshi_smha_state pads the cache to match).
+    // Only the baked decode shape (T==1, offset within the live ring)
+    // qualifies; anything else keeps the F32 path and the smha falls back
+    // to the original chain.
+    bool fattn_bias = ! m->layers.empty()
+        && m->layers[0]->self_attn
+        && m->layers[0]->self_attn->use_flash_attn
+        && capacity < 256                 // small rings only, mirrors the cache pad
+        && T == 1 && offset < 2 * capacity;
+    ggml_tensor * attn_bias;
+    if ( fattn_bias ) {
+        if ( ! m->pattern.tensor )
+            create_bias_pattern( ctx.backend, m->pattern, capacity, (int) T,
+                0, -INFINITY, (int) GGML_PAD( capacity, 256 ) );
+        attn_bias = ( m->pattern.padded_width > 0 )
+            ? bias_pattern_index_padded_f16( ctx, m->pattern, offset )
+            : get_attn_bias( ctx, &m->pattern, capacity, T, offset );
+    } else {
+        attn_bias = get_attn_bias( ctx, &m->pattern, capacity, T, offset );
+    }
 
     timestep_embedding_t tsemb = { NULL, NULL };
     if ( rope_max_period ) {
