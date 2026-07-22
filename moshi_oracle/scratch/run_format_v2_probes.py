@@ -35,6 +35,23 @@ def get_gating_tensor_names(state_dict):
             names.append(k)
     return sorted(names)
 
+def quantize_pertensor_tier_map(weight, mask):
+    w_flat = weight.detach().float()
+    m_flat = mask.detach()
+    w_out = w_flat.clone()
+    
+    for t_val, n_levels in [(1, 3.0), (2, 15.0), (3, 255.0)]:
+        is_t = (m_flat == t_val)
+        if is_t.any():
+            w_sub = w_flat[is_t]
+            w_max, w_min = w_sub.max(), w_sub.min()
+            scale = ((w_max - w_min) / n_levels).clamp_min(1e-8)
+            zp = torch.round(-w_min / scale)
+            q = torch.clamp(torch.round(w_flat / scale + zp), 0, int(n_levels))
+            deq = scale * (q - zp)
+            w_out = torch.where(is_t, deq, w_out)
+    return w_out.to(weight.dtype)
+
 def quantize_block32_tier_map_vectorized(weight, mask, block_size=32):
     R, C = weight.shape
     w_flat = weight.detach().float()
@@ -129,10 +146,19 @@ def evaluate_candidate(candidate_type, mix_name, mix_config, out_temp_path, qat_
     print(f"[PREPARE] Building {candidate_type} ({mix_name}) -> {out_temp_path}", flush=True)
     print(f"=======================================================", flush=True)
     
-    # Create fresh state_dict copy from qat_template
     state_dict = {k: v.clone() for k, v in qat_template["state_dict"].items()}
     
-    if candidate_type == "Candidate A Proxy":
+    if candidate_type == "Current Format Control":
+        tier_masks = base_ckpt["tier_masks_uint2"]
+        gating_names = get_gating_tensor_names(state_dict)
+        for name in gating_names:
+            w = state_dict[name]
+            mask_packed = tier_masks[name]
+            mask_uint2 = unpack_tier_mask_uint2(mask_packed, target_shape=(w.shape[0], w.shape[1]))
+            state_dict[name] = quantize_pertensor_tier_map(w, mask_uint2)
+        print(f"[BUILD] Re-quantized {len(gating_names)} gating tensors with Per-Tensor scales (Current Format PTQ).", flush=True)
+
+    elif candidate_type == "Candidate A Proxy":
         tier_masks = base_ckpt["tier_masks_uint2"]
         gating_names = get_gating_tensor_names(state_dict)
         for name in gating_names:
@@ -141,6 +167,7 @@ def evaluate_candidate(candidate_type, mix_name, mix_config, out_temp_path, qat_
             mask_uint2 = unpack_tier_mask_uint2(mask_packed, target_shape=(w.shape[0], w.shape[1]))
             state_dict[name] = quantize_block32_tier_map_vectorized(w, mask_uint2, block_size=32)
         print(f"[BUILD] Re-quantized {len(gating_names)} gating tensors with Block-32 scales.", flush=True)
+
     elif candidate_type == "Candidate B PTQ":
         modified_count = 0
         for layer_idx in range(31):
@@ -162,13 +189,11 @@ def evaluate_candidate(candidate_type, mix_name, mix_config, out_temp_path, qat_
                     modified_count += 1
         print(f"[BUILD] Re-quantized {modified_count} gating tensors for Candidate B ({mix_name}).", flush=True)
 
-    # Save to temp path
     eval_payload = {k: v for k, v in qat_template.items() if k != "state_dict"}
     eval_payload["state_dict"] = state_dict
     torch.save(eval_payload, out_temp_path)
     print(f"[SAVED] Temp checkpoint saved to {out_temp_path}.", flush=True)
 
-    # Run z_s evaluation
     print(f"[EVAL] Starting z_s drift probe for {candidate_type} - {mix_name}...", flush=True)
     payload = run_zs_drift(
         teacher_ckpt=TEACHER_CKPT,
@@ -201,7 +226,6 @@ def evaluate_candidate(candidate_type, mix_name, mix_config, out_temp_path, qat_
     }
     print(f"[RESULT] {res['label']} -> cos_median={res['cos_median']:.6f} cos_min={res['cos_min']:.6f} cos_mean={res['cos_mean']:.6f} first_below={res['first_layer_below']}", flush=True)
     
-    # Cleanup temp file
     if os.path.exists(out_temp_path):
         os.remove(out_temp_path)
         
@@ -219,7 +243,18 @@ def main():
 
     results = []
 
-    # 1. Candidate A Proxy Probe
+    # 1. Current Format PTQ Control
+    res_ctrl = evaluate_candidate(
+        candidate_type="Current Format Control",
+        mix_name="Per-Tensor Scales PTQ",
+        mix_config={},
+        out_temp_path=temp_ckpt_path,
+        qat_template=qat_template,
+        base_ckpt=base_ckpt,
+    )
+    results.append(res_ctrl)
+
+    # 2. Candidate A Proxy Probe
     res_a = evaluate_candidate(
         candidate_type="Candidate A Proxy",
         mix_name="Block-32 Scales",
@@ -230,7 +265,7 @@ def main():
     )
     results.append(res_a)
 
-    # 2. Candidate B Mix 1 (Uniform Q2_K)
+    # 3. Candidate B Mix 1 (Uniform Q2_K)
     b1_cfg = {i: 'Q2_K' for i in range(31)}
     res_b1 = evaluate_candidate(
         candidate_type="Candidate B PTQ",
@@ -242,7 +277,7 @@ def main():
     )
     results.append(res_b1)
 
-    # 3. Candidate B Mix 2 (Sensitivity-tuned Q4_0 / Q3_K / Q2_K)
+    # 4. Candidate B Mix 2 (Sensitivity-tuned Q4_0 / Q3_K / Q2_K)
     b2_cfg = {}
     for i in range(31):
         if i <= 4:
@@ -261,7 +296,7 @@ def main():
     )
     results.append(res_b2)
 
-    # 4. Candidate B Mix 3 (High-fidelity Q4_0 / Q3_K)
+    # 5. Candidate B Mix 3 (High-fidelity Q4_0 / Q3_K)
     b3_cfg = {}
     for i in range(31):
         if i <= 14:
@@ -281,11 +316,11 @@ def main():
     print("\n\n=======================================================", flush=True)
     print("FINAL Z_S QUALITY PROBES COMPARISON TABLE", flush=True)
     print("=======================================================", flush=True)
-    print(f"{'Config / Candidate':<42} | {'Median z_s':<10} | {'Min z_s':<10} | {'Mean z_s':<10} | {'First Cliff Layer':<15}", flush=True)
-    print("-" * 97, flush=True)
-    print(f"{'Baseline (Shipped QAT heavy int2)':<42} | {0.889420:<10.6f} | {0.871562:<10.6f} | {0.888165:<10.6f} | {3:<15}", flush=True)
+    print(f"{'Config / Candidate':<48} | {'Median z_s':<10} | {'Min z_s':<10} | {'Mean z_s':<10} | {'First Cliff Layer':<15}", flush=True)
+    print("-" * 103, flush=True)
+    print(f"{'Baseline (Shipped QAT heavy int2)':<48} | {0.889420:<10.6f} | {0.871562:<10.6f} | {0.888165:<10.6f} | {3:<15}", flush=True)
     for r in results:
-        print(f"{r['label']:<42} | {r['cos_median']:<10.6f} | {r['cos_min']:<10.6f} | {r['cos_mean']:<10.6f} | {r['first_layer_below']:<15}", flush=True)
+        print(f"{r['label']:<48} | {r['cos_median']:<10.6f} | {r['cos_min']:<10.6f} | {r['cos_mean']:<10.6f} | {r['first_layer_below']:<15}", flush=True)
 
     out_summary_path = "/tmp/bmo_probes/probe_results.json"
     with open(out_summary_path, "w") as f:
