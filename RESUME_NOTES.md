@@ -774,3 +774,28 @@ phase table vs 648.7ms baseline, fps, VRAM flatness, steady-decode swap
 THEN STEP 4 (H100 arch 90+87 build + joke-loop transcript; formal z_s +
 residual-diff sign-off on LineBreaker before production).
 Phase-timing instrumentation files still deliberately uncommitted.
+
+## UPDATE 7 — July 23, 2026: Format-v2 Shootout Outcome & Close-Out
+
+### Format-v2 Shootout Summary & Verdict
+The Format-v2 redesign study evaluated three architectural candidates to optimize the 49.2 ms/frame gating GEMV bottleneck on Jetson Orin Nano 8GB (`sm_87`):
+- **Candidate A2 (BMO_TIER v2)**: 6-bit block-32 scales + tier-sorted dp4a-native packing (`v15_a2` kernel).
+- **Candidate B (ggml k-quants mixed)**: `Q2_K`, `Q3_K`, and `Q4_0` tensors dispatched to upstream `mmvq` CUDA kernels.
+- **Candidate C (Status Quo + dp4a)**: `v12_dp4a` kernel using int8 activation quantization.
+
+**Empirical Hardware Measurement Results**:
+- **Candidate B**: `Q2_K` reached only 2.3 GB/s on both `linear_in` ($22528 \times 4096$) and `linear_out` ($4096 \times 11264$) shapes due to severe L1TEX pipeline stalls on `sm_87`. `Q3_K` reached 24.3 / 28.3 GB/s, missing bandwidth requirements.
+- **Candidate C (`v12_dp4a`)**: Reached 9.1 / 11.4 GB/s but failed precision gates with `rel_l2 = 8.93e-3` / `9.58e-3`.
+- **Candidate A2 (`v15_a2`)**: Reached 6.7 / 1.4 GB/s, failing performance gates due to a structural serial-metadata-chain bottleneck parsing inline 6-bit block scale metadata. Trial payloads (`layer0_a2_in.bin` / `layer0_a2_out.bin`) shipped without zero-points (`rel_l2 ~0.39`) and are marked **DEFECTIVE-DO-NOT-USE**.
+
+**Verdict**:
+- Candidates B and C eliminated by measurement.
+- Candidate A2 eliminated as a speed play (structural serial-metadata-chain limitation); retained only as unfunded future quality work (citing the $+0.458595$ cosine block-scale recovery gain from $0.201762 \rightarrow 0.660357$).
+- Shipped **`BMO_TIER` format + `v11`/`v6` kernels** retained for production (49.2 ms/frame, ~36-37 GB/s L1TEX ceiling).
+- Format-v2 redesign is officially **CLOSED OUT**; no further format work planned.
+
+### Associated Commit History
+- `6eaa6c8` - docs: format-v2 design study revision — verification-first corrections & control
+- `e2e3d26` - docs: add Jetson decision benchmarks, payload defect note, and final verdict to FORMAT_V2_STUDY.md
+- `6995735` - docs: update HANDOFF.md roadmap and z_s production threshold guidance for heavy-compression models
+- `0bfeefe` - docs: close out format-v2 shootout in RESUME_NOTES.md
