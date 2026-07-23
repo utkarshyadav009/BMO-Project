@@ -3833,6 +3833,325 @@ static void launch_v14(const void * vx, const float * x, float * y,
 }
 
 // ============================================================================
+// v15_a2 — Candidate-A2 trial layout (format-v2 decision bench)
+// ============================================================================
+// External file format from LAYOUT_SPEC_A2.md / repack_layer0_candidate_a2.py
+// (LineBreaker H100 export, commit 724d0be). This is NOT the shipped
+// BMO_TIER format above — a completely separate loader/kernel/CLI path;
+// nothing above this section is touched.
+//
+// CORRECTNESS FINDING (measured with a standalone numpy decode BEFORE any
+// CUDA was written — see report): the repacker computes an ASYMMETRIC
+// min/max quantization per 32-element block (q = round(w/scale + zp),
+// zp = round(-w_min/scale), both data-dependent) but serialize_a2_binary()
+// writes ONLY the per-block SCALE (as a 6-bit index into a per-tile
+// [s_min,s_range]) and the code q — zp/w_min are computed by the repacker
+// but never serialized. No reconstruction reading only the shipped bytes
+// can recover the true w_min, so this kernel uses the only defensible
+// fallback: a FIXED symmetric zero-point zp = n_levels/2 (ggml's own Q4_0
+// convention). A CPU-side full-matrix decode using exactly this rule,
+// checked against the provided double-precision reference before writing
+// any GPU code, measured rel_l2 ~0.39 on linear_in (vs ~0.61 for a raw,
+// uncentered code) — a missing-zero-point defect in the shipped trial
+// artifact, not summation-order noise, and not something a smarter kernel
+// on this side can fix. Reported as the calibration number per the task;
+// not pass/fail today.
+
+#pragma pack(push, 1)
+struct A2Header {
+    uint32_t magic;
+    uint32_t rows, cols, tile_size;
+    uint32_t n_tile_rows, n_tile_cols, n_outliers;
+    uint8_t reserved[36];
+};
+#pragma pack(pop)
+
+struct A2Tensor {
+    A2Header hdr;
+    std::vector<uint8_t> file;
+    std::vector<uint16_t> col_perms;    // [n_tile_rows, n_tile_cols], orig tile-col per position
+    std::vector<uint32_t> tile_byteoff; // [n_tile_rows, n_tile_cols], abs byte offset of tile's 100B header
+    std::vector<uint8_t>  tile_tier;    // [n_tile_rows, n_tile_cols], 1/2/3/0
+    size_t csr_offsets_off, outlier_cols_off, outlier_vals_off;
+};
+
+static bool load_a2_tensor(const char * path, A2Tensor & t) {
+    FILE * f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "cannot open %s\n", path); return false; }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    t.file.resize(sz);
+    bool ok = fread(t.file.data(), 1, sz, f) == (size_t)sz;
+    fclose(f);
+    if (!ok) { fprintf(stderr, "short read on %s\n", path); return false; }
+
+    memcpy(&t.hdr, t.file.data(), sizeof(A2Header));
+    if (t.hdr.magic != 0x41324d4fu) {
+        fprintf(stderr, "bad magic 0x%08x in %s (expected 0x41324d4f)\n", t.hdr.magic, path);
+        return false;
+    }
+    size_t off = 64;
+    size_t n_tiles = (size_t)t.hdr.n_tile_rows * t.hdr.n_tile_cols;
+    t.col_perms.resize(n_tiles);
+    memcpy(t.col_perms.data(), t.file.data() + off, n_tiles * 2);
+    off += n_tiles * 2;
+    std::vector<uint32_t> band_offsets((size_t)t.hdr.n_tile_rows * 4);
+    memcpy(band_offsets.data(), t.file.data() + off, (size_t)t.hdr.n_tile_rows * 16);
+    off += (size_t)t.hdr.n_tile_rows * 16;
+
+    const size_t t1b = 100 + 1024, t2b = 100 + 2048, t3b = 100 + 4096, t0b = 100 + 8192;
+    t.tile_tier.resize(n_tiles);
+    t.tile_byteoff.resize(n_tiles);
+    size_t cur = off;
+    for (uint32_t b = 0; b < t.hdr.n_tile_rows; b++) {
+        uint32_t o1 = band_offsets[b*4+0], o2 = band_offsets[b*4+1];
+        uint32_t o3 = band_offsets[b*4+2], o0 = band_offsets[b*4+3];
+        (void)o1;
+        uint32_t n_t1 = o2 / t1b;
+        uint32_t n_t2 = (o3 - o2) / t2b;
+        uint32_t n_t3 = (o0 - o3) / t3b;
+        uint32_t n_t0 = t.hdr.n_tile_cols - n_t1 - n_t2 - n_t3;
+        uint32_t pos = 0;
+        size_t p = cur;
+        auto emit = [&](uint32_t cnt, uint8_t tier, size_t tb) {
+            for (uint32_t i = 0; i < cnt; i++) {
+                size_t idx = (size_t)b * t.hdr.n_tile_cols + pos;
+                t.tile_tier[idx] = tier;
+                t.tile_byteoff[idx] = (uint32_t)p;
+                p += tb;
+                pos++;
+            }
+        };
+        emit(n_t1, 1, t1b);
+        emit(n_t2, 2, t2b);
+        emit(n_t3, 3, t3b);
+        emit(n_t0, 0, t0b);
+        if (pos != t.hdr.n_tile_cols) {
+            fprintf(stderr, "band %u: tier counts sum to %u, expected %u\n", b, pos, t.hdr.n_tile_cols);
+            return false;
+        }
+        cur = p;
+    }
+    t.csr_offsets_off = cur;
+    t.outlier_cols_off = t.csr_offsets_off + (size_t)(t.hdr.rows + 1) * 4;
+    t.outlier_vals_off = t.outlier_cols_off + (size_t)t.hdr.n_outliers * 2;
+    size_t expect_end = t.outlier_vals_off + (size_t)t.hdr.n_outliers * 2;
+    if (expect_end != t.file.size()) {
+        fprintf(stderr, "WARNING: A2 file size mismatch: computed end %zu, actual file %zu\n",
+            expect_end, t.file.size());
+    }
+    return true;
+}
+
+// q8_1-style activation quant: per-32-elem block, scale=max_abs/127, signed code.
+__global__ void a2_quantize_x_q8_1_kernel(const float * __restrict__ x, int8_t * __restrict__ qx,
+                                            float * __restrict__ x_scale, int n_blocks) {
+    int block = blockIdx.x * blockDim.x + threadIdx.x;
+    if (block >= n_blocks) return;
+    const float * xb = x + block * 32;
+    float amax = 0.f;
+    #pragma unroll
+    for (int i = 0; i < 32; i++) amax = fmaxf(amax, fabsf(xb[i]));
+    float scale = amax > 0.f ? amax / 127.f : 1.f;
+    float inv = 1.f / scale;
+    #pragma unroll
+    for (int i = 0; i < 32; i++) qx[block*32+i] = (int8_t)lroundf(xb[i] * inv);
+    x_scale[block] = scale;
+}
+
+// Unpack one of the 128 6-bit scale indices from a tile's 96-byte packed
+// array (see pack_6bit_indices_vectorized in repack_layer0_candidate_a2.py —
+// this is the exact bit-level inverse, byte-for-byte).
+__device__ __forceinline__ float a2_unpack_scale(const uint8_t * packed96, int block_idx,
+                                                   float s_min, float s_range) {
+    int group = block_idx >> 2, pos = block_idx & 3;
+    uint32_t b0 = packed96[group*3+0], b1 = packed96[group*3+1], b2 = packed96[group*3+2];
+    uint32_t idx6;
+    if (pos == 0)      idx6 = b0 & 0x3F;
+    else if (pos == 1) idx6 = ((b0 >> 6) & 0x03) | ((b1 & 0x0F) << 2);
+    else if (pos == 2) idx6 = ((b1 >> 4) & 0x0F) | ((b2 & 0x03) << 4);
+    else               idx6 = (b2 >> 2) & 0x3F;
+    return s_min + (float(idx6) / 63.f) * s_range;
+}
+
+#define A2_ROWS_PER_BLOCK 16
+
+// One warp per output row; lanes 0-15 each own one 4-column dp4a group
+// (16 groups x 4 cols = 64 = tile width), lanes 16-31 idle (v1 simplification
+// — the "first attempt" the task budgets before considering an iteration).
+// Per group: dp4a on the RAW unsigned tier code against q8_1 x (tier1/2's
+// 0..15 max fits signed int8 with no shift; tier3's 0..255 needs a -128
+// shift, corrected via +128*sum_x4 — the same affine-fold pattern v0-v11
+// use above, just with a fixed zp=n_lev/2 instead of a fitted one, per the
+// correctness finding). Tier0 (FP16) bypasses dp4a entirely: exact half
+// values against the ORIGINAL (unquantized) float x, direct FMA.
+__global__ void v15_a2_gemv_kernel(
+        const uint8_t * __restrict__ file,
+        const uint16_t * __restrict__ col_perms,
+        const uint32_t * __restrict__ tile_byteoff,
+        const uint8_t  * __restrict__ tile_tier,
+        const int8_t * __restrict__ qx, const float * __restrict__ x_scale,
+        const float * __restrict__ x_orig,
+        int rows, int n_tile_cols,
+        float * __restrict__ y_out) {
+    const int warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    const int row = blockIdx.x * A2_ROWS_PER_BLOCK + warp;
+    if (row >= rows) return;
+    const int band = row >> 6, row_in_band = row & 63;
+    const uint16_t * band_perm = col_perms + (size_t)band * n_tile_cols;
+    const uint32_t * band_off  = tile_byteoff + (size_t)band * n_tile_cols;
+    const uint8_t  * band_tier = tile_tier + (size_t)band * n_tile_cols;
+
+    float acc = 0.f;
+    // v15_a2 iteration 1 (of the 2 allowed): iteration-0's 16-of-32 idle
+    // lanes were the one clean, bounded fix available for a feasibility
+    // gate. pos_half selects which of TWO concurrent tile positions
+    // (pos, pos+1) this lane processes, so all 32 lanes stay busy and two
+    // tiles' worth of independent global loads are in flight per iteration
+    // instead of one.
+    const int pos_half = lane >> 4;         // 0 or 1 -> position pos+pos_half
+    const int g = lane & 15;                // dp4a group id within that tile, 0..15
+    const int blkhalf = g >> 3;             // 0 = cols[0:32), 1 = cols[32:64)
+    const int local_col0 = (g & 7) * 4;
+
+    for (int pos = 0; pos < n_tile_cols; pos += 2) {
+        int mypos = pos + pos_half;
+        uint8_t tier = band_tier[mypos];
+        uint32_t byteoff = band_off[mypos];
+        int col0 = (int)band_perm[mypos] * 64;
+        int abs_col0 = col0 + blkhalf * 32 + local_col0;
+
+        if (tier == 0) {
+            const half * w = (const half *)(file + byteoff + 100 + (size_t)row_in_band * 128);
+            #pragma unroll
+            for (int i = 0; i < 4; i++)
+                acc += __half2float(w[g*4 + i]) * x_orig[abs_col0 + i];
+            continue;
+        }
+
+        float s_min, s_range;
+        half s_min_h, s_range_h;
+        memcpy(&s_min_h,   file + byteoff,     2);
+        memcpy(&s_range_h, file + byteoff + 2, 2);
+        s_min   = __half2float(s_min_h);
+        s_range = __half2float(s_range_h);
+        int block_idx = row_in_band * 2 + blkhalf;
+        float scale = a2_unpack_scale(file + byteoff + 4, block_idx, s_min, s_range);
+
+        int32_t q_packed;
+        float n_lev;
+        if (tier == 3) {
+            const uint8_t * w = file + byteoff + 100 + (size_t)row_in_band * 64 + g * 4;
+            memcpy(&q_packed, w, 4);
+            q_packed = (int32_t)((uint32_t)q_packed ^ 0x80808080u); // q-128 per byte, signed-safe
+            n_lev = 255.f;
+        } else if (tier == 2) {
+            const uint8_t * w = file + byteoff + 100 + (size_t)row_in_band * 32 + g * 2;
+            uint8_t b0 = w[0], b1 = w[1];
+            uint32_t v0 = b0 & 0x0F, v1 = (b0 >> 4) & 0x0F, v2 = b1 & 0x0F, v3 = (b1 >> 4) & 0x0F;
+            q_packed = (int32_t)(v0 | (v1 << 8) | (v2 << 16) | (v3 << 24));
+            n_lev = 15.f;
+        } else {
+            const uint8_t * w = file + byteoff + 100 + (size_t)row_in_band * 16 + g;
+            uint8_t b0 = *w;
+            uint32_t v0 = b0 & 0x03, v1 = (b0 >> 2) & 0x03, v2 = (b0 >> 4) & 0x03, v3 = (b0 >> 6) & 0x03;
+            q_packed = (int32_t)(v0 | (v1 << 8) | (v2 << 16) | (v3 << 24));
+            n_lev = 3.f;
+        }
+
+        int32_t x_packed;
+        memcpy(&x_packed, qx + abs_col0, 4);
+        int32_t dot = __dp4a(q_packed, x_packed, 0);
+        int32_t sum_x4 = __dp4a(0x01010101, x_packed, 0);
+        if (tier == 3) dot += 128 * sum_x4;
+
+        float group_val = scale * ((float)dot - (n_lev / 2.f) * (float)sum_x4);
+        acc += x_scale[abs_col0 >> 5] * group_val;
+    }
+
+    #pragma unroll
+    for (int o = 16; o > 0; o >>= 1) acc += __shfl_down_sync(0xFFFFFFFF, acc, o); // reduce all 32 lanes
+    if (lane == 0) y_out[row] = acc;
+    // Outlier correction (production convention: replace, not add — subtract
+    // the tier estimate at that column, add the true value) runs as a
+    // separate pass, v15_a2_outliers_kernel, mirroring v0_outliers_kernel's
+    // convention above.
+}
+
+// Outlier correction pass, separate kernel (mirrors v0_outliers_kernel's
+// separate-pass convention above): one thread per outlier, atomically
+// correcting y_out[row] by (true_val - tier_estimate) * x_orig[col]. Tier
+// estimate is recomputed by locating the outlier's column within its band's
+// permutation (linear scan — outliers/row is small, ~20 avg, against
+// n_tile_cols<=176; not the bandwidth-critical path).
+__global__ void v15_a2_outliers_kernel(
+        const uint8_t * __restrict__ file,
+        const uint16_t * __restrict__ col_perms,
+        const uint32_t * __restrict__ tile_byteoff,
+        const uint8_t  * __restrict__ tile_tier,
+        const uint32_t * __restrict__ csr_offsets,
+        const uint16_t * __restrict__ outlier_cols,
+        const uint16_t * __restrict__ outlier_vals_fp16,
+        const float * __restrict__ x_orig,
+        int rows, int n_tile_cols,
+        float * __restrict__ y_out) {
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= rows) return;
+    uint32_t e0 = csr_offsets[row], e1 = csr_offsets[row + 1];
+    if (e0 == e1) return;
+    int band = row >> 6, row_in_band = row & 63;
+    const uint16_t * band_perm = col_perms + (size_t)band * n_tile_cols;
+    const uint32_t * band_off  = tile_byteoff + (size_t)band * n_tile_cols;
+    const uint8_t  * band_tier = tile_tier + (size_t)band * n_tile_cols;
+
+    float corr_sum = 0.f;
+    for (uint32_t k = e0; k < e1; k++) {
+        int col = outlier_cols[k];
+        int orig_col_tile = col >> 6, local_col = col & 63;
+        int pos = -1;
+        for (int p = 0; p < n_tile_cols; p++) if (band_perm[p] == orig_col_tile) { pos = p; break; }
+        if (pos < 0) continue; // structurally unreachable; skip defensively
+        uint8_t tier = band_tier[pos];
+        uint32_t byteoff = band_off[pos];
+        float base_w;
+        if (tier == 0) {
+            const half * w = (const half *)(file + byteoff + 100 + (size_t)row_in_band * 128);
+            base_w = __half2float(w[local_col]);
+        } else {
+            float s_min, s_range;
+            half s_min_h, s_range_h;
+            memcpy(&s_min_h,   file + byteoff,     2);
+            memcpy(&s_range_h, file + byteoff + 2, 2);
+            s_min   = __half2float(s_min_h);
+            s_range = __half2float(s_range_h);
+            int half_idx = local_col >> 5;
+            float scale = a2_unpack_scale(file + byteoff + 4, row_in_band * 2 + half_idx, s_min, s_range);
+            int lc = local_col & 31;
+            uint32_t code;
+            float n_lev;
+            if (tier == 3) {
+                code = file[byteoff + 100 + (size_t)row_in_band * 64 + (half_idx*32+lc)];
+                n_lev = 255.f;
+            } else if (tier == 2) {
+                uint8_t b = file[byteoff + 100 + (size_t)row_in_band * 32 + (half_idx*16 + lc/2)];
+                code = (lc & 1) ? (b >> 4) & 0x0F : b & 0x0F;
+                n_lev = 15.f;
+            } else {
+                uint8_t b = file[byteoff + 100 + (size_t)row_in_band * 16 + (half_idx*8 + lc/4)];
+                code = (b >> ((lc & 3) * 2)) & 0x03;
+                n_lev = 3.f;
+            }
+            base_w = scale * ((float)code - n_lev / 2.f);
+        }
+        half true_val_h; memcpy(&true_val_h, &outlier_vals_fp16[k], 2);
+        float true_val = __half2float(true_val_h);
+        corr_sum += (true_val - base_w) * x_orig[col];
+    }
+    y_out[row] += corr_sum;
+}
+
+// ============================================================================
 // Harness
 // ============================================================================
 typedef void (*launch_fn)(const void *, const float *, float *, int, int, int, cudaStream_t);
@@ -3850,7 +4169,114 @@ static double median_of(std::vector<float> v) {
     return n == 0 ? 0.0 : (n & 1) ? v[n / 2] : 0.5 * (v[n / 2 - 1] + v[n / 2]);
 }
 
+// v15_a2 driver: --a2 <payload.bin> <x.f32> <yref.f64> <shape_name>
+// x.f32/yref.f64 are flat binaries extracted once from layer0_a2_ref.json
+// (float32/float64 respectively) — a transparent prep step, not touching the
+// A2 weight payload format under test at all.
+static int run_a2_bench(const char * bin_path, const char * x_path, const char * yref_path,
+                         const char * shape_name) {
+    A2Tensor t;
+    if (!load_a2_tensor(bin_path, t)) return 1;
+    printf("A2 payload: %s  rows=%u cols=%u n_tile_rows=%u n_tile_cols=%u n_outliers=%u  file_bytes=%zu\n",
+        bin_path, t.hdr.rows, t.hdr.cols, t.hdr.n_tile_rows, t.hdr.n_tile_cols, t.hdr.n_outliers, t.file.size());
+
+    FILE * fx = fopen(x_path, "rb");
+    if (!fx) { fprintf(stderr, "cannot open %s\n", x_path); return 1; }
+    std::vector<float> x(t.hdr.cols);
+    if (fread(x.data(), 4, t.hdr.cols, fx) != t.hdr.cols) { fprintf(stderr, "short read %s\n", x_path); return 1; }
+    fclose(fx);
+
+    FILE * fy = fopen(yref_path, "rb");
+    if (!fy) { fprintf(stderr, "cannot open %s\n", yref_path); return 1; }
+    std::vector<double> y_ref(t.hdr.rows);
+    if (fread(y_ref.data(), 8, t.hdr.rows, fy) != t.hdr.rows) { fprintf(stderr, "short read %s\n", yref_path); return 1; }
+    fclose(fy);
+
+    size_t n_tiles = (size_t)t.hdr.n_tile_rows * t.hdr.n_tile_cols;
+    uint8_t * d_file; uint16_t * d_col_perms; uint32_t * d_tile_byteoff; uint8_t * d_tile_tier;
+    uint32_t * d_csr_offsets; uint16_t * d_outlier_cols; uint16_t * d_outlier_vals;
+    float * d_x, * d_y; int8_t * d_qx; float * d_x_scale;
+    CU_CHECK(cudaMalloc(&d_file, t.file.size()));
+    CU_CHECK(cudaMalloc(&d_col_perms, n_tiles * 2));
+    CU_CHECK(cudaMalloc(&d_tile_byteoff, n_tiles * 4));
+    CU_CHECK(cudaMalloc(&d_tile_tier, n_tiles));
+    CU_CHECK(cudaMalloc(&d_x, t.hdr.cols * 4));
+    CU_CHECK(cudaMalloc(&d_y, t.hdr.rows * 4));
+    CU_CHECK(cudaMalloc(&d_qx, t.hdr.cols));
+    CU_CHECK(cudaMalloc(&d_x_scale, (t.hdr.cols / 32) * 4));
+    CU_CHECK(cudaMemcpy(d_file, t.file.data(), t.file.size(), cudaMemcpyHostToDevice));
+    CU_CHECK(cudaMemcpy(d_col_perms, t.col_perms.data(), n_tiles * 2, cudaMemcpyHostToDevice));
+    CU_CHECK(cudaMemcpy(d_tile_byteoff, t.tile_byteoff.data(), n_tiles * 4, cudaMemcpyHostToDevice));
+    CU_CHECK(cudaMemcpy(d_tile_tier, t.tile_tier.data(), n_tiles, cudaMemcpyHostToDevice));
+    CU_CHECK(cudaMemcpy(d_x, x.data(), t.hdr.cols * 4, cudaMemcpyHostToDevice));
+    d_csr_offsets  = (uint32_t *)(d_file + t.csr_offsets_off);
+    d_outlier_cols = (uint16_t *)(d_file + t.outlier_cols_off);
+    d_outlier_vals = (uint16_t *)(d_file + t.outlier_vals_off);
+
+    auto launch = [&]() {
+        int n_blocks = (t.hdr.cols / 32 + 255) / 256;
+        a2_quantize_x_q8_1_kernel<<<n_blocks, 256>>>(d_x, d_qx, d_x_scale, t.hdr.cols / 32);
+        int gemv_blocks = (t.hdr.rows + A2_ROWS_PER_BLOCK - 1) / A2_ROWS_PER_BLOCK;
+        v15_a2_gemv_kernel<<<gemv_blocks, A2_ROWS_PER_BLOCK * 32>>>(
+            d_file, d_col_perms, d_tile_byteoff, d_tile_tier, d_qx, d_x_scale, d_x,
+            (int)t.hdr.rows, (int)t.hdr.n_tile_cols, d_y);
+        if (t.hdr.n_outliers > 0) {
+            int obs = 256;
+            v15_a2_outliers_kernel<<<(t.hdr.rows + obs - 1) / obs, obs>>>(
+                d_file, d_col_perms, d_tile_byteoff, d_tile_tier,
+                d_csr_offsets, d_outlier_cols, d_outlier_vals, d_x,
+                (int)t.hdr.rows, (int)t.hdr.n_tile_cols, d_y);
+        }
+    };
+
+    launch();
+    CU_CHECK(cudaDeviceSynchronize());
+    CU_CHECK(cudaGetLastError());
+    std::vector<float> y_host(t.hdr.rows);
+    CU_CHECK(cudaMemcpy(y_host.data(), d_y, t.hdr.rows * 4, cudaMemcpyDeviceToHost));
+
+    double err = 0, refsq = 0, maxabs = 0;
+    for (uint32_t r = 0; r < t.hdr.rows; r++) {
+        double d = (double)y_host[r] - y_ref[r];
+        err += d * d; refsq += y_ref[r] * y_ref[r];
+        maxabs = std::max(maxabs, std::fabs(d));
+    }
+    double rel_l2 = sqrt(err) / sqrt(refsq);
+
+    for (int i = 0; i < 20; i++) launch();
+    CU_CHECK(cudaDeviceSynchronize());
+    cudaEvent_t ea, eb;
+    CU_CHECK(cudaEventCreate(&ea)); CU_CHECK(cudaEventCreate(&eb));
+    std::vector<float> ms(100);
+    for (int i = 0; i < 100; i++) {
+        CU_CHECK(cudaEventRecord(ea));
+        launch();
+        CU_CHECK(cudaEventRecord(eb));
+        CU_CHECK(cudaEventSynchronize(eb));
+        CU_CHECK(cudaEventElapsedTime(&ms[i], ea, eb));
+    }
+    std::sort(ms.begin(), ms.end());
+    double med = ms[50];
+    double bytes = (double)t.file.size() + t.hdr.cols * 4.0 + t.hdr.rows * 4.0;
+
+    printf("\n%-26s %-10s %10s %10s %14s %12s\n", "shape", "variant", "ms/call", "GB/s", "max_abs_diff", "rel_l2");
+    printf("%-26s %-10s %10.4f %10.1f %14.3e %12.3e\n",
+        shape_name, "v15_a2", med, bytes / (med / 1e3) / 1e9, maxabs, rel_l2);
+
+    cudaEventDestroy(ea); cudaEventDestroy(eb);
+    cudaFree(d_file); cudaFree(d_col_perms); cudaFree(d_tile_byteoff); cudaFree(d_tile_tier);
+    cudaFree(d_x); cudaFree(d_y); cudaFree(d_qx); cudaFree(d_x_scale);
+    return 0;
+}
+
 int main(int argc, char ** argv) {
+    if (argc >= 2 && strcmp(argv[1], "--a2") == 0) {
+        if (argc < 6) {
+            fprintf(stderr, "usage: %s --a2 <payload.bin> <x.f32> <yref.f64> <shape_name>\n", argv[0]);
+            return 1;
+        }
+        return run_a2_bench(argv[2], argv[3], argv[4], argv[5]);
+    }
     if (argc < 2) {
         fprintf(stderr, "usage: %s <model.gguf> [tensor_base_name]\n", argv[0]);
         return 1;
