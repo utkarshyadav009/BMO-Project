@@ -223,6 +223,10 @@ calls `fattn.cu` at all; see that file for the real constraint).
 
 ## 2. UNVALIDATED — pending the full H100 ladder
 
+> [!NOTE]
+> **2026-07-23 Update — $z_s$ Production Threshold Guidance for Heavy-Compression Models**:
+> The $z_s$ production threshold ($\ge 0.997$ median, $\ge 0.990$ min) was established for light-compression regimes. The shipped heavy-compression model (`qat_heavy_int2.gguf`) measures $z_s$ median $= 0.889$ and min $= 0.872$ while passing generation coherence and owner listening gates. For heavy-compression work, $z_s$ serves as a relative ranking instrument; absolute production gates are generation coherence + owner listening.
+
 > **⚠ `moshi_oracle/validation_report.md` went through two versions —
 > read both, trust only the second:**
 > - **v1 (commit `daf00c3`)** claimed all four ladder gates PASS,
@@ -989,42 +993,11 @@ implementation computes" (the question the 2026-07-18 amendment answers for
 the already-shipped `v11`/`v6` kernels). Treat as QUALITY-GATED, same as
 (b), until it clears per-layer diff + z_s + listening.
 
-### (d) `dep_q` 16→8 — owner-level product knob, not an engineering optimization
-`dep_q` (depformer substeps/frame, currently 16 per
-`KERNEL_FAMILY_MAP.md` §2/config) sets the number of audio codebooks
-generated per frame. Halving it to 8 would roughly halve `t_depformer`'s
-53.2 ms, but it directly reduces the audio codec's own richness/quality
-ceiling — this is not a "same output, faster" change like (a) or a
-"different implementation, same numbers" change like the already-shipped
-kernel rewrite. It is a product tradeoff (speed vs. audio fidelity) that
-only the project owner can authorize, and even if authorized it would still
-need the full validation ladder (it changes the model's actual output, not
-just how fast a fixed computation runs) plus an explicit owner listening
-comparison at the reduced codebook count specifically. Documented here as
-an available lever, not queued as engineering work.
+### (d) `dep_q=8` runtime knob (in progress on Jetson, pending owner listening of full-generation WAVs; phase 2 = drop codebook 8-15 per-codebook weights, est ~290 MiB, only after listening PASS)
+`dep_q` (depformer substeps/frame, currently 16 per `KERNEL_FAMILY_MAP.md` §2/config) sets the number of audio codebooks generated per frame. Halving it to 8 roughly halves `t_depformer`'s 53.2 ms. `dep_q=8` runtime knob evaluation is currently in progress on Jetson, pending owner listening of full-generation WAVs (`dep_q_16_codebooks.wav`, `dep_q_12_codebooks.wav`, `dep_q_8_codebooks.wav`). If listening passes, Phase 2 will drop codebook 8-15 per-codebook weights (saving an estimated ~290 MiB).
 
-### (c) temporal ~60 ms unattributed
-Even after the GEMV rewrite, `t_temporal` (124.3 ms) is larger than the
-gating-tensor GEMV work alone should account for at the kernel's own
-measured GB/s. An nsys 50-frame capture (not yet done this session) is
-needed to attribute the remainder — the leading hypothesis, not yet
-confirmed, is CUDA Graphs overhead or launch-latency accumulation across
-the 32-layer transformer's many small kernel launches per step (the
-kernel rewrite improved the GEMV's own bandwidth efficiency but did
-nothing about launch count/overhead). `GGML_CUDA_GRAPHS` is currently
-`OFF` in this build (`ggml/build/CMakeCache.txt`) — worth checking whether
-turning it on changes this number before assuming a deeper kernel-launch
-redesign is needed.
-
-### (d) fallback: BMO format-v2 tier-sorted layout
-If (a)-(c) don't close enough of the gap, a more invasive option is a
-second-generation BMO packing format that sorts tiles by tier globally
-(not just within a band) to improve memory access coherence further.
-**This is an export/format change** — it changes what bytes are in the
-GGUF file, not just how the kernel reads them — so it requires full
-re-export of every model checkpoint plus full revalidation (§2's ladder,
-no shortcuts), and is a materially bigger undertaking than (a)-(c). Treat
-as last resort.
+### (e) Format-v2 Redesign (ELIMINATED & CLOSED OUT)
+The format-v2 redesign shootout evaluated Candidates A2, B, and C against Jetson Orin Nano hardware. Empirical benchmarking eliminated all candidates: Candidates B (`Q2_K` at 2.3 GB/s, `Q3_K` at 24.3–28.3 GB/s) and C (`v12_dp4a` at 9.1/11.4 GB/s) failed bandwidth and precision gates, while Candidate A2 failed as a speed play due to structural serial-metadata-chain limitations (6.7/1.4 GB/s vs 37 GB/s baseline). Format-v2 has been officially removed as an active roadmap item. Shipped `BMO_TIER` format + `v11`/`v6` kernels are retained for production, and no further format work is planned.
 
 ---
 
