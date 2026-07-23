@@ -1027,7 +1027,37 @@ bool moshi_lmgen_step(
         int position = state->offset % CT;
         state->cache[position][0] = text_token;
         if ( lm->depformer ) {
-            for (int q = 0; q < (int)int_audio_tokens.size(); q++) {
+            // PERSONAPLEX_CACHE_WRITE_Q: bounds this write only. This loop
+            // (Writer #2, unconditional single-position write) overwrites
+            // cache indices 1..int_audio_tokens.size() every frame -- for
+            // dep_q=16 that includes indices 9-16 (the "other-party" audio
+            // slots), landing at the SAME ring position as Writer #1
+            // (lm.h ~841-846, the mimi-encoder-sourced write) for the 7
+            // delay=1 other-party codebooks, clobbering it before it's ever
+            // read (see this session's STEP 2a trace). Capping this loop
+            // below int_audio_tokens.size() lets those indices keep the
+            // encoder-sourced value instead, without changing how many
+            // codebooks the depformer itself computes (int_audio_tokens
+            // stays lm->dep_q-sized either way -- this only bounds which of
+            // its entries get written back into state->cache).
+            static int s_cache_write_q = -1;
+            if ( s_cache_write_q < 0 ) {
+                s_cache_write_q = 16;
+                if ( const char * e = getenv( "PERSONAPLEX_CACHE_WRITE_Q" ) ) {
+                    int requested = atoi( e );
+                    int clamped = requested < 8 ? 8 : ( requested > 16 ? 16 : requested );
+                    if ( clamped != requested ) {
+                        fprintf( stderr,
+                            "PERSONAPLEX_CACHE_WRITE_Q: requested %d out of safe range [8,16], CLAMPED to %d\n",
+                            requested, clamped );
+                    }
+                    s_cache_write_q = clamped;
+                }
+                printf( "PERSONAPLEX_CACHE_WRITE_Q: %d\n", s_cache_write_q );
+            }
+            int write_bound = (int)int_audio_tokens.size();
+            if ( write_bound > s_cache_write_q ) write_bound = s_cache_write_q;
+            for (int q = 0; q < write_bound; q++) {
                 state->cache[position][q + 1] = int_audio_tokens[q];
             }
         }

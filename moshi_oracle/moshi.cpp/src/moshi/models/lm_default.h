@@ -154,6 +154,28 @@ moshi_lmmodel_t * moshi_lmmodel_alloc_default( moshi_config_t * config ) {
     lmmodel->delay_steps = 0;
     lmmodel->n_q = (int) config->n_q;
     lmmodel->dep_q = (int) config->dep_q;
+    // PERSONAPLEX_DEP_Q: runtime override of the depformer's own substep
+    // count, read once here (before moshi_lmmodel_depformer_step's
+    // first-call graph build bakes this in as its loop bound — lm.h:523).
+    // Does NOT touch config->dep_q (weight-array sizing, lm_default.h:74/
+    // 85/192-217, stays at the full 16 regardless) or lm.h:825-827's
+    // personaplex-mode local `dep_q=8` (unrelated duplex cache bookkeeping).
+    // Clamped to [8,16]: below 8 would shrink moshi_lm_receive's returned
+    // token vector below what personaplex.cpp's hardcoded
+    // num_audio_codebooks=8 reads (mimi_encode_receive/token_hash/
+    // TOKEN_GEN all index 0..7) -- an out-of-bounds vector read. See
+    // HANDOFF.md / this session's STEP 1 report for the full trace.
+    if ( const char * e = getenv( "PERSONAPLEX_DEP_Q" ) ) {
+        int requested = atoi( e );
+        int clamped = requested < 8 ? 8 : ( requested > 16 ? 16 : requested );
+        if ( clamped != requested ) {
+            fprintf( stderr,
+                "PERSONAPLEX_DEP_Q: requested %d out of safe range [8,16], CLAMPED to %d\n",
+                requested, clamped );
+        }
+        printf( "PERSONAPLEX_DEP_Q: dep_q %d -> %d\n", lmmodel->dep_q, clamped );
+        lmmodel->dep_q = clamped;
+    }
     lmmodel->card = (int) config->card;
     lmmodel->text_card = (int) config->text_card;
     lmmodel->delays.resize( config->delays.size() );
