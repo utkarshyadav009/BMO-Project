@@ -1,11 +1,16 @@
 # LAYOUT SPECIFICATION: CANDIDATE-A2 TRIAL PAYLOAD (LAYER 0)
+
+> [!CAUTION]
+> **DEFECTIVE-DO-NOT-USE NOTICE**:
+> The `layer0_a2_in.bin` and `layer0_a2_out.bin` trial payload artifacts emitted by `scratch/repack_layer0_candidate_a2.py` were exported without zero-points. Both the CUDA microbenchmark kernel (`v15_a2`) and independent NumPy dequantization measured a high relative L2 error (`rel_l2 ~0.39`) against ground truth. These binary files are marked **DEFECTIVE-DO-NOT-USE**.
+
 **Project BMO — FFN Gating Matmul Candidate-A2 Trial Layout**
 **Date:** July 22, 2026
 **Author:** Server-side agent on LineBreaker (2x NVIDIA H100 PCIe)
 **Target Platform:** Jetson Orin Nano 8GB (sm_87)
 **Emitted Files:**
-- [moshi_oracle/models/layer0_a2_in.bin](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/models/layer0_a2_in.bin) (79.72 MiB)
-- [moshi_oracle/models/layer0_a2_out.bin](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/models/layer0_a2_out.bin) (39.83 MiB)
+- [moshi_oracle/models/layer0_a2_in.bin](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/models/layer0_a2_in.bin) (**DEFECTIVE-DO-NOT-USE**) (79.72 MiB)
+- [moshi_oracle/models/layer0_a2_out.bin](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/models/layer0_a2_out.bin) (**DEFECTIVE-DO-NOT-USE**) (39.83 MiB)
 - [moshi_oracle/models/layer0_a2_ref.json](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/models/layer0_a2_ref.json)
 
 ---

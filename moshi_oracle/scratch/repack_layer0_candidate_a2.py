@@ -1,3 +1,9 @@
+# WARNING: DEFECTIVE-DO-NOT-USE
+# This repack tool exported Candidate-A2 trial payloads without zero-points.
+# Both CUDA kernel microbenchmarks and independent NumPy evaluation measured
+# rel_l2 ~0.39 error against ground truth. The emitted layer0_a2_*.bin files
+# are defective and marked DEFECTIVE-DO-NOT-USE.
+
 import os
 import sys
 import json

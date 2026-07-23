@@ -188,3 +188,42 @@ Reframing the candidate decision axes around ground truth facts:
 1. **Jetson `mmvq` Bandwidth**: Measure actual Orin-side GB/s for `vec_dot_q2_K_q8_1` and `vec_dot_q3_K_q8_1` on sm_87.
 2. **End-to-End Latency**: Frame-time impact of Candidate B's standard `mmvq` kernels vs Candidate C's $v12$ dp4a kernel on Orin Nano.
 3. **Audio Quality Sanity**: Human listening evaluation on QAT-recovered audio output.
+
+---
+
+## 7. Jetson Decision Benchmarks & Verdict
+
+### 7.1 Empirical Jetson Benchmark Results
+
+The missing hardware microbenchmarks were executed directly on Jetson Orin Nano 8GB (`sm_87`), evaluating the candidates under exact gating matrix shapes (`linear_in` $22528 \times 4096$ and `linear_out` $4096 \times 11264$).
+
+#### (a) Upstream GGML `mmvq` Bandwidth (Candidate B Grid)
+| Quantization Type | `linear_in` Bandwidth (GB/s) | `linear_out` Bandwidth (GB/s) | Performance vs Target / Roofline |
+|---|---:|---:|---|
+| **`Q2_K`** | **2.3** | **2.3** | Severe L1TEX pipeline stall; fails bandwidth requirement |
+| **`Q3_K`** | **24.3** | **28.3** | Fails bandwidth requirement |
+| **`Q4_0`** | **57.2** | **70.9** | Reaches roofline limit (~70-73 GB/s peak) |
+
+#### (b) Candidate C (`v12_dp4a`) Benchmark Results
+- **Bandwidth**: **9.1 GB/s** (`linear_in`) / **11.4 GB/s** (`linear_out`)
+- **Arithmetic Precision (`rel_l2`)**: **8.93e-3** (`linear_in`) / **9.58e-3** (`linear_out`) vs CPU double-accumulator reference.
+- **Status**: **FAIL** (fails both bandwidth requirement and precision gate `rel_l2 < 1e-4`).
+
+#### (c) Candidate A2 (`v15_a2` Trial Layout) Benchmark Results
+- **Bandwidth**: **6.7 GB/s** (`linear_in`) / **1.4 GB/s** (`linear_out`)
+- **Status**: **FAIL**
+- **Diagnosis**: Structural serial-metadata-chain limitation. Parsing multi-tier 6-bit block scale metadata inline creates a serial dependency chain in the warp execution pipeline. Two tuning iterations plateaued without reaching baseline throughput.
+
+#### (d) Trial Payload Defect Notice
+- **Defect Finding**: The Candidate-A2 trial repack tool (`scratch/repack_layer0_candidate_a2.py`) exported quantized weight payloads without zero-points. Both the CUDA microbenchmark kernel and independent NumPy dequantization verified `rel_l2 ~0.39` error against BF16 ground truth.
+- **Action**: The trial payload binaries (`layer0_a2_in.bin` and `layer0_a2_out.bin`) are marked **DEFECTIVE-DO-NOT-USE** in [LAYOUT_SPEC_A2.md](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/LAYOUT_SPEC_A2.md), and a warning header has been added to [scratch/repack_layer0_candidate_a2.py](file:///home/jovyan/work/BMO-Project-Repo/BMO-Project/moshi_oracle/scratch/repack_layer0_candidate_a2.py).
+
+---
+
+### 7.2 Final Verdict & Recommendation
+
+1. **Candidate B Eliminated**: `Q2_K` (2.3 GB/s) and `Q3_K` (24.3–28.3 GB/s) fail Orin-side bandwidth requirements due to L1TEX pipeline stalls on `sm_87`.
+2. **Candidate C Eliminated**: `v12_dp4a` (9.1–11.4 GB/s, `rel_l2 ~9e-3`) fails both speed and precision gates.
+3. **Candidate A2 Eliminated as a Speed Play**: Candidate A2 fails as a performance improvement due to structural serial-metadata-chain bottlenecks (6.7/1.4 GB/s vs 37 GB/s baseline). It is retained **only as unfunded future quality work**, citing the empirical $+0.458595$ cosine block-scale recovery gain (un-tuned PTQ $0.201762 \rightarrow 0.660357$).
+4. **Production Format Retained**: The shipped **`BMO_TIER` format** combined with the production **`v11`/`v6` kernels** (49.2 ms/frame, ~36-37 GB/s L1TEX ceiling on `sm_87`) is retained for production deployment.
+5. **Close-Out Statement**: **No further format-v2 work is planned.**
