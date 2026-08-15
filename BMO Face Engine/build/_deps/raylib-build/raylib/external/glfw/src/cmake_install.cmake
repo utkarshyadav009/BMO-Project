@@ -1,4 +1,4 @@
-# Install script for directory: /home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src
+# Install script for directory: /home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

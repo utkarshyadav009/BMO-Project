@@ -4,7 +4,7 @@
 # compile C with /usr/bin/cc
 C_DEFINES = -DGRAPHICS_API_OPENGL_ES2 -DPLATFORM_DESKTOP
 
-C_INCLUDES = -I"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src" -isystem "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/include"
+C_INCLUDES = -I"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src" -isystem "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/include"
 
 C_FLAGS = -fno-strict-aliasing -Werror=implicit-function-declaration -Werror=pointer-arith  -std=gnu99
 

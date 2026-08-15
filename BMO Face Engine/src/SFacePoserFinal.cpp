@@ -286,6 +286,19 @@ void AnalyzeText(char* text, EditorState& state) {
 int main() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(1920, 1080, "BMO Face Poser: Final");
+
+    // Fit the window to whatever display is actually attached (e.g. a small
+    // kiosk panel). Without this, GetScreenWidth()/GetScreenHeight() keep
+    // reporting the 1920x1080 requested above, so GlobalScaler.Update()
+    // always computes a 1:1 scale no matter the real screen size.
+    int attachedMonitor = GetCurrentMonitor();
+    int monitorW = GetMonitorWidth(attachedMonitor);
+    int monitorH = GetMonitorHeight(attachedMonitor);
+    if (monitorW > 0 && monitorH > 0) {
+        SetWindowSize(monitorW, monitorH);
+        SetWindowPosition(0, 0);
+    }
+
     SetTargetFPS(60);
 
     // Style Setup
@@ -308,6 +321,13 @@ int main() {
     // Attempt to load unified database, fallbacks handled by struct defaults
     db.Load("face_database.txt");
 
+    // Load Phoneme Viseme Database (18-float and unified visemes)
+    VisemeDatabase visemeDb;
+    visemeDb.Load("visemes_database.txt");
+    if (visemeDb.visemes.empty()) {
+        visemeDb.Load("../visemes_database.txt");
+    }
+
     EditorState state;
 
     AffectiveEngine brain;
@@ -317,8 +337,62 @@ int main() {
     state.useAI = true;
     state.enableGUI = false;
     state.usePhysics = true;
-    char textInput[256] = "Type here..."; 
+    char textInput[256] = "Type here...";
     bool textEditMode = false;
+
+    // ---------------------------------------------------------
+    // IDLE ANIMATION STATE
+    // ---------------------------------------------------------
+    // Cycles straight through every saved preset in order so the kiosk
+    // display is guaranteed to show all of them, rather than relying on a
+    // random mood-space walk + nearest-neighbor pick (which gave uneven,
+    // repetitive coverage since presets don't have equal-sized "capture
+    // regions" in mood-space). Only runs while the debug GUI is hidden, so
+    // it never fights a human manually posing the sliders or driving the
+    // AI brain panel.
+    float idleCycleTimer = 0.0f;
+    float idleCycleInterval = (float)GetRandomValue(40, 90) / 10.0f;   // 4-9s between faces
+    int idleCycleIndex = 0;
+
+    // Seed state.current with a real face immediately, rather than leaving
+    // it at FaceState()'s bare defaults (missing eyes/garbled mouth) until
+    // the first idle-cycle tick fires several seconds in. Look up a normal-
+    // looking preset by name rather than using entries[0] blindly -- that
+    // happens to be "face_text_happy_D", a stylized text-emoticon face
+    // (90-degree rotated, squared-off eyes) that looks broken as a default.
+    for (size_t i = 0; i < db.entries.size(); i++) {
+        if (db.entries[i].name == "face_happy_standard") { idleCycleIndex = (int)i; break; }
+    }
+    if (!db.entries.empty()) state.current = db.entries[idleCycleIndex].state;
+
+    float idleGazeTimer = 0.0f;
+    float idleGazeInterval = (float)GetRandomValue(30, 60) / 10.0f;   // 3-6s between glances
+    float idleGazeX = 0.0f, idleGazeY = 0.0f;
+    // The preset's own look direction, captured fresh whenever state.current
+    // is (re)assigned from the database. The gaze offset below is applied
+    // relative to THIS every frame, never accumulated into state.current
+    // itself -- see the "used to just take the eyes away" bug this fixes.
+    float idleGazeBaseLookX = state.current.eyes.lookX;
+    float idleGazeBaseLookY = state.current.eyes.lookY;
+
+    // --- MOTION TRACKING (camera-driven eye following) ---
+    // motion_tracker (a separate lightweight process, see motion_tracker.cpp)
+    // writes "<found:0|1> <x:-1..1> <y:-1..1>" to this tmpfs file every frame
+    // it captures. Polled here rather than read every engine frame purely to
+    // avoid pointless I/O -- the tracker itself runs far slower than 60fps.
+    const char* MOTION_FILE = "/dev/shm/bmo_motion.txt";
+    float trackPollTimer = 0.0f;
+    float trackTargetLookX = 0.0f, trackTargetLookY = 0.0f;
+    float trackLastSeenTimer = 999.0f; // large so we start in "not tracking" state
+
+    // --- SPEECH / VISEME PIPELINE (TTS Lip Sync) ---
+    const char* SPEECH_FILE = "/dev/shm/bmo_speech.txt";
+    float speechPollTimer = 0.0f;
+    float speechTimeoutTimer = 999.0f;
+    int isSpeaking = 0;
+    char currentViseme[64] = "mouth_phoneme_X";
+    float speechIntensity = 1.0f;
+    char speechEmotionOverride[64] = "";
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
@@ -332,13 +406,88 @@ int main() {
         Vector2 mouthPos = { center.x, center.y + mouthOffset };
 
         // -------------------------------------------------
+        // SPEECH & VISEME POLLING
+        // -------------------------------------------------
+        speechPollTimer += dt;
+        if (speechPollTimer >= 0.015f) {
+            speechPollTimer = 0.0f;
+            FILE* sf = fopen(SPEECH_FILE, "r");
+            if (sf) {
+                int spk = 0;
+                char vis[64] = "mouth_phoneme_X";
+                float inten = 1.0f;
+                char emo[64] = "";
+                int n = fscanf(sf, "%d %63s %f %63s", &spk, vis, &inten, emo);
+                if (n >= 1) {
+                    isSpeaking = spk;
+                    if (n >= 2) strncpy(currentViseme, vis, sizeof(currentViseme) - 1);
+                    if (n >= 3) speechIntensity = inten; else speechIntensity = 1.0f;
+                    if (n >= 4) strncpy(speechEmotionOverride, emo, sizeof(speechEmotionOverride) - 1); else speechEmotionOverride[0] = '\0';
+                    if (isSpeaking) speechTimeoutTimer = 0.0f;
+                }
+                fclose(sf);
+            }
+        }
+        speechTimeoutTimer += dt;
+        if (speechTimeoutTimer > 0.35f) {
+            isSpeaking = 0;
+        }
+
+        // Apply speech / viseme target to mouth with edge case handling
+        MouthParams mouthTarget = state.current.mouth;
+        if (isSpeaking && !state.enableGUI) {
+            // If an emotion override was provided, switch base face preset
+            if (speechEmotionOverride[0] != '\0') {
+                for (size_t i = 0; i < db.entries.size(); i++) {
+                    if (db.entries[i].name == speechEmotionOverride) {
+                        idleCycleIndex = (int)i;
+                        state.current = db.entries[i].state;
+                        idleGazeBaseLookX = state.current.eyes.lookX;
+                        idleGazeBaseLookY = state.current.eyes.lookY;
+                        break;
+                    }
+                }
+                speechEmotionOverride[0] = '\0';
+            }
+            // Lock idle expression cycler while actively speaking
+            idleCycleTimer = 0.0f;
+
+            MouthParams vM = visemeDb.Get(currentViseme, state.current.mouth);
+
+            // Handle edge cases: text-emoticon mouths, diagonal slash mouths, rotated mouths, or hidden inner mouth
+            bool isSpecialMouth = state.current.mouth.isDShape || 
+                                  state.current.mouth.isSlashShape || 
+                                  fabsf(state.current.mouth.mouthAngle) > 20.0f ||
+                                  !state.current.mouth.showInnerMouth;
+
+            mouthTarget = vM;
+            mouthTarget.lookX = state.current.mouth.lookX;
+            mouthTarget.lookY = state.current.mouth.lookY;
+
+            if (isSpecialMouth) {
+                mouthTarget.isDShape = false;
+                mouthTarget.isSlashShape = false;
+                mouthTarget.mouthAngle = 0.0f;
+            }
+
+            // Handle kissy face ("3" shape): open mouth during voiced phonemes
+            if (state.current.mouth.isThreeShape) {
+                if (strcmp(currentViseme, "mouth_phoneme_X") != 0 && strcmp(currentViseme, "mouth_phoneme_J") != 0) {
+                    mouthTarget.isThreeShape = false;
+                } else {
+                    mouthTarget.isThreeShape = true;
+                }
+            }
+        }
+
+        // -------------------------------------------------
         // LOGIC
         // -------------------------------------------------
         engine.usePhysics = state.usePhysics;
         engine.debugBoxes = state.debugBoxes;
         
         // Push state to engine
-        engine.Update(dt, state.current.eyes, state.current.mouth);
+        engine.Update(dt, state.current.eyes, mouthTarget);
         state.moodPhysics.Update(dt);
         // -------------------------------------------------
         // DRAWING
@@ -354,7 +503,29 @@ int main() {
 
         // 2. Procedural Face Layer (Midground)
         // Note: Engine draws internally to a texture then presents it
-        if(state.showFace) engine.Draw(center, mouthPos, state.current.eyes, state.current.mouth, BLACK);
+        // Exaggeration: a brief overshoot-then-settle "pop" whenever a new
+        // expression appears (idleCycleTimer resets to 0 exactly on a preset
+        // change), instead of every new pose landing with the same flat
+        // weight. Decays over POP_DURATION back down to a 1.0x no-op.
+        float facePunch = 1.0f;
+        if (!state.enableGUI) {
+            const float POP_DURATION = 0.35f;
+            float popT = std::min(idleCycleTimer / POP_DURATION, 1.0f);
+            facePunch = 1.0f + (1.0f - popT) * (1.0f - popT) * 0.12f;
+        }
+        // Idle sway: a pure translation (not rotation) so eyes/mouth/brows
+        // move together by the exact same amount regardless of distance from
+        // any pivot. X and Y use deliberately decorrelated periods/phase so
+        // the drift doesn't trace a perfect circle, which would read as
+        // mechanical rather than alive.
+        float swayX = 0.0f, swayY = 0.0f;
+        if (!state.enableGUI) {
+            swayX = sinf((float)GetTime() * 0.25f) * 6.0f;
+            swayY = sinf((float)GetTime() * 0.4f + 1.0f) * 3.0f;
+        }
+        // Panel is physically mounted upside down; compensated via the X11
+        // display transform (xorg.conf metamodes rotation=180).
+        if(state.showFace) engine.Draw(center, mouthPos, state.current.eyes, state.current.mouth, BLACK, state.enableGUI ? 0.0f : 0.035f, facePunch, swayX, swayY);
 
         // 3. UI Layer (Foreground)
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
@@ -384,10 +555,13 @@ int main() {
         //                  (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
         // };
 
-        // 2. LOGIC: AI vs Manual
-        if (state.useAI) {
+        // 2. LOGIC: AI vs Manual (only while the debug GUI/Cognitive Core
+        // panel is actually open -- in kiosk mode the idle cycler below
+        // owns state.current instead, see its comment for why).
+        if (state.enableGUI && state.useAI) {
             // Decay Novelty by 50% every second
            state.moodPhysics.current.novelty = Lerp(state.moodPhysics.current.novelty, 0.0f, dt * 0.5f);
+
             // A. Solve the Manifold
             //FaceState targetState = brain.SolveDual(state.currentMood);
             FaceState targetState = brain.Solve(state.moodPhysics.current);
@@ -400,49 +574,130 @@ int main() {
             state.current = targetState;
         }
 
-        GuiGroupBox({screenW - 270, 300, 250, 220}, "COGNITIVE CORE");
-        
-        GuiCheckBox({screenW - 260, 320, 20, 20}, "ACTIVATE AI BRAIN", &state.useAI);
-        if (state.useAI) {
-            float y = 350;
-            
-            
-            // --- GHOST SLIDERS (Visualizes the Physics Lag) ---
-            auto DrawGhostSlider = [&](const char* label, float* target, float current, float yPos) {
-                GuiLabel({screenW - 260, yPos, 80, 20}, label);
-                
-                // Draw BLUE BAR (Where the face IS) behind the slider
-                float normalized = (current + 1.0f) * 0.5f; 
-                if (std::string(label) != "Valence") normalized = current;
-                DrawRectangle(screenW - 180, yPos + 5, (int)(140 * normalized), 10, Fade(BLUE, 0.4f));
-
-                // Draw SLIDER (Where you WANT it to be)
-                GuiSliderBar({screenW - 180, yPos, 140, 20}, NULL, NULL, target, 
-                             (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
-            };
-
-            DrawGhostSlider("Valence", &state.moodPhysics.target.valence, state.moodPhysics.current.valence, y); y+=25;
-            DrawGhostSlider("Arousal", &state.moodPhysics.target.arousal, state.moodPhysics.current.arousal, y); y+=25;
-            DrawGhostSlider("Control", &state.moodPhysics.target.control, state.moodPhysics.current.control, y); y+=25;
-            
-            // Surprise Decay Visualizer
-            GuiLabel({screenW - 260, y, 80, 20}, "Novelty");
-            float novPhys = state.moodPhysics.current.novelty;
-            DrawRectangle((int)screenW - 180.0f, y + 5.0f, (int)(140 * novPhys), 10, Fade(RED, 0.7f)); 
-            // Also allow manual trigger
-            if (GuiButton({screenW - 60, y, 20, 20}, "!")) state.moodPhysics.target.novelty = 1.0f;
-            y += 25;
-
-            DrawGhostSlider("Obstruct", &state.moodPhysics.target.obstruct, state.moodPhysics.current.obstruct, y);
-            y+=25;
-            // --- TEXT INPUT BOX ---
-            if (GuiTextBox({screenW - 260, y, 240, 30}, textInput, 256, textEditMode)) {
-                textEditMode = !textEditMode;
+        // --- IDLE CYCLE (kiosk mode only, i.e. GUI hidden) ---
+        if (!state.enableGUI && !db.entries.empty()) {
+            idleCycleTimer += dt;
+            if (idleCycleTimer > idleCycleInterval) {
+                idleCycleTimer = 0.0f;
+                idleCycleInterval = (float)GetRandomValue(40, 90) / 10.0f;
+                idleCycleIndex = (idleCycleIndex + 1) % (int)db.entries.size();
+                state.current = db.entries[idleCycleIndex].state;
+                idleGazeBaseLookX = state.current.eyes.lookX;
+                idleGazeBaseLookY = state.current.eyes.lookY;
             }
-            // If user presses ENTER, analyze the text
-            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
-                AnalyzeText(textInput, state);
-                textEditMode = false; // Unfocus
+        }
+
+        // Motion tracking: poll the tracker's output file (see comment up top)
+        // at ~12Hz -- no point reading it every engine frame when the tracker
+        // itself only updates a few times a second.
+        trackPollTimer += dt;
+        if (trackPollTimer > 0.08f) {
+            trackPollTimer = 0.0f;
+            FILE* mf = fopen(MOTION_FILE, "r");
+            if (mf) {
+                int found = 0; float mx = 0.0f, my = 0.0f;
+                if (fscanf(mf, "%d %f %f", &found, &mx, &my) == 3 && found) {
+                    // Map the tracker's -1..1 camera-space centroid onto the
+                    // same lookX/lookY range the idle wander already used.
+                    // X is negated: BMO is facing the viewer, so when the
+                    // viewer moves to their own right, they appear toward
+                    // the LEFT side of the camera's frame (camera looks back
+                    // at them) -- without the flip, the eyes moved the
+                    // opposite way from the viewer's real motion.
+                    trackTargetLookX = -mx * 60.0f;
+                    trackTargetLookY = my * 35.0f;
+                    trackLastSeenTimer = 0.0f;
+                }
+                fclose(mf);
+            }
+        }
+        trackLastSeenTimer += dt;
+        // "Recently tracked" window: hold the last known position briefly
+        // rather than snapping back to idle wander the instant a frame or
+        // two comes back with no motion (camera noise, brief stillness).
+        bool isTracking = (trackLastSeenTimer < 1.5f);
+
+        // Idle gaze: eyes occasionally glance to a new spot, layered on top
+        // of whatever look direction the current expression already has.
+        // sLookX/sLookY (spring-smoothed in UpdateEyesPhysics) glide toward it.
+        // Assigned fresh from the stable base every frame -- NOT accumulated
+        // (a previous += version compounded every single frame between
+        // preset changes, flinging the look offset thousands of units
+        // off-screen within a few seconds and making the eyes vanish).
+        if (!state.enableGUI && isTracking) {
+            // A real person is being tracked -- eyes lock onto them directly
+            // instead of blending with the idle wander/preset base look.
+            state.current.eyes.lookX = trackTargetLookX;
+            state.current.eyes.lookY = trackTargetLookY;
+        } else if (!state.enableGUI) {
+            idleGazeTimer += dt;
+            if (idleGazeTimer > idleGazeInterval) {
+                idleGazeTimer = 0.0f;
+                idleGazeInterval = (float)GetRandomValue(30, 60) / 10.0f;
+                idleGazeX = (float)GetRandomValue(-100, 100) / 100.0f * 40.0f;
+                idleGazeY = (float)GetRandomValue(-100, 100) / 100.0f * 25.0f;
+            }
+            // Arc: real eye movement doesn't travel in a straight line between
+            // two points, it lifts slightly along the way. idleGazeTimer
+            // resets to 0 exactly when a new target is picked (above), so use
+            // it as transition progress: a sine hump that's 0 at both ends
+            // and peaks mid-transition, only active for the brief travel
+            // window (GAZE_ARC_DURATION) and gone well before the next dwell.
+            const float GAZE_ARC_DURATION = 0.5f;
+            float arcT = std::min(idleGazeTimer / GAZE_ARC_DURATION, 1.0f);
+            float arcLift = sinf(arcT * PI) * 15.0f;
+            state.current.eyes.lookX = idleGazeBaseLookX + idleGazeX;
+            state.current.eyes.lookY = idleGazeBaseLookY + idleGazeY - arcLift;
+        }
+
+        // Cognitive Core panel (AI brain debug view) is now tucked behind the
+        // same "Enable GUI" toggle as the rest of the debug UI, instead of
+        // always showing on top of the face.
+        if (state.enableGUI) {
+            GuiGroupBox({screenW - 270, 300, 250, 220}, "COGNITIVE CORE");
+
+            GuiCheckBox({screenW - 260, 320, 20, 20}, "ACTIVATE AI BRAIN", &state.useAI);
+            if (state.useAI) {
+                float y = 350;
+
+
+                // --- GHOST SLIDERS (Visualizes the Physics Lag) ---
+                auto DrawGhostSlider = [&](const char* label, float* target, float current, float yPos) {
+                    GuiLabel({screenW - 260, yPos, 80, 20}, label);
+
+                    // Draw BLUE BAR (Where the face IS) behind the slider
+                    float normalized = (current + 1.0f) * 0.5f;
+                    if (std::string(label) != "Valence") normalized = current;
+                    DrawRectangle(screenW - 180, yPos + 5, (int)(140 * normalized), 10, Fade(BLUE, 0.4f));
+
+                    // Draw SLIDER (Where you WANT it to be)
+                    GuiSliderBar({screenW - 180, yPos, 140, 20}, NULL, NULL, target,
+                                 (std::string(label) == "Valence") ? -1.0f : 0.0f, 1.0f);
+                };
+
+                DrawGhostSlider("Valence", &state.moodPhysics.target.valence, state.moodPhysics.current.valence, y); y+=25;
+                DrawGhostSlider("Arousal", &state.moodPhysics.target.arousal, state.moodPhysics.current.arousal, y); y+=25;
+                DrawGhostSlider("Control", &state.moodPhysics.target.control, state.moodPhysics.current.control, y); y+=25;
+
+                // Surprise Decay Visualizer
+                GuiLabel({screenW - 260, y, 80, 20}, "Novelty");
+                float novPhys = state.moodPhysics.current.novelty;
+                DrawRectangle((int)screenW - 180.0f, y + 5.0f, (int)(140 * novPhys), 10, Fade(RED, 0.7f));
+                // Also allow manual trigger
+                if (GuiButton({screenW - 60, y, 20, 20}, "!")) state.moodPhysics.target.novelty = 1.0f;
+                y += 25;
+
+                DrawGhostSlider("Obstruct", &state.moodPhysics.target.obstruct, state.moodPhysics.current.obstruct, y);
+                y+=25;
+                // --- TEXT INPUT BOX ---
+                if (GuiTextBox({screenW - 260, y, 240, 30}, textInput, 256, textEditMode)) {
+                    textEditMode = !textEditMode;
+                }
+                // If user presses ENTER, analyze the text
+                if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+                    AnalyzeText(textInput, state);
+                    textEditMode = false; // Unfocus
+                }
             }
         }
 

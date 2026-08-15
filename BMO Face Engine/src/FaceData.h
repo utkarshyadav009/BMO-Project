@@ -267,3 +267,106 @@ struct FaceDatabase {
         Load(filename);
     }
 };
+
+// --------------------------------------------------------
+// VISEME DATABASE (18-Float legacy and unified viseme loader)
+// --------------------------------------------------------
+struct VisemeDatabase {
+    std::unordered_map<std::string, MouthParams> visemes;
+
+    std::vector<float> ParseFloats(const std::string& line) {
+        std::vector<float> res;
+        std::string numStr;
+        for (char c : line) {
+            if (isdigit((unsigned char)c) || c == '.' || c == '-' || c == 'e') {
+                numStr += c;
+            } else {
+                if (!numStr.empty()) {
+                    char* end;
+                    float val = strtof(numStr.c_str(), &end);
+                    if (end != numStr.c_str()) res.push_back(val);
+                    numStr.clear();
+                }
+            }
+        }
+        if (!numStr.empty()) {
+            char* end;
+            float val = strtof(numStr.c_str(), &end);
+            if (end != numStr.c_str()) res.push_back(val);
+        }
+        return res;
+    }
+
+    inline void Load(const char* filename) {
+        visemes.clear();
+        std::ifstream in(filename);
+        if (!in.is_open()) {
+            std::cout << "[VisemeDatabase] Warning: Could not open " << filename << std::endl;
+            return;
+        }
+
+        std::string line;
+        while (std::getline(in, line)) {
+            // Check for entry start: visemes["name"] = { ... }
+            size_t namePos = line.find("visemes[\"");
+            if (namePos != std::string::npos) {
+                size_t endPos = line.find("\"]");
+                if (endPos != std::string::npos) {
+                    std::string name = line.substr(namePos + 9, endPos - (namePos + 9));
+                    std::vector<float> v = ParseFloats(line);
+                    
+                    if (v.size() >= 14) {
+                        MouthParams mp;
+                        int idx = 0;
+                        if (v.size() > idx) mp.open = v[idx++];
+                        if (v.size() > idx) mp.width = v[idx++];
+                        if (v.size() > idx) mp.curve = v[idx++];
+                        mp.mouthAngle = 0.0f; // Default for visemes
+                        if (v.size() > idx) mp.squeezeTop = v[idx++];
+                        if (v.size() > idx) mp.squeezeBottom = v[idx++];
+                        if (v.size() > idx) mp.teethY = v[idx++];
+                        if (v.size() > idx) mp.tongueUp = v[idx++];
+                        if (v.size() > idx) mp.tongueX = v[idx++];
+                        if (v.size() > idx) mp.tongueWidth = v[idx++];
+                        if (v.size() > idx) mp.asymmetry = v[idx++];
+                        if (v.size() > idx) mp.squareness = v[idx++];
+                        if (v.size() > idx) mp.teethWidth = v[idx++];
+                        if (v.size() > idx) mp.teethGap = v[idx++];
+                        if (v.size() > idx) mp.scale = v[idx++];
+                        if (v.size() > idx) mp.outlineThickness = v[idx++];
+                        if (v.size() > idx) mp.sigma = v[idx++];
+                        if (v.size() > idx) mp.power = v[idx++];
+                        if (v.size() > idx) mp.maxLiftValue = v[idx++];
+                        mp.lookX = 0.0f;
+                        mp.lookY = 0.0f;
+                        mp.stressLines = 0.0f;
+                        mp.showInnerMouth = true;
+                        mp.isThreeShape = false;
+                        mp.isDShape = false;
+                        mp.isSlashShape = false;
+                        visemes[name] = mp;
+                    }
+                }
+            }
+        }
+        std::cout << "[VisemeDatabase] Loaded " << visemes.size() << " phoneme visemes from " << filename << std::endl;
+    }
+
+    MouthParams Get(const std::string& name, const MouthParams& fallback) const {
+        auto it = visemes.find(name);
+        if (it != visemes.end()) return it->second;
+
+        // If prefix omitted, e.g. "A" -> "mouth_phoneme_A"
+        if (name.rfind("mouth_phoneme_", 0) != 0) {
+            auto it2 = visemes.find("mouth_phoneme_" + name);
+            if (it2 != visemes.end()) return it2->second;
+        }
+
+        // Standard rest fallback
+        auto itX = visemes.find("mouth_phoneme_X");
+        if (itX != visemes.end()) return itX->second;
+
+        return fallback;
+    }
+};
+

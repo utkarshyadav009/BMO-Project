@@ -14,8 +14,8 @@ project(raygui-populate NONE)
 include(ExternalProject)
 ExternalProject_Add(raygui-populate
                      "UPDATE_DISCONNECTED" "False" "URL" "https://github.com/raysan5/raygui/archive/refs/tags/4.0.tar.gz"
-                    SOURCE_DIR          "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-src"
-                    BINARY_DIR          "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-build"
+                    SOURCE_DIR          "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raygui-src"
+                    BINARY_DIR          "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raygui-build"
                     CONFIGURE_COMMAND   ""
                     BUILD_COMMAND       ""
                     INSTALL_COMMAND     ""

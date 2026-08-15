@@ -1,7 +1,7 @@
 # Make file names absolute:
 #
-get_filename_component(filename "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/json-subbuild/json-populate-prefix/src/json.tar.xz" ABSOLUTE)
-get_filename_component(directory "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/json-src" ABSOLUTE)
+get_filename_component(filename "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/json-subbuild/json-populate-prefix/src/json.tar.xz" ABSOLUTE)
+get_filename_component(directory "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/json-src" ABSOLUTE)
 
 message(STATUS "extracting...
      src='${filename}'

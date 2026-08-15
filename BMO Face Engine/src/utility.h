@@ -13,6 +13,10 @@ const float REF_HEIGHT = 1080.0f;
 struct Scaler {
     float scale = 1.0f;
 
+    // Bumps the contain-fit scale up a bit so the face fills small kiosk
+    // displays better instead of sitting in the middle of its letterbox margin.
+    static constexpr float FILL_BOOST = 1.5f;
+
     // Call this at the start of every frame
     void Update() {
         float screenW = (float)GetScreenWidth();
@@ -23,7 +27,7 @@ struct Scaler {
 
         // "Contain" mode: Use the smaller ratio.
         // This ensures the face fits entirely on screen, even on portrait phones.
-        scale = std::min(ratioX, ratioY);
+        scale = std::min(ratioX, ratioY) * FILL_BOOST;
     }
 
     // Convert Reference Value -> Screen Value

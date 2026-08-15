@@ -9,9 +9,18 @@ include(FetchContent)
 # -----------------------------------------------------------------------------
 # 1. PLATFORM CONFIGURATION
 # -----------------------------------------------------------------------------
+# BMO_PLATFORM_DRM=ON builds against raylib's native KMS/DRM backend instead
+# of X11/GLFW -- no Xorg, no window manager, renders straight to the display
+# plane. Use a separate build dir, e.g.:
+#   cmake -S . -B build_drm -DBMO_PLATFORM_DRM=ON && cmake --build build_drm
+option(BMO_PLATFORM_DRM "Build for bare KMS/DRM (no X11/Xorg)" OFF)
+
 if(EMSCRIPTEN)
     set(PLATFORM "Web" CACHE STRING "Raylib Platform" FORCE)
     set(GRAPHICS "GRAPHICS_API_OPENGL_ES3" CACHE STRING "Raylib Graphics" FORCE)
+elseif(BMO_PLATFORM_DRM)
+    set(PLATFORM "DRM" CACHE STRING "Raylib Platform" FORCE)
+    set(GRAPHICS "GRAPHICS_API_OPENGL_ES2" CACHE STRING "Raylib Graphics" FORCE)
 else()
     set(PLATFORM "Desktop" CACHE STRING "Raylib Platform" FORCE)
     set(GRAPHICS "GRAPHICS_API_OPENGL_ES2" CACHE STRING "Raylib Graphics" FORCE)
@@ -20,6 +29,17 @@ endif()
 # 2. Fetch Dependencies
 FetchContent_Declare(raylib URL https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz)
 FetchContent_MakeAvailable(raylib)
+
+if(BMO_PLATFORM_DRM)
+    # raylib's DRM backend guesses the graphics card path with a Raspberry-Pi
+    # -oriented fallback chain (by-path/platform-gpu-card, then card1, then
+    # card0 last) that picks the wrong device on this board. Verified via
+    # `udevadm info`: /dev/dri/card0 is driven by generic "drm" on the
+    # 13e00000.host1x path (a non-display host1x node, not our screen);
+    # /dev/dri/card1 is driven by "nv_platform" on 13800000.display -- the
+    # real Tegra display GPU with our DP-1/HDMI connector. Force it directly.
+    target_compile_definitions(raylib PRIVATE DEFAULT_GRAPHIC_DEVICE_DRM="/dev/dri/card1")
+endif()
 
 
 
@@ -51,6 +71,10 @@ endif()
 if(EMSCRIPTEN)
     # WEB BUILD: No X11 or Pthreads allowed here
     target_link_libraries(BMO_Engine PRIVATE raylib nlohmann_json::nlohmann_json)
+elseif(BMO_PLATFORM_DRM)
+    # DRM BUILD: No X11 -- raylib itself already links GLESv2/EGL/drm/gbm
+    # (see LibraryConfigurations.cmake) for PLATFORM=DRM.
+    target_link_libraries(BMO_Engine PRIVATE raylib nlohmann_json::nlohmann_json m pthread dl rt)
 else()
     # DESKTOP BUILD: Needs Linux system libraries
     target_link_libraries(BMO_Engine PRIVATE raylib nlohmann_json::nlohmann_json m pthread dl rt X11)
@@ -75,6 +99,8 @@ if(NOT EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/src/brow_es.fs" "$<TARGET_FILE_DIR:BMO_Engine>/brow_es.fs"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/src/tears_es.fs" "$<TARGET_FILE_DIR:BMO_Engine>/tears_es.fs"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/src/pixelizer_es.fs" "$<TARGET_FILE_DIR:BMO_Engine>/pixelizer_es.fs"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/face_database.txt" "$<TARGET_FILE_DIR:BMO_Engine>/face_database.txt"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/visemes_database.txt" "$<TARGET_FILE_DIR:BMO_Engine>/visemes_database.txt"
     )
 endif()
 

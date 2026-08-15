@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = "/home/bmo/BMO-Project/BMO Face Engine"
+CMAKE_SOURCE_DIR = "/home/bmo/bmo_production/face_engine/BMO Face Engine"
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = "/home/bmo/BMO-Project/BMO Face Engine/build"
+CMAKE_BINARY_DIR = "/home/bmo/bmo_production/face_engine/BMO Face Engine/build"
 
 # Include any dependencies generated for this target.
 include _deps/raylib-build/raylib/CMakeFiles/raylib.dir/depend.make
@@ -72,100 +72,100 @@ include _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o: _deps/raylib-src/src/raudio.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o -MF CMakeFiles/raylib.dir/raudio.c.o.d -o CMakeFiles/raylib.dir/raudio.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/raudio.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o -MF CMakeFiles/raylib.dir/raudio.c.o.d -o CMakeFiles/raylib.dir/raudio.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/raudio.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/raudio.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/raudio.c" > CMakeFiles/raylib.dir/raudio.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/raudio.c" > CMakeFiles/raylib.dir/raudio.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/raudio.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/raudio.c" -o CMakeFiles/raylib.dir/raudio.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/raudio.c" -o CMakeFiles/raylib.dir/raudio.c.s
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o: _deps/raylib-src/src/rcore.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o -MF CMakeFiles/raylib.dir/rcore.c.o.d -o CMakeFiles/raylib.dir/rcore.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rcore.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o -MF CMakeFiles/raylib.dir/rcore.c.o.d -o CMakeFiles/raylib.dir/rcore.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rcore.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/rcore.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rcore.c" > CMakeFiles/raylib.dir/rcore.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rcore.c" > CMakeFiles/raylib.dir/rcore.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/rcore.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rcore.c" -o CMakeFiles/raylib.dir/rcore.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rcore.c" -o CMakeFiles/raylib.dir/rcore.c.s
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o: _deps/raylib-src/src/rmodels.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_3) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o -MF CMakeFiles/raylib.dir/rmodels.c.o.d -o CMakeFiles/raylib.dir/rmodels.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rmodels.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_3) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.o -MF CMakeFiles/raylib.dir/rmodels.c.o.d -o CMakeFiles/raylib.dir/rmodels.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rmodels.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/rmodels.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rmodels.c" > CMakeFiles/raylib.dir/rmodels.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rmodels.c" > CMakeFiles/raylib.dir/rmodels.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rmodels.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/rmodels.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rmodels.c" -o CMakeFiles/raylib.dir/rmodels.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rmodels.c" -o CMakeFiles/raylib.dir/rmodels.c.s
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o: _deps/raylib-src/src/rshapes.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_4) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o -MF CMakeFiles/raylib.dir/rshapes.c.o.d -o CMakeFiles/raylib.dir/rshapes.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rshapes.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_4) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.o -MF CMakeFiles/raylib.dir/rshapes.c.o.d -o CMakeFiles/raylib.dir/rshapes.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rshapes.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/rshapes.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rshapes.c" > CMakeFiles/raylib.dir/rshapes.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rshapes.c" > CMakeFiles/raylib.dir/rshapes.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rshapes.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/rshapes.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rshapes.c" -o CMakeFiles/raylib.dir/rshapes.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rshapes.c" -o CMakeFiles/raylib.dir/rshapes.c.s
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o: _deps/raylib-src/src/rtext.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_5) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o -MF CMakeFiles/raylib.dir/rtext.c.o.d -o CMakeFiles/raylib.dir/rtext.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rtext.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_5) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.o -MF CMakeFiles/raylib.dir/rtext.c.o.d -o CMakeFiles/raylib.dir/rtext.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rtext.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/rtext.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rtext.c" > CMakeFiles/raylib.dir/rtext.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rtext.c" > CMakeFiles/raylib.dir/rtext.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtext.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/rtext.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rtext.c" -o CMakeFiles/raylib.dir/rtext.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rtext.c" -o CMakeFiles/raylib.dir/rtext.c.s
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o: _deps/raylib-src/src/rtextures.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_6) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o -MF CMakeFiles/raylib.dir/rtextures.c.o.d -o CMakeFiles/raylib.dir/rtextures.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rtextures.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_6) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.o -MF CMakeFiles/raylib.dir/rtextures.c.o.d -o CMakeFiles/raylib.dir/rtextures.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rtextures.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/rtextures.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rtextures.c" > CMakeFiles/raylib.dir/rtextures.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rtextures.c" > CMakeFiles/raylib.dir/rtextures.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rtextures.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/rtextures.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/rtextures.c" -o CMakeFiles/raylib.dir/rtextures.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/rtextures.c" -o CMakeFiles/raylib.dir/rtextures.c.s
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/flags.make
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o: _deps/raylib-src/src/utils.c
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_7) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o -MF CMakeFiles/raylib.dir/utils.c.o.d -o CMakeFiles/raylib.dir/utils.c.o -c "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/utils.c"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_7) "Building C object _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.o -MF CMakeFiles/raylib.dir/utils.c.o.d -o CMakeFiles/raylib.dir/utils.c.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/utils.c"
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/raylib.dir/utils.c.i"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/utils.c" > CMakeFiles/raylib.dir/utils.c.i
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/utils.c" > CMakeFiles/raylib.dir/utils.c.i
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/utils.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/raylib.dir/utils.c.s"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/utils.c" -o CMakeFiles/raylib.dir/utils.c.s
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && /usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/utils.c" -o CMakeFiles/raylib.dir/utils.c.s
 
 # Object files for target raylib
 raylib_OBJECTS = \
@@ -179,29 +179,29 @@ raylib_OBJECTS = \
 
 # External object files for target raylib
 raylib_EXTERNAL_OBJECTS = \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/context.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/init.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/input.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/monitor.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/platform.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/vulkan.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/window.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/egl_context.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/osmesa_context.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_init.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_monitor.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_window.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_joystick.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_module.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_time.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_thread.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/x11_init.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/x11_monitor.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/x11_window.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/xkb_unicode.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/glx_context.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/linux_joystick.c.o" \
-"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_poll.c.o"
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/context.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/init.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/input.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/monitor.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/platform.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/vulkan.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/window.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/egl_context.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/osmesa_context.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_init.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_monitor.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_window.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/null_joystick.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_module.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_time.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_thread.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/x11_init.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/x11_monitor.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/x11_window.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/xkb_unicode.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/glx_context.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/linux_joystick.c.o" \
+"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_poll.c.o"
 
 _deps/raylib-build/raylib/libraylib.a: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/raudio.c.o
 _deps/raylib-build/raylib/libraylib.a: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/rcore.c.o
@@ -235,19 +235,19 @@ _deps/raylib-build/raylib/libraylib.a: _deps/raylib-build/raylib/external/glfw/s
 _deps/raylib-build/raylib/libraylib.a: _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/posix_poll.c.o
 _deps/raylib-build/raylib/libraylib.a: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build.make
 _deps/raylib-build/raylib/libraylib.a: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_8) "Linking C static library libraylib.a"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && $(CMAKE_COMMAND) -P CMakeFiles/raylib.dir/cmake_clean_target.cmake
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/raylib.dir/link.txt --verbose=$(VERBOSE)
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_8) "Linking C static library libraylib.a"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && $(CMAKE_COMMAND) -P CMakeFiles/raylib.dir/cmake_clean_target.cmake
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/raylib.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build: _deps/raylib-build/raylib/libraylib.a
 .PHONY : _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/clean:
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" && $(CMAKE_COMMAND) -P CMakeFiles/raylib.dir/cmake_clean.cmake
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" && $(CMAKE_COMMAND) -P CMakeFiles/raylib.dir/cmake_clean.cmake
 .PHONY : _deps/raylib-build/raylib/CMakeFiles/raylib.dir/clean
 
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/depend:
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build" && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" "/home/bmo/BMO-Project/BMO Face Engine" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src" "/home/bmo/BMO-Project/BMO Face Engine/build" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/CMakeFiles/raylib.dir/DependInfo.cmake" --color=$(COLOR)
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" "/home/bmo/bmo_production/face_engine/BMO Face Engine" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/CMakeFiles/raylib.dir/DependInfo.cmake" --color=$(COLOR)
 .PHONY : _deps/raylib-build/raylib/CMakeFiles/raylib.dir/depend
 

@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = "/home/bmo/BMO-Project/BMO Face Engine"
+CMAKE_SOURCE_DIR = "/home/bmo/bmo_production/face_engine/BMO Face Engine"
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = "/home/bmo/BMO-Project/BMO Face Engine/build"
+CMAKE_BINARY_DIR = "/home/bmo/bmo_production/face_engine/BMO Face Engine/build"
 
 # Include any dependencies generated for this target.
 include CMakeFiles/BMO_Engine.dir/depend.make
@@ -72,16 +72,16 @@ include CMakeFiles/BMO_Engine.dir/flags.make
 CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o: CMakeFiles/BMO_Engine.dir/flags.make
 CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o: ../src/SFacePoserFinal.cpp
 CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o: CMakeFiles/BMO_Engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o -MF CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o.d -o CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o -c "/home/bmo/BMO-Project/BMO Face Engine/src/SFacePoserFinal.cpp"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o -MF CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o.d -o CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.o -c "/home/bmo/bmo_production/face_engine/BMO Face Engine/src/SFacePoserFinal.cpp"
 
 CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "/home/bmo/BMO-Project/BMO Face Engine/src/SFacePoserFinal.cpp" > CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "/home/bmo/bmo_production/face_engine/BMO Face Engine/src/SFacePoserFinal.cpp" > CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.i
 
 CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "/home/bmo/BMO-Project/BMO Face Engine/src/SFacePoserFinal.cpp" -o CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "/home/bmo/bmo_production/face_engine/BMO Face Engine/src/SFacePoserFinal.cpp" -o CMakeFiles/BMO_Engine.dir/src/SFacePoserFinal.cpp.s
 
 # Object files for target BMO_Engine
 BMO_Engine_OBJECTS = \
@@ -99,13 +99,15 @@ BMO_Engine: /usr/lib/aarch64-linux-gnu/libGLU.so
 BMO_Engine: /usr/lib/aarch64-linux-gnu/librt.a
 BMO_Engine: /usr/lib/aarch64-linux-gnu/libm.so
 BMO_Engine: CMakeFiles/BMO_Engine.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable BMO_Engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable BMO_Engine"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/BMO_Engine.dir/link.txt --verbose=$(VERBOSE)
-	/usr/bin/cmake -E copy_if_different /home/bmo/BMO-Project/BMO\ Face\ Engine/src/mouth_es.fs /home/bmo/BMO-Project/BMO\ Face\ Engine/build/mouth_es.fs
-	/usr/bin/cmake -E copy_if_different /home/bmo/BMO-Project/BMO\ Face\ Engine/src/eyes_es.fs /home/bmo/BMO-Project/BMO\ Face\ Engine/build/eyes_es.fs
-	/usr/bin/cmake -E copy_if_different /home/bmo/BMO-Project/BMO\ Face\ Engine/src/brow_es.fs /home/bmo/BMO-Project/BMO\ Face\ Engine/build/brow_es.fs
-	/usr/bin/cmake -E copy_if_different /home/bmo/BMO-Project/BMO\ Face\ Engine/src/tears_es.fs /home/bmo/BMO-Project/BMO\ Face\ Engine/build/tears_es.fs
-	/usr/bin/cmake -E copy_if_different /home/bmo/BMO-Project/BMO\ Face\ Engine/src/pixelizer_es.fs /home/bmo/BMO-Project/BMO\ Face\ Engine/build/pixelizer_es.fs
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/src/mouth_es.fs /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/mouth_es.fs
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/src/eyes_es.fs /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/eyes_es.fs
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/src/brow_es.fs /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/brow_es.fs
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/src/tears_es.fs /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/tears_es.fs
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/src/pixelizer_es.fs /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/pixelizer_es.fs
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/face_database.txt /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/face_database.txt
+	/usr/bin/cmake -E copy_if_different /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/visemes_database.txt /home/bmo/bmo_production/face_engine/BMO\ Face\ Engine/build/visemes_database.txt
 
 # Rule to build all files generated by this target.
 CMakeFiles/BMO_Engine.dir/build: BMO_Engine
@@ -116,6 +118,6 @@ CMakeFiles/BMO_Engine.dir/clean:
 .PHONY : CMakeFiles/BMO_Engine.dir/clean
 
 CMakeFiles/BMO_Engine.dir/depend:
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build" && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" "/home/bmo/BMO-Project/BMO Face Engine" "/home/bmo/BMO-Project/BMO Face Engine" "/home/bmo/BMO-Project/BMO Face Engine/build" "/home/bmo/BMO-Project/BMO Face Engine/build" "/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles/BMO_Engine.dir/DependInfo.cmake" --color=$(COLOR)
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" "/home/bmo/bmo_production/face_engine/BMO Face Engine" "/home/bmo/bmo_production/face_engine/BMO Face Engine" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles/BMO_Engine.dir/DependInfo.cmake" --color=$(COLOR)
 .PHONY : CMakeFiles/BMO_Engine.dir/depend
 

@@ -1,4 +1,4 @@
-# Install script for directory: /home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src
+# Install script for directory: /home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -44,7 +44,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/cmake_install.cmake")
+  include("/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/cmake_install.cmake")
 
 endif()
 

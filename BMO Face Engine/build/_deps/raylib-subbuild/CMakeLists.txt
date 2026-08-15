@@ -14,8 +14,8 @@ project(raylib-populate NONE)
 include(ExternalProject)
 ExternalProject_Add(raylib-populate
                      "UPDATE_DISCONNECTED" "False" "URL" "https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz"
-                    SOURCE_DIR          "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src"
-                    BINARY_DIR          "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build"
+                    SOURCE_DIR          "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src"
+                    BINARY_DIR          "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build"
                     CONFIGURE_COMMAND   ""
                     BUILD_COMMAND       ""
                     INSTALL_COMMAND     ""

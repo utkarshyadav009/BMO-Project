@@ -1,8 +1,8 @@
-if(NOT EXISTS "/home/bmo/BMO-Project/BMO Face Engine/build/install_manifest.txt")
-  message(FATAL_ERROR "Cannot find install manifest: /home/bmo/BMO-Project/BMO Face Engine/build/install_manifest.txt")
+if(NOT EXISTS "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/install_manifest.txt")
+  message(FATAL_ERROR "Cannot find install manifest: /home/bmo/bmo_production/face_engine/BMO Face Engine/build/install_manifest.txt")
 endif()
 
-file(READ "/home/bmo/BMO-Project/BMO Face Engine/build/install_manifest.txt" files)
+file(READ "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/install_manifest.txt" files)
 string(REGEX REPLACE "\n" ";" files "${files}")
 foreach(file ${files})
   message(STATUS "Uninstalling $ENV{DESTDIR}${file}")

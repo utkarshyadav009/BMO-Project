@@ -196,6 +196,8 @@ namespace Config {
     // Animation & Physics (Eyes)
     const float BLINK_MIN_DELAY = 2.0f;
     const float BLINK_MAX_DELAY = 5.0f;
+    const float BLINK_ANTICIPATE_DURATION = 0.05f; // quick widen before closing
+    const float BLINK_ANTICIPATE_SCALE = 1.15f;
     const float BLINK_HOLD_DURATION = 0.10f;
     const float BLINK_CLOSE_THRESHOLD = 0.2f;
     const float BLINK_OPEN_THRESHOLD = 0.9f;
@@ -429,8 +431,19 @@ struct FaceSystem {
     }
 
     void UpdateEyesPhysics(float dt, const EyeParams& p) {
-        // Blink Logic
-        bool canBlink = (p.eyeShapeID < 0.5f || p.eyeShapeID > 3.5f);
+        // Clamp dt like UpdateMouthPhysics does: the spring integrator below is
+        // explicit Euler, which blows up (and gets stuck at a degenerate/NaN
+        // scale, i.e. invisible eyes) after any large frame-time spike, e.g. a
+        // display waking from DPMS blanking.
+        dt = (dt > 0.05f) ? 0.05f : dt;
+
+        // Blink Logic. Only the plain circular eyes (shape 0) blink -- the
+        // decorative/expression shapes (stars, hearts, spiral, chevron
+        // "><"-style, kawaii, shocked, teary, "::") are drawn poses, not a
+        // face with eyelids, so blinking them never reads as a blink, just
+        // a glitch.
+        // Phases: 0=Open, 1=Anticipate (quick widen), 2=Closing, 3=Closed, 4=Opening
+        bool canBlink = (p.eyeShapeID < 0.5f);
         if (canBlink) {
             blinkTimer += dt;
             if (blinkTimer > nextBlinkTime && blinkPhase == 0) {
@@ -440,27 +453,41 @@ struct FaceSystem {
         } else { blinkPhase = 0; }
 
         switch (blinkPhase) {
-            case 1: // Closing
+            case 1: // Anticipate: a quick, tiny widen before closing gives the
+                     // blink some punch instead of just snapping shut cold.
+                sScaleY.target = p.scaleY * Config::BLINK_ANTICIPATE_SCALE;
+                if (blinkTimer > Config::BLINK_ANTICIPATE_DURATION) { blinkPhase = 2; blinkTimer = 0.0f; }
+                break;
+            case 2: // Closing
                 sScaleY.target = 0.0f;
-                if (sScaleY.val < Config::BLINK_CLOSE_THRESHOLD) { blinkPhase = 2; blinkTimer = 0.0f; }
+                if (sScaleY.val < Config::BLINK_CLOSE_THRESHOLD) { blinkPhase = 3; blinkTimer = 0.0f; }
                 break;
-            case 2: // Closed
-                sScaleY.val = 1.0f; sScaleY.target = 1.0f; 
-                if (blinkTimer > Config::BLINK_HOLD_DURATION) { blinkPhase = 3; sScaleY.val = 0.0f; }
+            case 3: // Closed
+                sScaleY.val = 1.0f; sScaleY.target = 1.0f;
+                if (blinkTimer > Config::BLINK_HOLD_DURATION) { blinkPhase = 4; sScaleY.val = 0.0f; }
                 break;
-            case 3: // Opening
+            case 4: // Opening
                 sScaleY.target = p.scaleY;
                 if (sScaleY.val > p.scaleY * Config::BLINK_OPEN_THRESHOLD) { blinkPhase = 0; }
                 break;
         }
 
-        // Breathing
-        if (blinkPhase == 0) {
+        // Star (4), Heart (5) and Shuriken/4-point-star (8) eyes don't blink
+        // (see canBlink above) -- they pulse instead, like a heartbeat/twinkle,
+        // so they still read as alive rather than sitting frozen.
+        bool isPulseShape = (p.eyeShapeID > 3.5f && p.eyeShapeID < 5.5f) || (p.eyeShapeID > 7.5f && p.eyeShapeID < 8.5f);
+        if (isPulseShape) {
+            float pulse = 1.0f + sinf((float)GetTime() * 3.0f) * 0.15f; // ~2s period, +/-15%
+            sScaleY.target = p.scaleY * pulse;
+            sScaleX.target = p.scaleX * pulse;
+        }
+        // Breathing (subtle, everything else)
+        else if (blinkPhase == 0) {
              float breath = (p.scaleY > 0.8f) ? sinf((float)GetTime() * 2.0f) * 0.02f : 0.0f;
              sScaleY.target = p.scaleY + breath;
              sScaleX.target = p.scaleX - breath;
         }
-        
+
         sLookX.target = p.lookX; sLookY.target = p.lookY;
         sScaleX.Update(dt); sScaleY.Update(dt); sLookX.Update(dt); sLookY.Update(dt);
     }
@@ -630,7 +657,18 @@ struct FaceSystem {
     // ----------------------------------------------------
     // DRAWING
     // ----------------------------------------------------
-    void Draw(Vector2 eyeCenter, Vector2 mouthCenter, EyeParams eP, MouthParams mP,Color eyeColor) {
+    // breathAmount: 0 = off. Otherwise the whole composited face (eyes,
+    // mouth, brows -- everything drawn into canvas together) gently grows
+    // and shrinks as one unit, like a chest/diaphragm rising and falling.
+    // punch: exaggeration multiplier, 1.0 = no effect. Caller decays this
+    // from something >1 down to 1.0 right after a new expression appears,
+    // for a brief overshoot-then-settle "pop" instead of a flat cut/glide.
+    // swayX/swayY: idle drift in pixels, a pure translation (not rotation --
+    // see the caller's comment for why) so eyes/mouth/brows move together by
+    // the exact same amount regardless of distance from any pivot.
+    // All applied at the final blit so they can't touch internal eye/mouth
+    // spacing math, and never affect the GUI (drawn separately).
+    void Draw(Vector2 eyeCenter, Vector2 mouthCenter, EyeParams eP, MouthParams mP, Color eyeColor, float breathAmount = 0.0f, float punch = 1.0f, float swayX = 0.0f, float swayY = 0.0f) {
         // Resize Canvas if screen changes
         if (canvas.texture.width != GetScreenWidth() || canvas.texture.height != GetScreenHeight()) {
             UnloadRenderTexture(canvas);
@@ -673,6 +711,19 @@ struct FaceSystem {
 
             Rectangle src = { 0, 0, (float)canvas.texture.width, -(float)canvas.texture.height };
             Rectangle dest = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+            float breathe = (breathAmount > 0.0f) ? (1.0f + sinf((float)GetTime() * 1.2f) * breathAmount) : 1.0f;
+            float compositeScale = breathe * punch;
+            if (compositeScale != 1.0f) {
+                // Scaled around the dest rect's own center so it grows/
+                // shrinks in place rather than drifting toward a corner.
+                float newW = dest.width * compositeScale;
+                float newH = dest.height * compositeScale;
+                dest.x -= (newW - dest.width) * 0.5f;
+                dest.y -= (newH - dest.height) * 0.5f;
+                dest.width = newW; dest.height = newH;
+            }
+            dest.x += swayX;
+            dest.y += swayY;
             DrawTexturePro(canvas.texture, src, dest, {0,0}, 0.0f, WHITE);
         EndShaderMode();
     }
@@ -738,10 +789,18 @@ struct FaceSystem {
         BeginShaderMode(shEye.shader);
         SetCommonUniforms(shEye.shader, shEye.locs.resolution, shEye.locs.time, shEye.locs.color, {0,0,originalRes.x, originalRes.y}, color);
         
-        float scaledThick = GlobalScaler.S(p.eyeThickness);
-        float finalShape = (blinkPhase == 2) ? 1.0f : p.eyeShapeID;
+        // Closed-eye blink shape: matches the "face_happy_closed_eyes" preset
+        // (shape 2 = ARC, bend -1.22222, thickness 2.77222) instead of a flat
+        // line, so blinks render as a "U". Only for plain dot eyes (id<0.5) --
+        // canBlink already restricts blinkPhase to those, this is a defensive
+        // second check since decorative shapes forced into this same U-arc
+        // would lose their own highlight/color-mix effects and flicker.
+        bool isClosedBlink = (blinkPhase == 3) && (p.eyeShapeID < 0.5f); // phase 3 = Closed, see UpdateEyesPhysics
+        float finalShape = isClosedBlink ? 2.0f : p.eyeShapeID;
+        float finalBend = isClosedBlink ? -1.22222f : p.bend;
+        float scaledThick = GlobalScaler.S(isClosedBlink ? 2.77222f : p.eyeThickness);
         SetShaderValue(shEye.shader, shEye.locs.shape, &finalShape, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(shEye.shader, shEye.locs.bend, &p.bend, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(shEye.shader, shEye.locs.bend, &finalBend, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.thickness, &scaledThick, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.side, &p.eyeSide, SHADER_UNIFORM_FLOAT);
         SetShaderValue(shEye.shader, shEye.locs.spiral, &p.spiralSpeed, SHADER_UNIFORM_FLOAT);

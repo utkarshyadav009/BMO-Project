@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = -DGRAPHICS_API_OPENGL_ES2 -DPLATFORM_DESKTOP
 
-CXX_INCLUDES = -I"/home/bmo/BMO-Project/BMO Face Engine" -I"/home/bmo/BMO-Project/BMO Face Engine/src" -I"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-src/src" -I"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src" -I"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/include" -I"/home/bmo/BMO-Project/BMO Face Engine/build/_deps/json-src/include"
+CXX_INCLUDES = -I"/home/bmo/bmo_production/face_engine/BMO Face Engine" -I"/home/bmo/bmo_production/face_engine/BMO Face Engine/src" -I"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raygui-src/src" -I"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src" -I"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/include" -I"/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/json-src/include"
 
 CXX_FLAGS = -Wno-enum-compare
 

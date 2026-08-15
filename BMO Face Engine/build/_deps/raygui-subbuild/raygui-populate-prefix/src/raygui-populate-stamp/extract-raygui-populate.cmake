@@ -1,7 +1,7 @@
 # Make file names absolute:
 #
-get_filename_component(filename "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz" ABSOLUTE)
-get_filename_component(directory "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raygui-src" ABSOLUTE)
+get_filename_component(filename "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raygui-subbuild/raygui-populate-prefix/src/4.0.tar.gz" ABSOLUTE)
+get_filename_component(directory "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raygui-src" ABSOLUTE)
 
 message(STATUS "extracting...
      src='${filename}'

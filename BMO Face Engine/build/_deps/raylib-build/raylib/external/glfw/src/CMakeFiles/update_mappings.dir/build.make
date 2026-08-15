@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = "/home/bmo/BMO-Project/BMO Face Engine"
+CMAKE_SOURCE_DIR = "/home/bmo/bmo_production/face_engine/BMO Face Engine"
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = "/home/bmo/BMO-Project/BMO Face Engine/build"
+CMAKE_BINARY_DIR = "/home/bmo/bmo_production/face_engine/BMO Face Engine/build"
 
 # Utility rule file for update_mappings.
 
@@ -67,8 +67,8 @@ include _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.d
 include _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/progress.make
 
 _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir="/home/bmo/BMO-Project/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Updating gamepad mappings from upstream repository"
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src" && /usr/bin/cmake -P "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/CMake/GenerateMappings.cmake" mappings.h.in mappings.h
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir="/home/bmo/bmo_production/face_engine/BMO Face Engine/build/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Updating gamepad mappings from upstream repository"
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src" && /usr/bin/cmake -P "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/CMake/GenerateMappings.cmake" mappings.h.in mappings.h
 
 update_mappings: _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings
 update_mappings: _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build.make
@@ -79,10 +79,10 @@ _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 .PHONY : _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
 
 _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/clean:
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src" && $(CMAKE_COMMAND) -P CMakeFiles/update_mappings.dir/cmake_clean.cmake
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src" && $(CMAKE_COMMAND) -P CMakeFiles/update_mappings.dir/cmake_clean.cmake
 .PHONY : _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/clean
 
 _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/depend:
-	cd "/home/bmo/BMO-Project/BMO Face Engine/build" && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" "/home/bmo/BMO-Project/BMO Face Engine" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src" "/home/bmo/BMO-Project/BMO Face Engine/build" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src" "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/DependInfo.cmake" --color=$(COLOR)
+	cd "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" "/home/bmo/bmo_production/face_engine/BMO Face Engine" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src/src/external/glfw/src" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src" "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/DependInfo.cmake" --color=$(COLOR)
 .PHONY : _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/depend
 

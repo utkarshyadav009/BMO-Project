@@ -1,7 +1,7 @@
 # Make file names absolute:
 #
-get_filename_component(filename "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/5.5.tar.gz" ABSOLUTE)
-get_filename_component(directory "/home/bmo/BMO-Project/BMO Face Engine/build/_deps/raylib-src" ABSOLUTE)
+get_filename_component(filename "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-subbuild/raylib-populate-prefix/src/5.5.tar.gz" ABSOLUTE)
+get_filename_component(directory "/home/bmo/bmo_production/face_engine/BMO Face Engine/build/_deps/raylib-src" ABSOLUTE)
 
 message(STATUS "extracting...
      src='${filename}'
